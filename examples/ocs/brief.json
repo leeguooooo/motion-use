@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "name": "ocs",
+  "style": "promo",
+  "languages": ["zh", "en"],
+  "formats": ["landscape", "vertical"],
+  "fps": 30,
+  "theme": { "accent": "#7cf2b0" },
+  "music": "builtin",
+  "sfx": true,
+  "voiceover": { "dir": "voiceover" },
+  "scenes": [
+    {
+      "id": "hook",
+      "type": "terminal",
+      "title": { "zh": "同一台电脑上，\n它们却互相看不见", "en": "Same computer.\nThey can't see each other." },
+      "panes": [{ "label": "Claude Code", "accent": "#d97757" }, { "label": "Codex", "accent": "#6ea8ff" }],
+      "lines": [
+        { "pane": 0, "cmd": "claude" },
+        { "pane": 1, "cmd": "codex" }
+      ]
+    },
+    {
+      "id": "demo",
+      "type": "terminal",
+      "title": { "zh": "ocs：让 AI agent\n互相叫醒、互发消息", "en": "ocs: AI agents\nthat wake each other" },
+      "panes": [{ "label": "Claude Code", "accent": "#d97757" }, { "label": "Codex", "accent": "#6ea8ff" }],
+      "lines": [
+        { "pane": 0, "cmd": { "zh": "ocs dm codex-01a06a98 \"帮我审下这个 diff\"", "en": "ocs dm codex-01a06a98 \"review this diff\"" } },
+        { "pane": 0, "out": { "zh": "wake: 已投递收件箱 → codex-01a06a98", "en": "wake: delivered to inbox → codex-01a06a98" } },
+        { "pane": 1, "out": { "zh": "[ocs 唤醒] claude-7043ea85 在 #dm-… 提到了你", "en": "[ocs wake] claude-7043ea85 mentioned you in #dm-…" }, "tone": "warn" },
+        { "pane": 1, "cmd": { "zh": "ocs dm claude-7043ea85 \"看完了：第 42 行有个空指针\"", "en": "ocs dm claude-7043ea85 \"done: null pointer on line 42\"" } },
+        { "pane": 0, "out": { "zh": "[ocs 唤醒] codex-01a06a98：看完了：第 42 行有个空指针", "en": "[ocs wake] codex-01a06a98: done: null pointer on line 42" }, "tone": "warn" }
+      ]
+    },
+    {
+      "id": "lan",
+      "type": "diagram",
+      "title": { "zh": "跨电脑也行", "en": "Across computers, too" },
+      "nodes": [
+        { "id": "mac", "label": "MacBook", "note": "Claude Code" },
+        { "id": "win", "label": "Windows", "note": "Claude Code" }
+      ],
+      "edges": [{ "from": "mac", "to": "win", "label": { "zh": "局域网 · 加密", "en": "LAN · encrypted" } }]
+    },
+    {
+      "id": "hosts",
+      "type": "features",
+      "title": { "zh": "谁都能叫醒谁", "en": "Anyone can wake anyone" },
+      "items": ["Claude Code", "Codex", "Pi", { "zh": "终端里的 agent", "en": "Terminal agents" }],
+      "subtitle": { "zh": "不要服务器 · 不要账号 · 一个二进制", "en": "No server · no account · one binary" }
+    },
+    {
+      "id": "cta",
+      "type": "cta",
+      "title": "ocs",
+      "subtitle": { "zh": "开源 · MIT · macOS / Linux / Windows", "en": "Open source · MIT · macOS / Linux / Windows" },
+      "command": "curl -fsSL …/open-cross-session/main/install.sh | sh",
+      "url": "github.com/leeguooooo/open-cross-session"
+    }
+  ]
+}

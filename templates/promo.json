@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "name": "my-tool-promo",
+  "style": "promo",
+  "languages": ["zh", "en"],
+  "formats": ["landscape", "vertical"],
+  "fps": 30,
+  "theme": { "accent": "#7cf2b0" },
+  "music": "builtin",
+  "sfx": true,
+  "voiceover": { "dir": "voiceover" },
+  "scenes": [
+    {
+      "id": "hook",
+      "type": "title",
+      "title": { "zh": "每天重复同一件事，\n真的很烦", "en": "Doing the same chore\nevery day is tiring" },
+      "subtitle": { "zh": "一句话说清用户的痛点", "en": "One line on the pain your users feel" }
+    },
+    {
+      "id": "demo",
+      "type": "terminal",
+      "title": { "zh": "my-tool：一行命令搞定", "en": "my-tool: one command" },
+      "panes": [{ "label": "Terminal" }],
+      "lines": [
+        { "cmd": "my-tool run --fast" },
+        { "out": { "zh": "✓ 完成：处理了 128 个文件", "en": "✓ done: 128 files processed" } },
+        { "out": { "zh": "用时 0.8 秒", "en": "took 0.8s" }, "tone": "dim" }
+      ]
+    },
+    {
+      "id": "features",
+      "type": "features",
+      "title": { "zh": "为什么选它", "en": "Why it works" },
+      "items": [
+        { "zh": "零配置", "en": "Zero config" },
+        { "zh": "本地运行", "en": "Runs locally" },
+        { "zh": "开源免费", "en": "Free and open source" }
+      ]
+    },
+    {
+      "id": "cta",
+      "type": "cta",
+      "title": "my-tool",
+      "subtitle": { "zh": "现在就试试", "en": "Try it now" },
+      "command": "curl -fsSL https://example.com/install.sh | sh",
+      "url": "github.com/you/my-tool"
+    }
+  ]
+}

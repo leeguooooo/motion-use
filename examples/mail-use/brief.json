@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "name": "mail-use-promo",
+  "style": "promo",
+  "languages": ["zh", "en"],
+  "formats": ["landscape", "vertical"],
+  "fps": 30,
+  "theme": { "accent": "#ffb454" },
+  "music": "builtin",
+  "sfx": true,
+  "voiceover": { "dir": "voiceover" },
+  "scenes": [
+    {
+      "id": "hook",
+      "type": "title",
+      "title": { "zh": "Gmail、QQ、163、Outlook，\n验证码到底在哪个邮箱？", "en": "Gmail, QQ, 163, Outlook.\nWhich inbox has the code?" },
+      "subtitle": { "zh": "让 AI 替你翻邮箱", "en": "Let your AI check them all" }
+    },
+    {
+      "id": "code",
+      "type": "terminal",
+      "title": { "zh": "最新验证码，一条命令", "en": "The newest code, one command" },
+      "panes": [{ "label": "Terminal" }],
+      "lines": [
+        { "cmd": "mail-use code --since 10m" },
+        { "out": { "zh": "扫描所有账户里最近的邮件…", "en": "scanning recent mail in every account…" }, "tone": "dim" }
+      ]
+    },
+    {
+      "id": "features",
+      "type": "features",
+      "title": { "zh": "一个 CLI 管所有邮箱", "en": "One CLI for every mailbox" },
+      "items": [
+        { "zh": "读 · 搜 · 发 · 回复", "en": "Read · search · send · reply" },
+        { "zh": "任何 IMAP/SMTP", "en": "Any IMAP/SMTP" },
+        { "zh": "MCP 服务", "en": "MCP server" },
+        { "zh": "整理收件箱", "en": "Inbox cleanup" }
+      ]
+    },
+    {
+      "id": "cta",
+      "type": "cta",
+      "title": "mail-use",
+      "subtitle": { "zh": "邮箱交给 AI agent", "en": "Email for AI agents" },
+      "command": "curl -fsSL https://raw.githubusercontent.com/leeguooooo/mail-use/main/install.sh | sh",
+      "url": "github.com/leeguooooo/mail-use"
+    }
+  ]
+}

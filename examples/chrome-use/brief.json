@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "name": "chrome-use-explainer",
+  "style": "explainer",
+  "languages": ["zh", "en"],
+  "formats": ["landscape", "vertical"],
+  "fps": 30,
+  "theme": { "accent": "#2f6fec" },
+  "music": "builtin",
+  "sfx": true,
+  "voiceover": { "dir": "voiceover" },
+  "scenes": [
+    {
+      "id": "intro",
+      "type": "title",
+      "title": { "zh": "chrome-use 是怎么\n帮 AI 用浏览器的？", "en": "How does chrome-use\nlet an AI use your browser?" },
+      "subtitle": { "zh": "用的就是你已经登录的那个 Chrome", "en": "It drives the Chrome you are already logged into" }
+    },
+    {
+      "id": "flow",
+      "type": "diagram",
+      "title": { "zh": "谁在跟谁说话", "en": "Who talks to whom" },
+      "nodes": [
+        { "id": "agent", "label": { "zh": "AI agent", "en": "AI agent" }, "note": "Claude Code · Codex" },
+        { "id": "cli", "label": "chrome-use", "note": { "zh": "命令行", "en": "CLI" } },
+        { "id": "chrome", "label": { "zh": "你的 Chrome", "en": "Your Chrome" }, "note": { "zh": "已登录", "en": "logged in" } }
+      ],
+      "edges": [
+        { "from": "agent", "to": "cli", "label": { "zh": "命令", "en": "commands" } },
+        { "from": "cli", "to": "chrome", "label": { "zh": "操作", "en": "actions" } }
+      ]
+    },
+    {
+      "id": "refs",
+      "type": "image",
+      "title": { "zh": "页面元素变成短编号", "en": "Page elements become short refs" },
+      "image": "images/browser.svg",
+      "caption": { "zh": "snapshot 给每个可操作的元素一个 @e 编号，AI 按编号点击和填写", "en": "snapshot labels every control with an @e ref; the AI clicks and fills by ref" }
+    },
+    {
+      "id": "loop",
+      "type": "steps",
+      "title": { "zh": "一次操作的三步", "en": "One action, three steps" },
+      "steps": [
+        { "title": { "zh": "打开页面", "en": "Open the page" }, "body": "chrome-use open <url>" },
+        { "title": { "zh": "读出可操作元素", "en": "List what can be used" }, "body": "chrome-use snapshot -i" },
+        { "title": { "zh": "操作并观察结果", "en": "Act and observe" }, "body": "chrome-use click @e3 --observe" }
+      ]
+    },
+    {
+      "id": "try",
+      "type": "terminal",
+      "title": { "zh": "读一个网页，只要一行", "en": "Reading a page is one line" },
+      "panes": [{ "label": "Terminal" }],
+      "lines": [
+        { "cmd": "chrome-use read https://example.com" },
+        { "out": "# Example Domain", "tone": "ok" },
+        { "out": { "zh": "（正文转成 agent 好读的文本）", "en": "(page text, ready for the agent)" }, "tone": "dim" }
+      ]
+    },
+    {
+      "id": "outro",
+      "type": "cta",
+      "title": "chrome-use",
+      "subtitle": { "zh": "开源 · 浏览器自动化 CLI", "en": "Open source browser automation CLI" },
+      "command": "curl -fsSL https://raw.githubusercontent.com/leeguooooo/chrome-use/main/install.sh | sh",
+      "url": "github.com/leeguooooo/chrome-use"
+    }
+  ]
+}

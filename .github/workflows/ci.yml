@@ -1,0 +1,59 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      MOTION_USE_NO_UPDATE_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: ffmpeg
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then sudo apt-get update -q && sudo apt-get install -y -q ffmpeg; else brew install ffmpeg; fi
+      - run: npm ci --ignore-scripts
+      - run: npm run lint
+      - run: npm test
+      - run: node scripts/licenses.mjs > /dev/null
+      - run: node bin/motion-use.mjs doctor --install-browser
+      # A real render on every platform: fonts, ffmpeg and Chrome differ between them.
+      - name: render smoke test
+        run: |
+          node bin/motion-use.mjs validate examples/mail-use/brief.json
+          node bin/motion-use.mjs still examples/chrome-use/brief.json --lang zh --format vertical
+          node bin/motion-use.mjs render examples/mail-use/brief.json --lang zh --format vertical --quality draft --json > render.json
+          cat render.json
+          f=$(node -p 'require("./render.json").outputs[0].file')
+          ffprobe -v error -show_entries stream=codec_type,width,height,r_frame_rate -of compact "$f"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-${{ matrix.os }}
+          path: |
+            examples/*/out/*.mp4
+            examples/*/out/stills/*-sheet.png
+          if-no-files-found: ignore
+  installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/package-release.mjs
+      - name: clean install from the packaged archive
+        run: |
+          export MOTION_USE_HOME="$RUNNER_TEMP/mu-home" MOTION_USE_BIN_DIR="$RUNNER_TEMP/mu-bin" MOTION_USE_SKILL=0
+          MOTION_USE_ARCHIVE="$(ls dist/motion-use-v*.tar.gz)" sh install.sh
+          "$RUNNER_TEMP/mu-bin/motion-use" --version
+          "$RUNNER_TEMP/mu-bin/motion-use" validate examples/ocs/brief.json

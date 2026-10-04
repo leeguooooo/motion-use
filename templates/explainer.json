@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "name": "how-it-works",
+  "style": "explainer",
+  "languages": ["zh", "en"],
+  "formats": ["landscape", "vertical"],
+  "fps": 30,
+  "theme": { "accent": "#2f6fec" },
+  "music": "builtin",
+  "sfx": true,
+  "voiceover": { "dir": "voiceover" },
+  "scenes": [
+    {
+      "id": "intro",
+      "type": "title",
+      "title": { "zh": "它是怎么工作的？", "en": "How does it work?" },
+      "subtitle": { "zh": "三分钟看懂核心流程", "en": "The core flow, in three minutes" }
+    },
+    {
+      "id": "flow",
+      "type": "diagram",
+      "title": { "zh": "数据怎么流动", "en": "How data flows" },
+      "nodes": [
+        { "id": "input", "label": { "zh": "输入", "en": "Input" }, "note": { "zh": "你的文件", "en": "your files" } },
+        { "id": "engine", "label": { "zh": "处理引擎", "en": "Engine" } },
+        { "id": "output", "label": { "zh": "结果", "en": "Result" } }
+      ],
+      "edges": [
+        { "from": "input", "to": "engine", "label": { "zh": "读取", "en": "read" } },
+        { "from": "engine", "to": "output", "label": { "zh": "生成", "en": "write" } }
+      ]
+    },
+    {
+      "id": "steps",
+      "type": "steps",
+      "title": { "zh": "三步上手", "en": "Three steps" },
+      "steps": [
+        { "title": { "zh": "安装", "en": "Install" }, "body": { "zh": "一行命令装好", "en": "One command" } },
+        { "title": { "zh": "配置", "en": "Configure" }, "body": { "zh": "选择要处理的目录", "en": "Pick a folder" } },
+        { "title": { "zh": "运行", "en": "Run" }, "body": { "zh": "结果写回原处", "en": "Results land next to the input" } }
+      ]
+    },
+    {
+      "id": "outro",
+      "type": "cta",
+      "title": "my-tool",
+      "subtitle": { "zh": "文档和源码都在这里", "en": "Docs and source" },
+      "url": "github.com/you/my-tool"
+    }
+  ]
+}

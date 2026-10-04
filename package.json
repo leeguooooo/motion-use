@@ -1,0 +1,36 @@
+{
+  "name": "motion-use",
+  "version": "0.1.0",
+  "description": "Turn a structured brief into reproducible promo and explainer videos (zh/en, landscape/vertical, voiceover-timed). Built on HyperFrames.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "motion-use": "bin/motion-use.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "bin",
+    "src",
+    "assets",
+    "templates",
+    "examples",
+    "references",
+    "SKILL.md",
+    "LICENSE",
+    "ASSETS.md",
+    "docs",
+    "scripts"
+  ],
+  "scripts": {
+    "test": "node --test test/",
+    "lint": "node --check bin/motion-use.mjs && node scripts/check-syntax.mjs"
+  },
+  "dependencies": {
+    "harfbuzzjs": "1.6.2",
+    "hyperframes": "0.8.123",
+    "subset-font": "2.9.0"
+  }
+}
