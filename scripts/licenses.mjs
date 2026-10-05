@@ -9,8 +9,9 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ALLOW = new Set(["MIT", "Apache-2.0", "ISC", "BSD-2-Clause", "BSD-3-Clause", "0BSD", "CC0-1.0", "Python-2.0", "BlueOak-1.0.0", "(MIT AND Zlib)"]);
-// Reviewed exceptions: a dynamically linked prebuilt binary that sharp (via hyperframes) downloads per platform.
-const REVIEWED = { "@img/sharp-libvips-": "LGPL-3.0-or-later" };
+// Reviewed exceptions: libvips, which sharp (a hyperframes dependency) ships either as a dynamically
+// linked prebuilt binary per platform, or bundled into its WebAssembly build where no native one fits.
+const REVIEWED = { "@img/sharp-libvips-": "LGPL-3.0-or-later", "@img/sharp-wasm32": "Apache-2.0 AND LGPL-3.0-or-later AND MIT" };
 
 const lock = JSON.parse(fs.readFileSync(path.join(root, "package-lock.json"), "utf8"));
 const rows = [];

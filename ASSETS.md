@@ -30,7 +30,7 @@ Each build folder (`out/.build/…`) contains WOFF2 subsets cut from the fonts a
 | [subset-font](https://github.com/papandreou/subset-font) 2.9.0 | BSD-3-Clause | Font subsetting |
 | [harfbuzzjs](https://github.com/harfbuzz/harfbuzzjs) 1.6.2 | MIT | Font coverage check |
 
-Their dependencies (82 packages in total) are MIT, Apache-2.0, ISC, BSD, 0BSD, CC0, Python-2.0 or MIT AND Zlib, with one exception: `@img/sharp-libvips-<platform>` is **LGPL-3.0-or-later**. It is a prebuilt, dynamically linked libvips binary that sharp (a HyperFrames dependency) downloads per platform. `node scripts/licenses.mjs` prints the full list and fails CI on any license outside the reviewed set.
+Their dependencies (82 packages in total) are MIT, Apache-2.0, ISC, BSD, 0BSD, CC0, Python-2.0 or MIT AND Zlib, with one exception, libvips (**LGPL-3.0-or-later**), which sharp (a HyperFrames dependency) brings in one of two forms: `@img/sharp-libvips-<platform>`, a prebuilt dynamically linked binary, or `@img/sharp-wasm32` (Apache-2.0 AND LGPL-3.0-or-later AND MIT), sharp's WebAssembly build with libvips inside, which npm installs on some systems (it did on the GitHub Actions runners). `node scripts/licenses.mjs` prints the full list and fails CI on any license outside the reviewed set.
 
 Rendering also uses programs motion-use does not install: **Node.js**, **FFmpeg** and **Chrome** (system Chrome, or Chrome for Testing downloaded by `motion-use doctor --install-browser`), each under its own license.
 
