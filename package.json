@@ -25,7 +25,7 @@
     "scripts"
   ],
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.mjs",
     "lint": "node --check bin/motion-use.mjs && node scripts/check-syntax.mjs"
   },
   "dependencies": {
