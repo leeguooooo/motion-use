@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "name": "my-tool-demo",
+  "style": "promo",
+  "languages": ["zh", "en"],
+  "formats": ["landscape", "vertical"],
+  "music": "builtin",
+  "voiceover": { "dir": "voiceover" },
+  "scenes": [
+    {
+      "id": "cover",
+      "type": "title",
+      "title": { "zh": "my-tool\n10 秒看懂", "en": "my-tool\nin 10 seconds" },
+      "subtitle": { "zh": "一句话卖点", "en": "One-line pitch" }
+    },
+    {
+      "id": "demo",
+      "type": "terminal",
+      "transition": "cut",
+      "lines": [{ "cmd": "my-tool do-the-thing" }, { "out": { "zh": "✓ 结果马上出来", "en": "✓ the result, right away" } }],
+      "narration": { "zh": "直接演示，不铺垫。最好换成真实录屏的 video 场景。", "en": "Straight to the demo. A real recording in a video scene is best." }
+    },
+    {
+      "id": "number",
+      "type": "stat",
+      "transition": "zoom",
+      "value": "10x",
+      "label": { "zh": "换成真实的数据", "en": "Put a real number here" },
+      "note": { "zh": "数据要有出处", "en": "Only numbers you can back up" }
+    },
+    {
+      "id": "cta",
+      "type": "cta",
+      "title": "my-tool",
+      "command": "curl -fsSL https://example.com/install.sh | sh",
+      "url": "github.com/you/my-tool"
+    }
+  ]
+}

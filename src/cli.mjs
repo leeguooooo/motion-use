@@ -18,7 +18,8 @@ const HELP = `motion-use ${VERSION} — reproducible promo and explainer videos 
 
 Usage: motion-use <command> [options]
 
-  init [dir]          Write a starter brief.json (--style promo|explainer, --name, --lang zh,en, --format landscape,vertical)
+  init [dir]          Write a starter brief.json (--story problem-solution|demo-first|before-after|walkthrough,
+                      --style promo|explainer, --name, --lang zh,en, --format landscape,vertical)
   validate [brief]    Check a brief: fields, files, voiceover lengths, characters the fonts cannot draw
   voiceover [brief]   Speak each scene's "narration" into voiceover/<lang>/<scene-id>.mp3 (--engine azure|edge)
   still [brief]       Render keyframes as PNGs plus a contact sheet (--at 1.5,4 for exact seconds)
@@ -57,6 +58,7 @@ export async function main(argv) {
       allowPositionals: true,
       options: {
         style: { type: "string" },
+        story: { type: "string" },
         name: { type: "string" },
         lang: { type: "string" },
         format: { type: "string" },
@@ -86,12 +88,17 @@ export async function main(argv) {
 
 const list = (s) => (s ? s.split(",").map((x) => x.trim()).filter(Boolean) : null);
 
+const STORIES = ["problem-solution", "demo-first", "before-after", "walkthrough"];
+
 async function init(o, [dir = "."]) {
-  const style = o.style ?? "promo";
-  if (!STYLES.includes(style)) return fail(`--style must be one of: ${STYLES.join(", ")}`);
+  if (o.story && !STORIES.includes(o.story)) return fail(`--story must be one of: ${STORIES.join(", ")} (see references/stories.md)`, o.json);
+  if (o.style && !STYLES.includes(o.style)) return fail(`--style must be one of: ${STYLES.join(", ")}`, o.json);
   const target = path.resolve(dir, "brief.json");
   if (fs.existsSync(target) && !o.force) return fail(`${target} already exists (use --force to overwrite)`, o.json);
-  const brief = JSON.parse(fs.readFileSync(path.join(ROOT, "templates", `${style}.json`), "utf8"));
+  const tpl = o.story ? path.join(ROOT, "templates", "stories", `${o.story}.json`) : path.join(ROOT, "templates", `${o.style ?? "promo"}.json`);
+  const brief = JSON.parse(fs.readFileSync(tpl, "utf8"));
+  if (o.style) brief.style = o.style;
+  const style = brief.style;
   if (o.name) brief.name = o.name;
   const langs = list(o.lang);
   if (langs) {
@@ -119,9 +126,9 @@ async function init(o, [dir = "."]) {
     if (!fs.existsSync(note)) fs.writeFileSync(note, `Optional narration for language "${l}": one audio file per scene, named after the scene id\n(${brief.scenes.map((s) => s.id + ".mp3").join(", ")}). .wav and .m4a work too.\nA scene grows longer when its narration needs more time. Scenes without a file stay silent.\n`);
   }
   const { errors } = validateBrief(brief, path.dirname(target));
-  if (o.json) console.log(JSON.stringify({ ok: errors.length === 0, brief: target, style, errors }, null, 2));
+  if (o.json) console.log(JSON.stringify({ ok: errors.length === 0, brief: target, style, story: o.story ?? null, errors }, null, 2));
   else {
-    console.log(`wrote ${target} (${style})`);
+    console.log(`wrote ${target} (${o.story ? `${o.story} story, ` : ""}${style})`);
     if (errors.length) console.log("fix these before rendering:\n" + errors.map((e) => `  ${e.path}: ${e.message}`).join("\n"));
     const shown = path.relative(process.cwd(), target);
     console.log(`next: edit it, then motion-use validate ${shown.startsWith("..") ? target : shown} && motion-use still ${shown.startsWith("..") ? target : shown}`);

@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "name": "my-tool-before-after",
+  "style": "promo",
+  "languages": ["zh", "en"],
+  "formats": ["landscape", "vertical"],
+  "music": "builtin",
+  "voiceover": { "dir": "voiceover" },
+  "scenes": [
+    {
+      "id": "cover",
+      "type": "title",
+      "title": { "zh": "同一件事，\n两种做法", "en": "Same job,\ntwo ways" },
+      "subtitle": "my-tool"
+    },
+    {
+      "id": "compare",
+      "type": "compare",
+      "transition": "slide",
+      "title": { "zh": "以前 vs 现在", "en": "Before vs after" },
+      "left": { "label": { "zh": "以前", "en": "Before" }, "points": [{ "zh": "手动步骤一", "en": "Manual step one" }, { "zh": "手动步骤二", "en": "Manual step two" }] },
+      "right": { "label": { "zh": "用 my-tool", "en": "With my-tool" }, "points": [{ "zh": "一条命令", "en": "One command" }] },
+      "narration": { "zh": "左边说清楚现在有多麻烦，右边说清楚换成什么。", "en": "Left: how painful it is today. Right: what it becomes." }
+    },
+    {
+      "id": "change",
+      "type": "code",
+      "transition": "wipe",
+      "title": { "zh": "改动只有一行", "en": "The change is one line" },
+      "file": "config.json",
+      "lines": ["{", { "del": "  \"manual\": true" }, { "add": "  \"tool\": \"my-tool\"" }, "}"]
+    },
+    {
+      "id": "number",
+      "type": "stat",
+      "value": "80%",
+      "label": { "zh": "换成真实的数据", "en": "Put a real number here" }
+    },
+    {
+      "id": "cta",
+      "type": "cta",
+      "title": "my-tool",
+      "url": "github.com/you/my-tool"
+    }
+  ]
+}

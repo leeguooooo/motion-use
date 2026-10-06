@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "name": "how-it-works",
+  "style": "explainer",
+  "languages": ["zh", "en"],
+  "formats": ["landscape", "vertical"],
+  "music": "builtin",
+  "voiceover": { "dir": "voiceover" },
+  "scenes": [
+    {
+      "id": "goal",
+      "type": "title",
+      "layout": "left",
+      "title": { "zh": "我们要做到的事", "en": "What we want to get done" },
+      "subtitle": { "zh": "一个具体的任务，从头讲到尾", "en": "One concrete task, start to finish" },
+      "narration": { "zh": "先说清楚这次要完成的具体任务。", "en": "Start with the one concrete task we will finish." }
+    },
+    {
+      "id": "parts",
+      "type": "diagram",
+      "title": { "zh": "参与的几部分", "en": "The parts involved" },
+      "nodes": [{ "id": "a", "label": { "zh": "输入", "en": "Input" } }, { "id": "b", "label": "my-tool" }, { "id": "c", "label": { "zh": "结果", "en": "Result" } }],
+      "edges": [{ "from": "a", "to": "b" }, { "from": "b", "to": "c" }]
+    },
+    {
+      "id": "steps",
+      "type": "steps",
+      "transition": "slide",
+      "title": { "zh": "一步一步", "en": "Step by step" },
+      "steps": [{ "title": { "zh": "第一步", "en": "Step one" }, "body": "my-tool init" }, { "title": { "zh": "第二步", "en": "Step two" }, "body": "my-tool run" }, { "title": { "zh": "第三步", "en": "Step three" }, "body": { "zh": "检查结果", "en": "Check the result" } }],
+      "narration": { "zh": "每一步一句话，说清楚做什么、为什么。", "en": "One line per step: what, and why." }
+    },
+    {
+      "id": "result",
+      "type": "terminal",
+      "title": { "zh": "最后得到", "en": "What you end up with" },
+      "lines": [{ "cmd": "my-tool run" }, { "out": { "zh": "✓ 完成", "en": "✓ done" } }]
+    },
+    {
+      "id": "next",
+      "type": "cta",
+      "title": "my-tool",
+      "subtitle": { "zh": "文档和源码", "en": "Docs and source" },
+      "url": "github.com/you/my-tool"
+    }
+  ]
+}

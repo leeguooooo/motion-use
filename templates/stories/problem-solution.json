@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "name": "my-tool-story",
+  "style": "promo",
+  "languages": ["zh", "en"],
+  "formats": ["landscape", "vertical"],
+  "music": "builtin",
+  "voiceover": { "dir": "voiceover" },
+  "scenes": [
+    {
+      "id": "pain",
+      "type": "kinetic",
+      "lines": [{ "zh": "又要手动做一遍？", "en": "Doing it by hand again?" }, { "zh": "又慢", "en": "Slow." }, { "zh": "又容易错", "en": "Error-prone." }],
+      "narration": { "zh": "用一句话说出用户最真实的烦恼。", "en": "Say the user's real frustration in one line." }
+    },
+    {
+      "id": "meet",
+      "type": "title",
+      "layout": "left",
+      "transition": "wipe",
+      "title": { "zh": "my-tool：一步搞定", "en": "my-tool does it in one step" },
+      "subtitle": { "zh": "一句话说清它是什么", "en": "What it is, in one line" },
+      "narration": { "zh": "介绍产品，只说它解决了上面的问题。", "en": "Introduce the product as the answer to that problem." }
+    },
+    {
+      "id": "demo",
+      "type": "terminal",
+      "transition": "slide",
+      "title": { "zh": "看它怎么做", "en": "Watch it work" },
+      "lines": [{ "cmd": "my-tool run" }, { "out": { "zh": "✓ 完成", "en": "✓ done" } }],
+      "narration": { "zh": "演示真实用法。有录屏就把这个场景换成 video。", "en": "Show real usage. If you have a recording, make this a video scene." }
+    },
+    {
+      "id": "proof",
+      "type": "features",
+      "layout": "grid",
+      "title": { "zh": "为什么是它", "en": "Why it works" },
+      "items": [{ "zh": "优点一", "en": "Strength one" }, { "zh": "优点二", "en": "Strength two" }, { "zh": "优点三", "en": "Strength three" }]
+    },
+    {
+      "id": "cta",
+      "type": "cta",
+      "transition": "zoom",
+      "title": "my-tool",
+      "subtitle": { "zh": "现在就试试", "en": "Try it now" },
+      "command": "curl -fsSL https://example.com/install.sh | sh",
+      "url": "github.com/you/my-tool"
+    }
+  ]
+}
