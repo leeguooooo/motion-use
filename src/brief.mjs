@@ -6,7 +6,10 @@ import path from "node:path";
 export const STYLES = ["promo", "explainer"];
 export const FORMATS = { landscape: [1920, 1080], vertical: [1080, 1920] };
 export const FPS_VALUES = [24, 25, 30, 60];
-export const SCENE_TYPES = ["title", "terminal", "steps", "diagram", "features", "image", "video", "cta"];
+export const SCENE_TYPES = ["title", "terminal", "steps", "diagram", "features", "image", "video", "stat", "compare", "kinetic", "code", "cta"];
+export const TRANSITIONS = ["fade", "slide", "wipe", "zoom", "cut"];
+// Layout variants per scene type (without one, each style picks its own default).
+export const LAYOUTS = { title: ["center", "left", "split"], features: ["pills", "grid", "list"] };
 const AUDIO_EXT = [".mp3", ".wav", ".m4a", ".aac", ".ogg"];
 const IMAGE_EXT = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"];
 const VIDEO_EXT = [".mp4", ".mov", ".webm", ".m4v"];
@@ -255,6 +258,12 @@ export function validateBrief(data, baseDir) {
         }
       }
       scene.narration = text(s.narration, `${p}.narration`, { required: false, max: 600 });
+      scene.transition = s.transition ?? "fade";
+      if (!TRANSITIONS.includes(scene.transition)) r.error(`${p}.transition`, `one of: ${TRANSITIONS.join(", ")} (how this scene comes in)`);
+      const layouts = Object.hasOwn(LAYOUTS, s.type) ? LAYOUTS[s.type] : null;
+      if (s.layout !== undefined && !layouts) r.error(`${p}.layout`, `${s.type} scenes have one layout; layouts exist for: ${Object.keys(LAYOUTS).join(", ")}`);
+      else if (s.layout !== undefined && !layouts.includes(s.layout)) r.error(`${p}.layout`, `one of: ${layouts.join(", ")}`);
+      scene.layout = layouts ? s.layout ?? null : undefined; // null: the style's default
       SCENE_FIELDS[s.type](s, scene, p, { r, text, file });
       scenes.push(scene);
     });
@@ -290,9 +299,55 @@ const arr = (v, p, r, min, max, what) => {
 };
 
 const SCENE_FIELDS = {
-  title(s, out, p, { text }) {
+  title(s, out, p, { r, text, file }) {
     out.title = text(s.title, `${p}.title`, { max: 120 });
     out.subtitle = text(s.subtitle, `${p}.subtitle`, { required: false, max: 160 });
+    if (s.image !== undefined) out.image = file(s.image, `${p}.image`, IMAGE_EXT, "image");
+    if (s.layout === "split" && s.image === undefined) r.error(`${p}.image`, 'the "split" layout shows an image next to the title; add one');
+  },
+  stat(s, out, p, { r, text }) {
+    out.title = text(s.title, `${p}.title`, { required: false, max: 120 });
+    out.value = text(s.value, `${p}.value`, { max: 16 });
+    out.label = text(s.label, `${p}.label`, { max: 80 });
+    out.note = text(s.note, `${p}.note`, { required: false, max: 160 });
+    if (s.count !== undefined && typeof s.count !== "boolean") r.error(`${p}.count`, "true counts the number up from 0 (default when the value contains an integer)");
+    out.count = s.count ?? true;
+  },
+  compare(s, out, p, { r, text, file }) {
+    out.title = text(s.title, `${p}.title`, { required: false, max: 120 });
+    for (const side of ["left", "right"]) {
+      const v = s[side];
+      const sp = `${p}.${side}`;
+      if (!isObj(v)) {
+        r.error(sp, '{"label": "Before", "points": ["…"]} (and/or "image")');
+        continue;
+      }
+      out[side] = {
+        label: text(v.label, `${sp}.label`, { max: 30 }),
+        points: (v.points === undefined ? [] : arr(v.points, `${sp}.points`, r, 1, 5, "points")).map((x, i) => text(x, `${sp}.points[${i}]`, { max: 60 })),
+        image: v.image === undefined ? undefined : file(v.image, `${sp}.image`, IMAGE_EXT, "image"),
+      };
+      if (v.points === undefined && v.image === undefined) r.error(sp, 'give "points", an "image", or both');
+    }
+    if (s.verdict !== undefined && !["left", "right", "none"].includes(s.verdict)) r.error(`${p}.verdict`, '"right" (default: the right side is the better one), "left" or "none"');
+    out.verdict = s.verdict ?? "right";
+  },
+  kinetic(s, out, p, { r, text }) {
+    out.lines = arr(s.lines, `${p}.lines`, r, 1, 6, "lines").map((x, i) => text(x, `${p}.lines[${i}]`, { max: 40 }));
+    out.beat = s.beat ?? 0.7;
+    if (!(Number.isFinite(out.beat) && out.beat >= 0.25 && out.beat <= 3)) r.error(`${p}.beat`, "seconds between lines, 0.25 to 3");
+  },
+  code(s, out, p, { r, text }) {
+    out.title = text(s.title, `${p}.title`, { required: false, max: 120 });
+    out.file = text(s.file, `${p}.file`, { required: false, max: 60 });
+    out.lines = arr(s.lines, `${p}.lines`, r, 1, 16, "lines").map((line, i) => {
+      const lp = `${p}.lines[${i}]`;
+      if (typeof line === "string") return { kind: "ctx", text: text(line, lp, { max: 120 }) };
+      if (!isObj(line)) return r.error(lp, 'a string, or {"add": "…"} / {"del": "…"}'), null;
+      const kinds = ["add", "del", "ctx"].filter((k) => line[k] !== undefined);
+      if (kinds.length !== 1) return r.error(lp, 'exactly one of "add", "del" or "ctx"'), null;
+      return { kind: kinds[0], text: text(line[kinds[0]], `${lp}.${kinds[0]}`, { max: 120 }) };
+    }).filter(Boolean);
   },
   terminal(s, out, p, { r, text }) {
     out.title = text(s.title, `${p}.title`, { required: false, max: 120 });
@@ -390,7 +445,7 @@ export function collectText(brief, langs = brief.languages) {
         for (const l of langs) if (v[l]) out.push(v[l]);
         return;
       }
-      for (const [k, val] of Object.entries(v)) if (!["id", "type", "image", "video", "box", "voiceover", "narration", "accent", "kind", "tone", "from", "to", "pane"].includes(k)) walk(val);
+      for (const [k, val] of Object.entries(v)) if (!["id", "type", "image", "video", "box", "voiceover", "narration", "transition", "layout", "verdict", "accent", "kind", "tone", "from", "to", "pane"].includes(k)) walk(val);
     }
   };
   walk(brief.scenes);

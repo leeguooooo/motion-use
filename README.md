@@ -25,7 +25,7 @@ motion-use still my-video/brief.json         # one PNG per scene + a contact she
 motion-use render my-video/brief.json        # my-video/out/<name>-<lang>-<format>.mp4
 ```
 
-A brief is a list of scenes. Each scene is one of `title`, `terminal`, `steps`, `diagram`, `features`, `image` or `cta`, with text per language:
+A brief is a list of scenes: `title`, `terminal`, `steps`, `diagram`, `features`, `image`, `video` (screen recordings), `stat`, `compare`, `kinetic`, `code` or `cta`, each with its own layout and transition options, and text per language:
 
 ```json
 {

@@ -105,7 +105,7 @@ export function plan(brief, lang, format, opts = {}) {
     // An explicit duration never cuts off the scene's own animation.
     const base = Math.max(scene.duration ?? 0, r.content);
     const duration = Math.max(base, vo ? VO_LEAD + vo + VO_TAIL : 0, 1.5) + (i > 0 ? FADE : 0);
-    const out = { id: scene.id, type: scene.type, start, duration, html: r.html, cues: r.cues, vo: voFile ? { file: voFile, seconds: vo, at: start + (i > 0 ? FADE : 0) + VO_LEAD } : null, stretched: vo > 0 && VO_LEAD + vo + VO_TAIL > base, raised: scene.duration !== undefined && r.content > scene.duration ? +r.content.toFixed(2) : null };
+    const out = { id: scene.id, type: scene.type, transition: scene.transition ?? "fade", start, duration, html: r.html, cues: r.cues, vo: voFile ? { file: voFile, seconds: vo, at: start + (i > 0 ? FADE : 0) + VO_LEAD } : null, stretched: vo > 0 && VO_LEAD + vo + VO_TAIL > base, raised: scene.duration !== undefined && r.content > scene.duration ? +r.content.toFixed(2) : null };
     start += duration - FADE;
     return out;
   });
@@ -180,8 +180,14 @@ export async function buildProject(brief, lang, format, outDir, opts = {}) {
 
   const sections = p.scenes
     .map((s, i) => {
-      const animIn = i > 0 ? `mu-scene-in ${sec(FADE)} linear 0s both` : "";
-      const animOut = i < p.scenes.length - 1 ? `mu-scene-out ${sec(FADE)} linear ${sec(s.duration - FADE)} forwards` : "";
+      // A scene's transition decides how it comes in and how the scene before it leaves.
+      const IN = { fade: ["mu-scene-in", "linear"], slide: ["mu-in-slide", "cubic-bezier(.16,1,.3,1)"], zoom: ["mu-in-zoom", "cubic-bezier(.16,1,.3,1)"], wipe: ["mu-in-wipe", "cubic-bezier(.65,0,.35,1)"], cut: ["mu-in-cut", "steps(1, start)"] };
+      const OUT = { fade: ["mu-scene-out", "linear"], slide: ["mu-out-slide", "cubic-bezier(.7,0,.84,0)"], zoom: ["mu-out-zoom", "cubic-bezier(.7,0,.84,0)"], wipe: ["mu-out-hold", "steps(1, start)"], cut: ["mu-out-hold", "steps(1, start)"] };
+      const [inName, inEase] = IN[s.transition] ?? IN.fade;
+      const next = p.scenes[i + 1];
+      const [outName, outEase] = next ? OUT[next.transition] ?? OUT.fade : [];
+      const animIn = i > 0 ? `${inName} ${sec(FADE)} ${inEase} 0s both` : "";
+      const animOut = next ? `${outName} ${sec(FADE)} ${outEase} ${sec(s.duration - FADE)} forwards` : "";
       const a = [animIn, animOut].filter(Boolean).join(", ");
       // Content animates from the scene's own start, so entrances overlap the crossfade.
       // Timed media inside a scene needs absolute times: <<T+n>> is seconds from the scene start.

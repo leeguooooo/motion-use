@@ -32,10 +32,13 @@ Any text field takes either one string for every language, or an object per lang
 
 ## Scenes
 
-Every scene has `type`, and optionally `id` (default `scene-N`; voiceover files are named after it), `narration` (text per language for `motion-use voiceover` to speak; never drawn), `duration` (seconds, 1–60; never shorter than the scene's own animation), and `voiceover` (`{ "zh": "path.mp3" }`, overriding the folder convention).
+Every scene has `type`, and optionally `id` (default `scene-N`; voiceover files are named after it), `narration` (text per language for `motion-use voiceover` to speak; never drawn), `transition` (how the scene comes in: `fade` default, `slide`, `wipe`, `zoom`, `cut`), `layout` (for `title` and `features`, below), `duration` (seconds, 1–60; never shorter than the scene's own animation), and `voiceover` (`{ "zh": "path.mp3" }`, overriding the folder convention).
 
 ### `title`
-`title` (required), `subtitle`.
+`title` (required), `subtitle`, optional `image`. `layout`:
+- `center` (default): centered; an `image` shows above the title
+- `left`: left-aligned with an accent rule
+- `split`: title on one side, `image` (required) on the other; stacked in vertical
 
 ### `terminal`
 A typed command-line session in one or two panes.
@@ -50,7 +53,19 @@ A typed command-line session in one or two panes.
 `title`, `nodes`: 2–5 of `{ "id": "a", "label": "…", "note": "…" }`, `edges`: 0–8 of `{ "from": "a", "to": "b", "label": "…" }`. Nodes are laid out in order (left to right, or top to bottom in vertical); edges between neighbours are straight, others arc around. Edges draw one after another.
 
 ### `features`
-`title`, `items`: 1–6 short strings, `subtitle`.
+`title`, `items`: 1–6 short strings, `subtitle`. `layout`: `pills` (promo default), `list` (explainer default) or `grid` (cards).
+
+### `stat`
+One big number: `value` (e.g. `"80%"`, `"$1,200"`, `"3x"`), `label`, optional `title` and `note`. A value with a whole number counts up from 0 (`"count": false` to just show it); decimals are shown as written. Use real numbers only.
+
+### `compare`
+Two sides: `left` and `right`, each `{ "label": "Before", "points": ["…"], "image": "shot.png" }` (points, image, or both). `verdict`: `"right"` (default) highlights the right side as the better one, `"left"`, or `"none"`. Side by side in landscape, stacked in vertical.
+
+### `kinetic`
+Big words, one line at a time: `lines` (1–6, short), `beat` (seconds between lines, default 0.7). Earlier lines dim; the last is in the accent color. Good for a hook or a tagline.
+
+### `code`
+A diff: `file` (label), `lines` of `"context"`, `{ "add": "…" }` or `{ "del": "…" }`, revealed line by line with line numbers.
 
 ### `image`
 `image`: a local PNG, JPG, WebP, GIF or SVG; `title`, `caption`, and optional `highlights` / `zoom` (below). Images from image-use, screenshots or exports all work.

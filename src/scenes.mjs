@@ -26,11 +26,10 @@ export function renderScene(scene, lang, ctx, { cover = false } = {}) {
   return { html: done.html, cues: [], content: Math.max(COVER_HOLD, HOLD) };
 }
 
-const heading = (text, delay, cls, ctx) => {
+const heading = (text, delay, cls, ctx, width = ctx.fmt.w - ctx.pad.l - ctx.pad.r) => {
   if (!text) return "";
   const ts = typeScale(ctx.fmt);
-  const base = cls === "mu-hero" ? ts.hero : cls === "mu-h-sm" ? ts.hsm : ts.h;
-  const width = ctx.fmt.w - ctx.pad.l - ctx.pad.r;
+  const base = cls.includes("mu-hero") ? ts.hero : cls.includes("mu-h-sm") ? ts.hsm : ts.h;
   return `<h1 class="mu-h ${cls}" style="font-size:${fitPx(text, width, base).toFixed(1)}px;animation:${anim("mu-up", 0.7, delay)}">${lines(text)}</h1>`;
 };
 const sub = (text, delay, cls = "") => (text ? `<p class="mu-sub ${cls}" style="animation:${anim("mu-up", 0.7, delay)}">${lines(text)}</p>` : "");
@@ -77,13 +76,95 @@ function mediaFrame(info, inner, s, lang, ctx, t0) {
 
 const RENDER = {
   title(s, lang, ctx) {
-    const { style } = ctx;
+    const { style, fmt, pad } = ctx;
+    const layout = s.layout ?? "center";
     const cues = style === "promo" ? [{ at: 0.1, sfx: "whoosh", volume: 0.5 }] : [];
-    const underline = style === "explainer" ? `<div class="mu-rule" style="animation:${anim("mu-grow", 0.8, 0.5)}"></div>` : "";
+    const rule = style === "explainer" || layout === "left" ? `<div class="mu-rule" style="animation:${anim("mu-grow", 0.8, 0.5)}"></div>` : "";
+    const full = fmt.w - pad.l - pad.r;
+    if (layout === "split") {
+      const textW = fmt.vertical ? full : full * 0.48;
+      const img = `<figure class="mu-split-img" style="animation:${anim("mu-zoom", 1.0, 0.25)}"><img src="${esc(ctx.asset(s.image))}" alt=""></figure>`;
+      return {
+        html: `<div class="mu-split">${fmt.vertical ? img : ""}<div class="mu-stack mu-title-left">${heading(t(s.title, lang), 0.05, "mu-hero", ctx, textW)}${rule}${sub(t(s.subtitle, lang), 0.45)}</div>${fmt.vertical ? "" : img}</div>`,
+        content: 1.4,
+        cues,
+      };
+    }
+    const cls = layout === "left" ? "mu-stack mu-title mu-title-left" : "mu-stack mu-title";
+    const titleImg = s.image ? `<figure class="mu-title-img" style="animation:${anim("mu-zoom", 1.0, 0.3)}"><img src="${esc(ctx.asset(s.image))}" alt=""></figure>` : "";
     return {
-      html: `<div class="mu-stack mu-title">${heading(t(s.title, lang), 0.05, "mu-hero", ctx)}${underline}${sub(t(s.subtitle, lang), 0.45)}</div>`,
+      html: `<div class="${cls}">${titleImg}${heading(t(s.title, lang), 0.05, "mu-hero", ctx)}${rule}${sub(t(s.subtitle, lang), 0.45)}</div>`,
       content: 1.2,
       cues,
+    };
+  },
+
+  stat(s, lang, ctx) {
+    const value = t(s.value, lang);
+    // A value like "80%", "$1,200" or "3x": count the integer part up from 0 with a registered
+    // CSS property, so each frame shows the exact number for its time. Anything else pops in.
+    const m = /^(\D*?)(\d{1,9})(\D*)$/.exec(value.replace(/,/g, ""));
+    const big = typeScale(ctx.fmt).brand * 1.1;
+    const size = fitPx(value, ctx.fmt.w - ctx.pad.l - ctx.pad.r, big, 60);
+    const at = 0.5;
+    const shown = m && s.count
+      ? `${esc(m[1])}<span class="mu-count" style="--mu-to:${Number(m[2])};animation:${anim("mu-count", 1.4, at, "cubic-bezier(.16,1,.3,1)")}"></span>${esc(m[3])}`
+      : esc(value);
+    return {
+      html: `<div class="mu-stack mu-stat">${heading(t(s.title, lang), 0.05, "mu-h-sm", ctx)}<div class="mu-stat-value" style="font-size:${size.toFixed(1)}px;animation:${anim("mu-pop", 0.6, at - 0.2)}">${shown}</div><div class="mu-stat-label" style="animation:${anim("mu-up", 0.6, at + 0.6)}">${esc(t(s.label, lang))}</div>${sub(t(s.note, lang), at + 1.0)}</div>`,
+      content: at + 1.8,
+      cues: ctx.style === "promo" ? [{ at: at - 0.2, sfx: "switch", volume: 0.4 }] : [],
+    };
+  },
+
+  compare(s, lang, ctx) {
+    const side = (k, at) => {
+      const v = s[k];
+      const win = s.verdict === k;
+      const lose = s.verdict !== "none" && !win;
+      const pts = v.points.map((pt, i) => `<li style="animation:${anim("mu-up", 0.45, at + 0.35 + i * 0.25)}">${esc(t(pt, lang))}</li>`).join("");
+      const img = v.image ? `<img class="mu-compare-img" src="${esc(ctx.asset(v.image))}" alt="">` : "";
+      return { html: `<div class="mu-compare-side${win ? " mu-win" : ""}${lose ? " mu-lose" : ""}" style="animation:${anim("mu-up", 0.6, at)}"><div class="mu-compare-label">${esc(t(v.label, lang))}</div>${img}${pts ? `<ul>${pts}</ul>` : ""}</div>`, end: at + 0.35 + v.points.length * 0.25 };
+    };
+    const a = side("left", 0.5);
+    const b = side("right", a.end + 0.5);
+    return {
+      html: `<div class="mu-stack">${heading(t(s.title, lang), 0.05, "mu-h-sm", ctx)}<div class="mu-compare">${a.html}<div class="mu-compare-vs" style="animation:${anim("mu-pop", 0.4, a.end + 0.2)}">${ctx.fmt.vertical ? "↓" : "→"}</div>${b.html}</div></div>`,
+      content: b.end + 0.8,
+      cues: ctx.style === "promo" ? [{ at: a.end + 0.5, sfx: "whoosh", volume: 0.4 }] : [],
+    };
+  },
+
+  kinetic(s, lang, ctx) {
+    const width = ctx.fmt.w - ctx.pad.l - ctx.pad.r;
+    const base = typeScale(ctx.fmt).hero * 1.15;
+    const n = s.lines.length;
+    const lines = s.lines.map((ln, i) => {
+      const text = t(ln, lang);
+      const at = 0.3 + i * s.beat;
+      const dim = i < n - 1 ? `, ${anim("mu-dim", 0.4, at + s.beat, "linear", "forwards")}` : "";
+      return `<div class="mu-kinetic-line${i === n - 1 ? " mu-kinetic-last" : ""}" style="font-size:${fitPx(text, width, base).toFixed(1)}px;animation:${anim("mu-slam", 0.5, at)}${dim}">${esc(text)}</div>`;
+    });
+    return {
+      html: `<div class="mu-stack mu-kinetic">${lines.join("")}</div>`,
+      content: 0.3 + (n - 1) * s.beat + 1.2,
+      cues: ctx.style === "promo" ? s.lines.map((_, i) => ({ at: 0.3 + i * s.beat, sfx: "click", volume: 0.3 })) : [],
+    };
+  },
+
+  code(s, lang, ctx) {
+    const first = s.title ? 0.7 : 0.4;
+    let num = 0;
+    const rows = s.lines.map((ln, i) => {
+      const mark = { add: "+", del: "-", ctx: " " }[ln.kind];
+      const no = ln.kind === "del" ? "" : ++num;
+      return `<div class="mu-code-line mu-code-${ln.kind}" style="animation:${anim("mu-show", 0.25, first + i * 0.14, "linear")}"><span class="mu-code-no">${no}</span><span class="mu-code-mark">${mark}</span><span>${esc(t(ln.text, lang))}</span></div>`;
+    });
+    const file = s.file ? `<b>${esc(t(s.file, lang))}</b>` : "";
+    return {
+      html: `<div class="mu-stack">${heading(t(s.title, lang), 0.05, "mu-h-sm", ctx)}<div class="mu-term mu-code"><div class="mu-term-bar"><i></i><i></i><i></i>${file}</div><div class="mu-code-body">${rows.join("")}</div></div></div>`,
+      content: first + s.lines.length * 0.14 + 1.0,
+      cues: [],
     };
   },
 
@@ -203,13 +284,14 @@ const RENDER = {
 
   features(s, lang, ctx) {
     const { style } = ctx;
+    const layout = s.layout ?? (style === "explainer" ? "list" : "pills");
     const first = 0.7;
     const gap = style === "explainer" ? 0.45 : 0.25;
     const items = s.items
       .map((it, i) => `<li class="mu-feature" style="animation:${anim("mu-pop", 0.5, first + i * gap)}"><span class="mu-check"></span>${esc(t(it, lang))}</li>`)
       .join("");
     return {
-      html: `<div class="mu-stack">${heading(t(s.title, lang), 0.05, "mu-h-sm", ctx)}<ul class="mu-features">${items}</ul>${sub(t(s.subtitle, lang), first + s.items.length * gap)}</div>`,
+      html: `<div class="mu-stack">${heading(t(s.title, lang), 0.05, "mu-h-sm", ctx)}<ul class="mu-features mu-features-${layout}">${items}</ul>${sub(t(s.subtitle, lang), first + s.items.length * gap)}</div>`,
       content: first + s.items.length * gap + 0.8,
       cues: s.items.map((_, i) => ({ at: first + i * gap, sfx: "click", volume: style === "promo" ? 0.3 : 0.2 })),
     };
