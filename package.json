@@ -1,6 +1,6 @@
 {
   "name": "motion-use",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Turn a structured brief into reproducible promo and explainer videos (zh/en, landscape/vertical, voiceover-timed). Built on HyperFrames.",
   "license": "MIT",
   "private": true,
