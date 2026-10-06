@@ -35,6 +35,46 @@ const heading = (text, delay, cls, ctx) => {
 };
 const sub = (text, delay, cls = "") => (text ? `<p class="mu-sub ${cls}" style="animation:${anim("mu-up", 0.7, delay)}">${lines(text)}</p>` : "");
 
+const pct = (n) => `${Math.round(n * 10000) / 100}%`;
+
+/**
+ * An image or video in a frame sized to the source's aspect ratio, with highlight
+ * boxes (spotlight: everything else dims) and zooms. `t0` is when the media appears,
+ * relative to the scene; annotation times are relative to t0. Each zoom gets its own
+ * nested layer so their transforms compose instead of fighting over one property.
+ */
+function mediaFrame(info, inner, s, lang, ctx, t0) {
+  const { fmt, pad } = ctx;
+  const maxW = fmt.w - pad.l - pad.r;
+  const maxH = (fmt.h - pad.t - pad.b) * (fmt.vertical ? 0.55 : 0.62);
+  const scale = Math.min(maxW / info.w, maxH / info.h);
+  const w = Math.round(info.w * scale);
+  const h = Math.round(info.h * scale);
+  const boxStyle = (b) => `left:${pct(b[0] / info.w)};top:${pct(b[1] / info.h)};width:${pct(b[2] / info.w)};height:${pct(b[3] / info.h)}`;
+  const marks = s.highlights
+    .map((hl) => {
+      const fades = [anim("mu-mark-in", 0.45, t0 + hl.at)];
+      if (hl.until !== undefined) fades.push(anim("mu-mark-out", 0.35, t0 + hl.until, "linear", "forwards"));
+      const label = hl.label ? `<span class="mu-mark-label">${esc(t(hl.label, lang))}</span>` : "";
+      return `<div class="mu-mark" style="${boxStyle(hl.box)};animation:${fades.join(", ")}">${label}</div>`;
+    })
+    .join("");
+  let body = `${inner}<div class="mu-marks">${marks}</div>`;
+  const zooms = [...s.zoom].sort((a, b) => b.at - a.at); // innermost first
+  for (const z of zooms) {
+    const [x, y, bw, bh] = z.box;
+    const zs = Math.min(4, 0.9 * Math.min(info.w / bw, info.h / bh));
+    const clamp = (v) => Math.min(0, Math.max(1 - zs, v));
+    const tx = clamp(0.5 - ((x + bw / 2) / info.w) * zs);
+    const ty = clamp(0.5 - ((y + bh / 2) / info.h) * zs);
+    const vars = `--zx:${pct(tx)};--zy:${pct(ty)};--zs:${zs.toFixed(3)}`;
+    const a = [anim("mu-zoom-to", 0.7, t0 + z.at, "cubic-bezier(.65,0,.35,1)", "forwards"), anim("mu-zoom-back", 0.7, t0 + z.at + 0.7 + z.hold, "cubic-bezier(.65,0,.35,1)", "forwards")];
+    body = `<div class="mu-zoom" style="${vars};animation:${a.join(", ")}">${body}</div>`;
+  }
+  const lastMark = Math.max(0, ...s.highlights.map((hl) => (hl.until ?? hl.at) + 0.6), ...s.zoom.map((z) => z.at + z.hold + 1.5));
+  return { html: `<div class="mu-media" style="width:${w}px;height:${h}px;animation:${anim("mu-zoom", 1.0, Math.max(0, t0 - 0.3))}">${body}</div>`, end: t0 + lastMark };
+}
+
 const RENDER = {
   title(s, lang, ctx) {
     const { style } = ctx;
@@ -176,10 +216,32 @@ const RENDER = {
   },
 
   image(s, lang, ctx) {
+    const info = ctx.media(s.image);
+    const t0 = 0.6;
+    const m = mediaFrame(info, `<img class="mu-media-src" src="${esc(ctx.asset(s.image))}" alt="">`, s, lang, ctx, t0);
     return {
-      html: `<div class="mu-stack">${heading(t(s.title, lang), 0.05, "mu-h-sm", ctx)}<figure class="mu-figure" style="animation:${anim("mu-zoom", 1.2, 0.3)}"><img src="${esc(ctx.asset(s.image))}" alt=""></figure>${sub(t(s.caption, lang), 0.9, "mu-caption")}</div>`,
-      content: 1.8,
-      cues: ctx.style === "promo" ? [{ at: 0.3, sfx: "whoosh", volume: 0.35 }] : [],
+      html: `<div class="mu-stack">${heading(t(s.title, lang), 0.05, "mu-h-sm", ctx)}${m.html}${sub(t(s.caption, lang), 0.9, "mu-caption")}</div>`,
+      content: Math.max(1.8, m.end),
+      cues: [...(ctx.style === "promo" ? [{ at: 0.3, sfx: "whoosh", volume: 0.35 }] : []), ...s.highlights.map((hl) => ({ at: t0 + hl.at, sfx: "click", volume: 0.3 }))],
+    };
+  },
+
+  video(s, lang, ctx) {
+    const info = ctx.media(s.video);
+    const t0 = 0.6;
+    const clipLen = s.length ?? Math.max(0.5, (info.duration ?? 5) - s.start);
+    const plays = clipLen / s.speed;
+    const src = esc(ctx.asset(s.video));
+    // <<T+n>> is replaced with the absolute timeline time when the scene is placed. Brief text is
+    // escaped, so it can never contain "<<" and collide with this marker.
+    const audio = s.audio ? 'data-has-audio="true"' : "muted";
+    const video = `<video class="mu-media-src" src="${src}" ${audio} playsinline data-start="<<T+${t0}>>" data-duration="${plays.toFixed(3)}" data-media-start="${s.start}" data-playback-rate="${s.speed}" data-volume="${s.audio ? 1 : 0}"></video>`;
+    const poster = `<img class="mu-media-src mu-poster" src="${esc(ctx.poster(s.video, s.start + clipLen - 0.05))}" alt="">`;
+    const m = mediaFrame(info, poster + video, s, lang, ctx, t0);
+    return {
+      html: `<div class="mu-stack">${heading(t(s.title, lang), 0.05, "mu-h-sm", ctx)}${m.html}${sub(t(s.caption, lang), 0.9, "mu-caption")}</div>`,
+      content: Math.max(t0 + plays + 0.4, m.end),
+      cues: s.highlights.map((hl) => ({ at: t0 + hl.at, sfx: "click", volume: 0.3 })),
     };
   },
 

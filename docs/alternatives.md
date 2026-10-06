@@ -14,7 +14,7 @@ Checked 2026-10-05. Licenses are as reported by the GitHub API on that date. Onl
 
 motion-use is the narrow end of this list: a fixed set of scene types in two looks (promo and explainer), filled from a JSON brief.
 
-- **Same brief, same video.** No per-video code to write or review; the agent's job is the brief. Frames are CSS animations that HyperFrames seeks exactly, so two renders are identical.
+- **Same brief, same video.** No per-video code to write or review; the agent's job is the brief. Frames are CSS animations that HyperFrames seeks exactly, so two renders are identical (recorded clips aside, which can differ by invisible pixel noise).
 - **The matrix for free.** Chinese and English, 16:9 and 9:16, from one brief, with vertical safe areas.
 - **Voiceover drives timing.** Drop in recordings; scenes stretch to fit and narrations never overlap.
 - **Local and license-light.** Fonts are bundled and subset per video, music is synthesized, sound effects are CC0 or original; rendering loads nothing from the network and runs the engine with telemetry off. MIT code on an Apache-2.0 engine.

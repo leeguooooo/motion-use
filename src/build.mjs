@@ -30,13 +30,52 @@ export function audioSeconds(file) {
   return s;
 }
 
+/** Size (and for video: duration, audio) of an image or video file, via ffprobe; SVG from its own attributes. */
+export function mediaInfo(file) {
+  if (path.extname(file).toLowerCase() === ".svg") {
+    const head = fs.readFileSync(file, "utf8").slice(0, 4000);
+    const attr = (n) => Number.parseFloat((head.match(new RegExp(`<svg[^>]*\\s${n}="([\\d.]+)`)) || [])[1]);
+    const vb = (head.match(/<svg[^>]*\sviewBox="[\d.\s-]*?([\d.]+)\s+([\d.]+)"/) || []).slice(1).map(Number);
+    const w = attr("width") || vb[0];
+    const h = attr("height") || vb[1];
+    if (!w || !h) throw new Error(`${file}: an SVG needs width/height or a viewBox`);
+    return { w, h, duration: null, audio: false };
+  }
+  let out;
+  try {
+    out = execFileSync("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type,width,height:format=duration", "-of", "json", file], { encoding: "utf8" });
+  } catch (e) {
+    throw new Error(e.code === "ENOENT" ? "ffprobe not found; install ffmpeg (motion-use doctor shows how)" : `cannot read ${file}: ${e.stderr || e.message}`);
+  }
+  const j = JSON.parse(out);
+  const v = (j.streams ?? []).find((s) => s.codec_type === "video");
+  if (!v?.width || !v?.height) throw new Error(`${file}: no picture found`);
+  const d = Number.parseFloat(j.format?.duration);
+  return { w: v.width, h: v.height, duration: Number.isFinite(d) ? d : null, audio: (j.streams ?? []).some((s) => s.codec_type === "audio") };
+}
+
+/** Bounds of boxes and times against the real media; throws with a JSON-path message. */
+export function checkMedia(scene, i, info) {
+  const p = `$.scenes[${i}]`;
+  const inside = (b, bp) => {
+    if (b && (b[0] + b[2] > info.w + 0.5 || b[1] + b[3] > info.h + 0.5)) throw new Error(`${bp}: box [${b.join(", ")}] goes outside the ${info.w}×${info.h} picture`);
+  };
+  scene.highlights?.forEach((h, k) => inside(h.box, `${p}.highlights[${k}].box`));
+  scene.zoom?.forEach((z, k) => inside(z.box, `${p}.zoom[${k}].box`));
+  if (scene.type === "video" && info.duration) {
+    if (scene.start >= info.duration) throw new Error(`${p}.start: the clip is only ${info.duration.toFixed(2)} s long`);
+    if (scene.length && scene.start + scene.length > info.duration + 0.05) throw new Error(`${p}.length: start + length (${(scene.start + scene.length).toFixed(2)} s) is past the end of the ${info.duration.toFixed(2)} s clip`);
+  }
+}
+
 /**
  * Timeline for one language and format. Scene i+1 starts FADE seconds before
  * scene i ends. Voiceover i ends at least VO_TAIL seconds before scene i ends,
  * and voiceover i+1 starts FADE + VO_LEAD after scene i+1 starts, so two
  * voiceovers never overlap.
  */
-export function plan(brief, lang, format, { probe = audioSeconds } = {}) {
+export function plan(brief, lang, format, opts = {}) {
+  const probe = opts.probe ?? audioSeconds;
   const [w, h] = FORMATS[format];
   const fmt = { w, h, vertical: h > w, name: format };
   const pad = padFor(fmt);
@@ -45,9 +84,21 @@ export function plan(brief, lang, format, { probe = audioSeconds } = {}) {
     if (!assets.has(abs)) assets.set(abs, `assets/media/${assets.size}${path.extname(abs).toLowerCase()}`);
     return assets.get(abs);
   };
-  const ctx = { fmt, pad, style: brief.style, asset };
+  const infos = new Map();
+  const media = (abs) => {
+    if (!infos.has(abs)) infos.set(abs, (opts.mediaInfo ?? mediaInfo)(abs));
+    return infos.get(abs);
+  };
+  const posters = [];
+  const ctx = { fmt, pad, style: brief.style, asset, media, poster: (abs, at) => {
+    // The last frame of a clip, shown under the video so the scene never goes black after it ends.
+    const rel = `assets/media/poster-${posters.length}.png`;
+    posters.push({ abs, at, rel });
+    return rel;
+  } };
   let start = 0;
   const scenes = brief.scenes.map((scene, i) => {
+    if (scene.type === "image" || scene.type === "video") checkMedia(scene, i, media(scene.image ?? scene.video));
     const r = renderScene(scene, lang, ctx, { cover: i === 0 && brief.cover === "first-scene" });
     const voFile = scene.voiceover?.[lang];
     const vo = voFile ? probe(voFile) : 0;
@@ -59,7 +110,7 @@ export function plan(brief, lang, format, { probe = audioSeconds } = {}) {
     return out;
   });
   const total = Math.round((start + FADE) * 1000) / 1000;
-  return { lang, format, fmt, pad, scenes, total, assets };
+  return { lang, format, fmt, pad, scenes, total, assets, posters };
 }
 
 export const BUILD_MARK = ".motion-use-build";
@@ -81,6 +132,13 @@ export async function buildProject(brief, lang, format, outDir, opts = {}) {
   fs.mkdirSync(path.join(outDir, "assets", "audio"), { recursive: true });
 
   for (const [abs, rel] of p.assets) fs.copyFileSync(abs, path.join(outDir, rel));
+  for (const ps of p.posters) {
+    try {
+      execFileSync("ffmpeg", ["-v", "error", "-y", "-ss", String(Math.max(0, ps.at)), "-i", ps.abs, "-frames:v", "1", path.join(outDir, ps.rel)], { stdio: ["ignore", "ignore", "pipe"] });
+    } catch (e) {
+      throw new Error(`cannot extract a frame from ${ps.abs}: ${e.code === "ENOENT" ? "ffmpeg not found" : e.stderr?.toString().trim()}`);
+    }
+  }
   const fontSizes = await writeSubsets(collectText(brief, [lang]), path.join(outDir, "assets", "fonts"));
   // The subsets are modified fonts; their license travels with them.
   for (const f of fs.readdirSync(FONT_DIR).filter((f) => f.startsWith("OFL-"))) fs.copyFileSync(path.join(FONT_DIR, f), path.join(outDir, "assets", "fonts", f));
@@ -126,7 +184,8 @@ export async function buildProject(brief, lang, format, outDir, opts = {}) {
       const animOut = i < p.scenes.length - 1 ? `mu-scene-out ${sec(FADE)} linear ${sec(s.duration - FADE)} forwards` : "";
       const a = [animIn, animOut].filter(Boolean).join(", ");
       // Content animates from the scene's own start, so entrances overlap the crossfade.
-      const inner = s.html;
+      // Timed media inside a scene needs absolute times: <<T+n>> is seconds from the scene start.
+      const inner = s.html.replace(/<<T\+(\d+(?:\.\d+)?)>>/g, (_, n) => (s.start + Number(n)).toFixed(3));
       return `<section id="scene-${esc(s.id)}" class="clip mu-scene" data-start="${s.start.toFixed(3)}" data-duration="${s.duration.toFixed(3)}" data-track-index="${i % 2}"${a ? ` style="animation:${a}"` : ""}>${inner}</section>`;
     })
     .join("\n");

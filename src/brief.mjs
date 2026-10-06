@@ -6,9 +6,47 @@ import path from "node:path";
 export const STYLES = ["promo", "explainer"];
 export const FORMATS = { landscape: [1920, 1080], vertical: [1080, 1920] };
 export const FPS_VALUES = [24, 25, 30, 60];
-export const SCENE_TYPES = ["title", "terminal", "steps", "diagram", "features", "image", "cta"];
+export const SCENE_TYPES = ["title", "terminal", "steps", "diagram", "features", "image", "video", "cta"];
 const AUDIO_EXT = [".mp3", ".wav", ".m4a", ".aac", ".ogg"];
 const IMAGE_EXT = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"];
+const VIDEO_EXT = [".mp4", ".mov", ".webm", ".m4v"];
+const num = (v, min = 0, max = Infinity) => Number.isFinite(v) && v >= min && v <= max;
+
+/**
+ * Highlights and zooms on an image or a video. Boxes are [x, y, width, height] in the
+ * source's own pixels (validate prints the size); times are seconds from the moment the
+ * media appears. Bounds against the real size are checked when the media is probed.
+ */
+function annotations(s, out, p, { r, text }) {
+  const box = (v, bp) => {
+    if (!Array.isArray(v) || v.length !== 4 || !v.every((n) => num(n)) || v[2] <= 0 || v[3] <= 0) {
+      r.error(bp, "[x, y, width, height] in the source's pixels, e.g. [120, 80, 400, 160]");
+      return null;
+    }
+    return v;
+  };
+  out.highlights = (Array.isArray(s.highlights) ? s.highlights : s.highlights === undefined ? [] : (r.error(`${p}.highlights`, "an array of highlights"), [])).slice(0, 8).map((h, i) => {
+    const hp = `${p}.highlights[${i}]`;
+    if (!isObj(h)) return r.error(hp, '{"box": [x, y, w, h], "at": 1, "label": "…"}'), null;
+    const at = h.at ?? 0.8;
+    if (!num(at, 0, 120)) r.error(`${hp}.at`, "seconds from when the media appears");
+    if (h.until !== undefined && !(num(h.until, 0, 120) && h.until > at)) r.error(`${hp}.until`, "seconds, later than at");
+    return { box: box(h.box, `${hp}.box`), at, until: h.until, label: text(h.label, `${hp}.label`, { required: false, max: 40 }) };
+  }).filter(Boolean);
+  if (Array.isArray(s.highlights) && s.highlights.length > 8) r.error(`${p}.highlights`, "at most 8");
+  out.zoom = (Array.isArray(s.zoom) ? s.zoom : s.zoom === undefined ? [] : (r.error(`${p}.zoom`, "an array of zooms"), [])).slice(0, 4).map((z, i) => {
+    const zp = `${p}.zoom[${i}]`;
+    if (!isObj(z)) return r.error(zp, '{"box": [x, y, w, h], "at": 2, "hold": 2}'), null;
+    const at = z.at ?? 1;
+    const hold = z.hold ?? 2;
+    if (!num(at, 0, 120)) r.error(`${zp}.at`, "seconds from when the media appears");
+    if (!num(hold, 0.3, 30)) r.error(`${zp}.hold`, "seconds to stay zoomed, 0.3 to 30");
+    return { box: box(z.box, `${zp}.box`), at, hold };
+  }).filter(Boolean);
+  if (Array.isArray(s.zoom) && s.zoom.length > 4) r.error(`${p}.zoom`, "at most 4");
+  const zs = [...out.zoom].sort((a, b) => a.at - b.at);
+  for (let i = 1; i < zs.length; i++) if (zs[i].at < zs[i - 1].at + zs[i - 1].hold + 0.8) r.error(`${p}.zoom`, "zooms overlap: each needs to finish (at + hold + 0.8 s) before the next starts");
+}
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const LANG_RE = /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/;
 export const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -310,10 +348,27 @@ const SCENE_FIELDS = {
     out.subtitle = text(s.subtitle, `${p}.subtitle`, { required: false, max: 160 });
     out.items = arr(s.items, `${p}.items`, r, 1, 6, "items").map((it, i) => text(it, `${p}.items[${i}]`, { max: 40 }));
   },
-  image(s, out, p, { text, file }) {
+  image(s, out, p, ctx) {
+    const { text, file } = ctx;
     out.title = text(s.title, `${p}.title`, { required: false, max: 120 });
     out.caption = text(s.caption, `${p}.caption`, { required: false, max: 160 });
     out.image = file(s.image, `${p}.image`, IMAGE_EXT, "image");
+    annotations(s, out, p, ctx);
+  },
+  video(s, out, p, ctx) {
+    const { r, text, file } = ctx;
+    out.title = text(s.title, `${p}.title`, { required: false, max: 120 });
+    out.caption = text(s.caption, `${p}.caption`, { required: false, max: 160 });
+    out.video = file(s.video, `${p}.video`, VIDEO_EXT, "video");
+    out.start = s.start ?? 0;
+    if (!num(out.start, 0, 3600)) r.error(`${p}.start`, "seconds into the clip to start from");
+    if (s.length !== undefined && !num(s.length, 0.5, 120)) r.error(`${p}.length`, "seconds of the clip to show, 0.5 to 120");
+    out.length = s.length;
+    out.speed = s.speed ?? 1;
+    if (!num(out.speed, 0.25, 4)) r.error(`${p}.speed`, "playback speed, 0.25 to 4");
+    out.audio = s.audio ?? false;
+    if (typeof out.audio !== "boolean") r.error(`${p}.audio`, "true keeps the clip's own sound (default false: music and narration only)");
+    annotations(s, out, p, ctx);
   },
   cta(s, out, p, { text }) {
     out.title = text(s.title, `${p}.title`, { max: 40 });
@@ -335,7 +390,7 @@ export function collectText(brief, langs = brief.languages) {
         for (const l of langs) if (v[l]) out.push(v[l]);
         return;
       }
-      for (const [k, val] of Object.entries(v)) if (!["id", "type", "image", "voiceover", "narration", "accent", "kind", "tone", "from", "to", "pane"].includes(k)) walk(val);
+      for (const [k, val] of Object.entries(v)) if (!["id", "type", "image", "video", "box", "voiceover", "narration", "accent", "kind", "tone", "from", "to", "pane"].includes(k)) walk(val);
     }
   };
   walk(brief.scenes);

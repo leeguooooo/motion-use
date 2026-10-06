@@ -93,6 +93,16 @@ html, body { margin: 0; background: var(--bg); }
 .mu-brand { font-family: "MU Mono", "MU Sans", monospace; font-weight: 800; font-size: ${px(fmt.vertical ? 170 : 180)}; line-height: 1; overflow-wrap: anywhere; text-align: center; }
 .mu-cmd { font-family: "MU Mono", "MU Sans", monospace; font-size: ${px(fmt.vertical ? 30 : 32)}; padding: ${px(18)} ${px(28)}; border-radius: ${px(14)}; background: var(--panel); border: 2px solid var(--border); color: var(--accent); max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; text-align: center; }
 .mu-url { font-family: "MU Mono", "MU Sans", monospace; font-weight: 700; font-size: ${px(fmt.vertical ? 32 : 34)}; overflow-wrap: anywhere; text-align: center; }
+.mu-media { position: relative; overflow: hidden; border-radius: ${px(18)}; border: 2px solid var(--border); background: #000; flex: none; }
+.mu-media .mu-zoom { position: absolute; inset: 0; transform-origin: 0 0; }
+.mu-media-src { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.mu-marks { position: absolute; inset: 0; }
+.mu-mark { position: absolute; box-sizing: border-box; border: ${px(4)} solid var(--accent); border-radius: ${px(10)}; box-shadow: 0 0 0 200vmax rgba(0,0,0,.45), 0 0 ${px(24)} var(--accent); }
+.mu-mark-label { position: absolute; left: 0; top: 100%; margin-top: ${px(10)}; white-space: nowrap; padding: ${px(6)} ${px(14)}; border-radius: ${px(8)}; background: var(--accent); color: var(--bg); font-weight: 700; font-size: ${px(fmt.vertical ? 30 : 28)}; }
+@keyframes mu-mark-in { from { opacity: 0; transform: scale(1.08); } to { opacity: 1; transform: none; } }
+@keyframes mu-mark-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes mu-zoom-to { from { transform: none; } to { transform: translate(var(--zx), var(--zy)) scale(var(--zs)); } }
+@keyframes mu-zoom-back { from { transform: translate(var(--zx), var(--zy)) scale(var(--zs)); } to { transform: none; } }
 @keyframes mu-show { from { opacity: 0; } to { opacity: 1; } }
 @keyframes mu-up { from { opacity: 0; transform: translateY(${px(36)}); } to { opacity: 1; transform: none; } }
 @keyframes mu-pop { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: none; } }

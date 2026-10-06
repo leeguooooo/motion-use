@@ -53,10 +53,30 @@ A typed command-line session in one or two panes.
 `title`, `items`: 1–6 short strings, `subtitle`.
 
 ### `image`
-`image`: a local PNG, JPG, WebP, GIF or SVG; `title`, `caption`. Images from image-use, screenshots or exports all work.
+`image`: a local PNG, JPG, WebP, GIF or SVG; `title`, `caption`, and optional `highlights` / `zoom` (below). Images from image-use, screenshots or exports all work.
+
+### `video`
+Real footage: a screen recording or any local clip.
+- `video`: a local MP4, MOV, WebM or M4V
+- `start`: seconds into the clip to begin (default 0); `length`: seconds to show (default: to the end); `speed`: 0.25–4 (default 1)
+- `audio`: `true` keeps the clip's own sound (default `false`: music and narration only)
+- `title`, `caption`, `highlights`, `zoom`
+
+The scene lasts as long as the clip plays (or its narration, if longer). After the clip ends its last frame stays on screen.
+
+### Highlights and zoom (`image` and `video`)
+Boxes are `[x, y, width, height]` in the source's own pixels; `motion-use validate` prints each file's size. Times are seconds from when the media appears (for a video: from when it starts playing).
+- `highlights`: up to 8 of `{ "box": [...], "at": 1, "until": 3, "label": "…" }`. The box gets an outline and a label, and everything outside it dims. Without `until` it stays to the end of the scene.
+- `zoom`: up to 4 of `{ "box": [...], "at": 2, "hold": 2 }`. The view moves in until the box fills the frame, holds, and moves back. Zooms may not overlap.
+
+Pick boxes by looking at the actual frame: for a video, extract it first (`ffmpeg -ss <seconds> -i clip.mp4 -frames:v 1 frame.png`) and read coordinates off that.
 
 ### `cta`
 End card: `title` (product name, large), `subtitle`, `command` (install line), `url`.
+
+## Reproducibility
+
+Everything is drawn with CSS animation that HyperFrames seeks frame by frame, so the same brief renders the same video, bit for bit. One exception: frames of a `video` scene come from Chrome's video decoder and can differ by invisible amounts between runs (they show the same source frame at the same moment; only pixel noise differs).
 
 ## Cover
 

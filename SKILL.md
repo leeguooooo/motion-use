@@ -32,6 +32,13 @@ If `motion-use` is missing, run the installer line above as part of the video ta
 
 The first frame is the thumbnail everywhere (feeds, players, GitHub). Scene 1 is shown already finished at frame 0, so write it as a cover: a short hook, readable at thumbnail size. `render` also writes `<name>-<lang>-<format>-cover.png`; give that to platforms that ask for a cover image.
 
+## Real footage
+
+A recording of the actual product beats any mock-up, and it is what makes each video look different. When the product has a UI or visible output:
+- Record it (a screen recording, or `chrome-use` screenshots / a recording of a browser flow) and use a `video` scene; trim with `start`/`length`, speed up with `speed`.
+- Point at what matters with `highlights` and `zoom`. Boxes are in the source's pixels: run `motion-use validate` for the size, extract the frame you mean (`ffmpeg -ss 3 -i clip.mp4 -frames:v 1 f.png`), look at it, and read the coordinates from it. Never guess boxes without looking.
+- Use mock-up scenes (`terminal`, `diagram`) for what cannot be recorded.
+
 ## Choosing a style
 
 - `promo`: dark, glowing, punchy; sound effects on each beat. For launches and social clips.

@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { BriefError, FORMATS, STYLES, collectText, readBrief, validateBrief } from "./brief.mjs";
-import { FADE, audioSeconds, buildProject, claimDir, plan } from "./build.mjs";
+import { FADE, audioSeconds, buildProject, claimDir, mediaInfo, plan } from "./build.mjs";
 import { missingGlyphs } from "./fonts.mjs";
 import { hyperframesBin, runHyperframes } from "./hf.mjs";
 import { maybeNotify, upgrade } from "./update.mjs";
@@ -133,7 +133,19 @@ async function init(o, [dir = "."]) {
 function check(briefPath, o) {
   const { data, dir, file } = readBrief(briefPath ?? "brief.json");
   const { brief, errors, warnings } = validateBrief(data, dir);
-  const report = { brief: file, errors, warnings, missing_glyphs: [], timelines: [] };
+  const report = { brief: file, errors, warnings, missing_glyphs: [], media: [], timelines: [] };
+  if (errors.length) return { ok: false, brief, dir, report };
+  // Sizes of images and clips: highlight and zoom boxes are in these pixels.
+  brief.scenes.forEach((s, i) => {
+    const f = s.image ?? s.video;
+    if (!f) return;
+    try {
+      const m = mediaInfo(f);
+      report.media.push({ scene: s.id, file: path.relative(dir, f), width: m.w, height: m.h, seconds: m.duration === null ? null : +m.duration.toFixed(2), audio: m.audio });
+    } catch (e) {
+      errors.push({ path: `$.scenes[${i}]`, message: e.message });
+    }
+  });
   if (errors.length) return { ok: false, brief, dir, report };
   const missing = missingGlyphs(collectText(brief));
   if (missing.length) {
@@ -155,7 +167,7 @@ function check(briefPath, o) {
             warnings.push({ path: `$.scenes.${s.id}.duration`, message: `too short for its animation; using ${s.raised}s instead` });
       }
   } catch (e) {
-    errors.push({ path: "voiceover", message: e.message });
+    errors.push({ path: e.message.startsWith("$.") ? e.message.split(":")[0] : "media/voiceover", message: e.message.startsWith("$.") ? e.message.slice(e.message.indexOf(":") + 2) : e.message });
   }
   return { ok: errors.length === 0, brief, dir, report, langs, formats };
 }
@@ -163,6 +175,7 @@ function check(briefPath, o) {
 function printReport(r) {
   for (const e of r.errors) console.error(`error   ${e.path}: ${e.message}`);
   for (const w of r.warnings) console.error(`warning ${w.path}: ${w.message}`);
+  for (const m of r.media ?? []) console.log(`media ${m.scene}: ${m.file} ${m.width}×${m.height}${m.seconds !== null ? `, ${m.seconds}s${m.audio ? ", has sound" : ""}` : ""}`);
   for (const t of r.timelines) console.log(`${t.lang} ${t.format}: ${t.seconds.toFixed(1)}s, ${t.scenes.length} scenes${t.scenes.some((s) => s.stretched_for_voiceover) ? ` (stretched for voiceover: ${t.scenes.filter((s) => s.stretched_for_voiceover).map((s) => s.id).join(", ")})` : ""}`);
 }
 
