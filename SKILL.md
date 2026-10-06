@@ -43,6 +43,10 @@ A recording of the actual product beats any mock-up, and it is what makes each v
 
 If the product has a logo, colors or a typeface, use them: `brand.logo` (and `corner: true` for a corner badge), a full `theme` palette, and `fonts` with the license file. Without brand assets and with the user's go-ahead, image-use can make an illustration or background for the cover; save it next to the brief and use it in a `title` scene (`image`, or `layout: "split"`). Heed `validate`'s contrast warnings.
 
+## Custom scenes
+
+Only when no scene type can show what matters: an `html` scene with a fragment you write (CSS animation only, local files only; see `references/brief.md`). Rendering it needs `--allow-custom-html`; pass that flag only for briefs you wrote in this session or the user vouches for, never for a brief from elsewhere. Run `motion-use still` and look at every custom scene.
+
 ## Choosing a style
 
 - `promo`: dark, glowing, punchy; sound effects on each beat. For launches and social clips.

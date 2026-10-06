@@ -3,6 +3,8 @@
 // stretches the scene further for voiceover. `cues` are sound effects at
 // scene-relative times. All timing is CSS animation-delay, which HyperFrames
 // seeks frame by frame, so every frame is reproducible.
+import fs from "node:fs";
+import path from "node:path";
 import { anim, esc, lines, sec, typed, withTimeOffset } from "./html.mjs";
 import { fitPx, typeScale } from "./styles.mjs";
 
@@ -327,6 +329,19 @@ const RENDER = {
       content: Math.max(t0 + plays + 0.4, m.end),
       cues: s.highlights.map((hl) => ({ at: t0 + hl.at, sfx: "click", volume: 0.3 })),
     };
+  },
+
+  // Custom HTML, trusted by the user (render needs --allow-custom-html). Relative URLs in
+  // src/href/url() point into the fragment's own folder, which the build copies next to it.
+  html(s, lang, ctx) {
+    const dir = ctx.customDir(path.dirname(s.file));
+    const rel = (u) => (/^(?:[a-z][a-z0-9+.-]*:|\/|#)/i.test(u) ? u : `${dir}/${u.replace(/^\.\//, "")}`);
+    const src = fs
+      .readFileSync(s.file, "utf8")
+      .replace(/(\s(?:src|href|poster)\s*=\s*)(["'])([^"']*)\2/gi, (m, a, q, u) => `${a}${q}${rel(u)}${q}`)
+      .replace(/url\(\s*(["']?)([^"')]+)\1\s*\)/gi, (m, q, u) => `url(${q}${rel(u)}${q})`)
+      .replaceAll("{{lang}}", esc(lang));
+    return { html: `<div class="mu-custom">${src}</div>`, content: 0, cues: [] };
   },
 
   cta(s, lang, ctx) {

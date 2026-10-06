@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { BriefError, FORMATS, STYLES, collectText, readBrief, validateBrief } from "./brief.mjs";
+import { BriefError, FORMATS, STYLES, collectText, customText, readBrief, validateBrief } from "./brief.mjs";
 import { FADE, audioSeconds, buildProject, claimDir, mediaInfo, plan } from "./build.mjs";
 import { missingGlyphs } from "./fonts.mjs";
 import { hyperframesBin, runHyperframes } from "./hf.mjs";
@@ -35,6 +35,9 @@ Options for still/render:
   --max-size <size>   render only: re-encode any MP4 above this size (e.g. 9MB) until it fits
   --target github     render only: same as --max-size 9.5MB (GitHub's inline video limit is 10 MB)
   --force             Overwrite output files motion-use did not write
+  --allow-custom-html Render "html" scenes (custom code; only for briefs you trust)
+  --gpu               Render on the GPU: faster, but frames may differ by invisible noise between runs
+                      (default: software rendering, bit-identical output for the same brief)
   --json              Machine-readable result on stdout
 
 brief defaults to ./brief.json. Docs: references/brief.md`;
@@ -72,6 +75,8 @@ export async function main(argv) {
         check: { type: "boolean" },
         force: { type: "boolean" },
         "install-browser": { type: "boolean" },
+        "allow-custom-html": { type: "boolean" },
+        gpu: { type: "boolean" },
       },
     });
   } catch (e) {
@@ -154,7 +159,7 @@ function check(briefPath, o) {
     }
   });
   if (errors.length) return { ok: false, brief, dir, report };
-  const missing = missingGlyphs(collectText(brief), brief.fonts);
+  const missing = missingGlyphs(collectText(brief) + customText(brief), brief.fonts);
   if (missing.length) {
     report.missing_glyphs = missing;
     warnings.push({ path: "$.scenes", message: `the bundled fonts cannot draw ${missing.map((c) => `"${c}" U+${c.codePointAt(0).toString(16).toUpperCase()}`).join(", ")}; they will use a system font or show as boxes` });
@@ -204,6 +209,13 @@ async function each(briefPath, o, fn) {
     return { code: 1 };
   }
   if (!o.json) for (const w of c.report.warnings) console.error(`warning ${w.path}: ${w.message}`);
+  const custom = c.brief.scenes.filter((s) => s.type === "html");
+  if (custom.length && !o["allow-custom-html"]) {
+    const msg = `this brief has ${custom.length} custom HTML scene(s) (${custom.map((s) => s.id).join(", ")}). They run as code in the renderer: pass --allow-custom-html only for a brief you wrote or trust`;
+    if (o.json) console.log(JSON.stringify({ ok: false, error: msg }, null, 2));
+    else console.error(`motion-use: ${msg}`);
+    return { code: 1 };
+  }
   const out = path.resolve(o.out ?? path.join(c.dir, "out"));
   // Outputs go into subfolders motion-use owns; the brief's own folder is never an output folder.
   const rel = path.relative(out, c.dir);
@@ -267,7 +279,7 @@ async function render(o, [briefPath]) {
     const tmp = path.join(proj.dir, "render.mp4");
     fs.rmSync(tmp, { force: true });
     if (!o.json) console.error(`rendering ${id} (${proj.total.toFixed(1)}s)…`);
-    const hf = await runHyperframes([ "render", proj.dir, "--output", tmp, "--fps", String(proj.fps), "--quality", quality, "--quiet" ].filter(Boolean), {});
+    const hf = await runHyperframes([ "render", proj.dir, "--output", tmp, "--fps", String(proj.fps), "--quality", quality, "--quiet", o.gpu ? "--browser-gpu" : "--no-browser-gpu" ].filter(Boolean), {});
     const ok = hf.code === 0 && fs.existsSync(tmp) && fs.statSync(tmp).size > 0;
     if (!ok) return { ok, id, error: hf.out.trim().split("\n").slice(-15).join("\n") };
     let fitted = null;
@@ -363,7 +375,7 @@ async function still(o, [briefPath]) {
     const times = at ?? proj.scenes.map((s) => Math.min(s.start + s.duration - FADE - 0.1, proj.total - 0.05));
     const dir = path.join(out, "stills", id);
     claimDir(dir);
-    const hf = await runHyperframes(["snapshot", proj.dir, "--at", times.map((t) => t.toFixed(3)).join(","), "--no-end", "--output", dir], {});
+    const hf = await runHyperframes(["snapshot", proj.dir, "--at", times.map((t) => t.toFixed(3)).join(","), "--no-end", "--output", dir, o.gpu ? "--browser-gpu" : "--no-browser-gpu"], {});
     const pngs = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".png")).sort((a, b) => a.localeCompare(b, "en", { numeric: true })).map((f) => path.join(dir, f)) : [];
     if (hf.code !== 0 || pngs.length === 0) return { ok: false, id, error: hf.out.trim().split("\n").slice(-15).join("\n") };
     const sheetFile = path.join(out, "stills", `${id}-sheet.png`);

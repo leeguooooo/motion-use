@@ -88,12 +88,21 @@ Boxes are `[x, y, width, height]` in the source's own pixels; `motion-use valida
 
 Pick boxes by looking at the actual frame: for a video, extract it first (`ffmpeg -ss <seconds> -i clip.mp4 -frames:v 1 frame.png`) and read coordinates off that.
 
+### `html` (custom, opt-in)
+When no scene type fits, write the scene yourself: `file` (an HTML fragment, in a folder of its own, e.g. `scenes/intro/intro.html`) and `duration` (seconds, required).
+- The fragment is the scene's contents: elements and a `<style>` block, not a full document. Animate with CSS `animation` and `animation-delay` in seconds from the scene start; HyperFrames seeks it frame by frame. The style's colors are available as `var(--accent)`, `var(--accent2)`, `var(--text)`, `var(--bg)`, `var(--panel)`, and fonts as `var(--font-sans)` / `var(--font-mono)`.
+- Images and other files go in the same folder and are referenced by relative path; the folder is copied into each build. `{{lang}}` in the fragment becomes the language code.
+- `validate` rejects network URLs and requests, `Date.now`/`Math.random`/timers/`requestAnimationFrame`, and full-document or frame tags.
+- **It is code that runs in the renderer.** `still` and `render` refuse a brief with `html` scenes unless you pass `--allow-custom-html`. Only do that for a brief you wrote or trust; never for one from an unknown source.
+
 ### `cta`
 End card: `title` (product name, large), `subtitle`, `command` (install line), `url`.
 
 ## Reproducibility
 
-Everything is drawn with CSS animation that HyperFrames seeks frame by frame, so the same brief renders the same video, bit for bit. One exception: frames of a `video` scene come from Chrome's video decoder and can differ by invisible amounts between runs (they show the same source frame at the same moment; only pixel noise differs).
+Everything is drawn with CSS animation that HyperFrames seeks frame by frame, and Chrome renders in software (SwiftShader), so the same brief renders the same video, bit for bit, on any machine with the same motion-use version. Two exceptions:
+- Frames of a `video` scene come from Chrome's video decoder and can differ by invisible amounts between runs (the same source frame at the same moment; only pixel noise differs).
+- `--gpu` renders on the GPU instead. It is not bit-reproducible; in our tests it was no faster.
 
 ## Cover
 

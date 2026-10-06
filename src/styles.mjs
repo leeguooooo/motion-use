@@ -153,6 +153,7 @@ html, body { margin: 0; background: var(--bg); }
 @keyframes mu-zoom-back { from { transform: translate(var(--zx), var(--zy)) scale(var(--zs)); } to { transform: none; } }
 .mu-logo { display: block; max-height: ${px(fmt.vertical ? 150 : 130)}; max-width: ${px(520)}; object-fit: contain; }
 .mu-corner-logo { position: absolute; z-index: 5; right: ${pad.r}px; bottom: ${Math.round(pad.b * (fmt.vertical ? 0.5 : 0.45))}px; height: ${px(54)}; max-width: ${px(220)}; object-fit: contain; opacity: .85; }
+.mu-custom { position: relative; width: 100%; height: 100%; }
 @keyframes mu-show { from { opacity: 0; } to { opacity: 1; } }
 @keyframes mu-up { from { opacity: 0; transform: translateY(${px(36)}); } to { opacity: 1; transform: none; } }
 @keyframes mu-pop { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: none; } }

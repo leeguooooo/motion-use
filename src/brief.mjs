@@ -6,7 +6,24 @@ import path from "node:path";
 export const STYLES = ["promo", "explainer"];
 export const FORMATS = { landscape: [1920, 1080], vertical: [1080, 1920] };
 export const FPS_VALUES = [24, 25, 30, 60];
-export const SCENE_TYPES = ["title", "terminal", "steps", "diagram", "features", "image", "video", "stat", "compare", "kinetic", "code", "cta"];
+export const SCENE_TYPES = ["title", "terminal", "steps", "diagram", "features", "image", "video", "stat", "compare", "kinetic", "code", "html", "cta"];
+
+/**
+ * Problems in a custom HTML scene that break the rules every other scene keeps: no network,
+ * and the same picture for the same frame on every render. Returns [{rule, match}].
+ */
+export function lintCustomHtml(src) {
+  const RULES = [
+    ["network", /\b(?:https?:)?\/\/[\w.-]+\.[a-z]{2,}/gi],
+    ["network", /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|navigator\.sendBeacon)\b/g],
+    ["nondeterministic", /\b(?:Date\.now|new\s+Date|performance\.now|Math\.random|crypto\.getRandomValues)\b/g],
+    ["nondeterministic", /\b(?:setTimeout|setInterval|requestAnimationFrame|requestIdleCallback)\b/g],
+    ["structure", /<\s*\/?\s*(?:html|head|body|base|meta|iframe|frame|object|embed)\b/gi],
+  ];
+  const out = [];
+  for (const [rule, re] of RULES) for (const m of src.matchAll(re)) out.push({ rule, match: m[0] });
+  return out;
+}
 export const TRANSITIONS = ["fade", "slide", "wipe", "zoom", "cut"];
 // Layout variants per scene type (without one, each style picks its own default).
 export const LAYOUTS = { title: ["center", "left", "split"], features: ["pills", "grid", "list"] };
@@ -110,8 +127,12 @@ export class BriefError extends Error {}
  * Validate and normalize. Returns { brief, errors, warnings }; `brief` is only
  * safe to use when errors is empty.
  */
+const BASES = new WeakMap();
+const baseDirOf = (r) => BASES.get(r);
+
 export function validateBrief(data, baseDir) {
   const r = new Report();
+  BASES.set(r, baseDir);
   if (!isObj(data)) {
     r.error("$", "the brief must be a JSON object");
     return { brief: null, errors: r.errors, warnings: r.warnings };
@@ -471,6 +492,20 @@ const SCENE_FIELDS = {
     if (typeof out.audio !== "boolean") r.error(`${p}.audio`, "true keeps the clip's own sound (default false: music and narration only)");
     annotations(s, out, p, ctx);
   },
+  html(s, out, p, { r, file }) {
+    out.file = file(s.file, `${p}.file`, [".html", ".htm"], "HTML fragment");
+    if (!Number.isFinite(s.duration)) r.error(`${p}.duration`, "required for an html scene: seconds, 1 to 60 (motion-use cannot tell how long your animation runs)");
+    // Its folder is copied into every build, so it must be a folder of its own.
+    if (out.file && path.resolve(path.dirname(out.file)) === path.resolve(baseDirOf(r))) r.error(`${p}.file`, "put the fragment and its files in a folder of their own (e.g. scenes/intro/intro.html); that whole folder is copied into the build");
+    if (out.file && fs.existsSync(out.file)) {
+      const src = fs.readFileSync(out.file, "utf8");
+      if (src.length > 200000) r.error(`${p}.file`, "larger than 200 KB; keep a scene fragment small and put media in files next to it");
+      for (const issue of lintCustomHtml(src)) {
+        const why = { network: "rendering never touches the network; use local files", nondeterministic: "use CSS animation with animation-delay instead (seconds from the scene start), so every frame is reproducible", structure: "write a fragment (the scene's contents), not a full document or embedded frame" }[issue.rule];
+        r.error(`${p}.file`, `${issue.rule}: "${issue.match}": ${why}`);
+      }
+    }
+  },
   cta(s, out, p, { text }) {
     out.title = text(s.title, `${p}.title`, { max: 40 });
     out.subtitle = text(s.subtitle, `${p}.subtitle`, { required: false, max: 160 });
@@ -478,6 +513,14 @@ const SCENE_FIELDS = {
     out.url = text(s.url, `${p}.url`, { required: false, max: 80 });
   },
 };
+
+/** Visible text of custom HTML scenes (tags, styles and scripts removed), for font subsetting. */
+export function customText(brief) {
+  return brief.scenes
+    .filter((s) => s.type === "html" && s.file && fs.existsSync(s.file))
+    .map((s) => fs.readFileSync(s.file, "utf8").replace(/<(style|script)[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]*>/g, " ").replace(/&[a-z#0-9]+;/gi, " "))
+    .join("\n");
+}
 
 /** Every string in the brief that will be drawn for these languages (for font subsetting and coverage checks). */
 export function collectText(brief, langs = brief.languages) {

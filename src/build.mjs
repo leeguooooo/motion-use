@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { FORMATS, collectText } from "./brief.mjs";
+import { FORMATS, collectText, customText } from "./brief.mjs";
 import { writeSubsets } from "./fonts.mjs";
 import { esc, sec } from "./html.mjs";
 import { writeMusic } from "./music.mjs";
@@ -91,7 +91,12 @@ export function plan(brief, lang, format, opts = {}) {
   };
   const posters = [];
   const logo = brief.brand?.logo ? asset(brief.brand.logo) : null;
-  const ctx = { fmt, pad, style: brief.style, asset, media, logo, poster: (abs, at) => {
+  const customDirs = new Map();
+  const customDir = (abs) => {
+    if (!customDirs.has(abs)) customDirs.set(abs, `assets/custom/${customDirs.size}`);
+    return customDirs.get(abs);
+  };
+  const ctx = { fmt, pad, style: brief.style, asset, media, logo, customDir, poster: (abs, at) => {
     // The last frame of a clip, shown under the video so the scene never goes black after it ends.
     const rel = `assets/media/poster-${posters.length}.png`;
     posters.push({ abs, at, rel });
@@ -111,7 +116,7 @@ export function plan(brief, lang, format, opts = {}) {
     return out;
   });
   const total = Math.round((start + FADE) * 1000) / 1000;
-  return { lang, format, fmt, pad, scenes, total, assets, posters, logo };
+  return { lang, format, fmt, pad, scenes, total, assets, posters, logo, customDirs };
 }
 
 export const BUILD_MARK = ".motion-use-build";
@@ -133,6 +138,8 @@ export async function buildProject(brief, lang, format, outDir, opts = {}) {
   fs.mkdirSync(path.join(outDir, "assets", "audio"), { recursive: true });
 
   for (const [abs, rel] of p.assets) fs.copyFileSync(abs, path.join(outDir, rel));
+  // A custom HTML scene's folder, minus HTML files and anything hidden.
+  for (const [abs, rel] of p.customDirs) fs.cpSync(abs, path.join(outDir, rel), { recursive: true, filter: (f) => !path.basename(f).startsWith(".") && !/\.html?$/i.test(f) && !["node_modules", "out"].includes(path.basename(f)) });
   for (const ps of p.posters) {
     try {
       execFileSync("ffmpeg", ["-v", "error", "-y", "-ss", String(Math.max(0, ps.at)), "-i", ps.abs, "-frames:v", "1", path.join(outDir, ps.rel)], { stdio: ["ignore", "ignore", "pipe"] });
@@ -140,7 +147,7 @@ export async function buildProject(brief, lang, format, outDir, opts = {}) {
       throw new Error(`cannot extract a frame from ${ps.abs}: ${e.code === "ENOENT" ? "ffmpeg not found" : e.stderr?.toString().trim()}`);
     }
   }
-  const fontSizes = await writeSubsets(collectText(brief, [lang]), path.join(outDir, "assets", "fonts"), brief.fonts ?? {});
+  const fontSizes = await writeSubsets(collectText(brief, [lang]) + customText(brief), path.join(outDir, "assets", "fonts"), brief.fonts ?? {});
   // The subsets are modified fonts; their license travels with them.
   for (const f of fs.readdirSync(FONT_DIR).filter((f) => f.startsWith("OFL-"))) fs.copyFileSync(path.join(FONT_DIR, f), path.join(outDir, "assets", "fonts", f));
 
