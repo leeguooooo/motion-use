@@ -9,6 +9,7 @@ import { FADE, audioSeconds, buildProject, claimDir, plan } from "./build.mjs";
 import { missingGlyphs } from "./fonts.mjs";
 import { hyperframesBin, runHyperframes } from "./hf.mjs";
 import { maybeNotify, upgrade } from "./update.mjs";
+import { edgeAvailable, edgeGenerated, generateVoiceover, pickEngine } from "./voiceover.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
@@ -19,6 +20,7 @@ Usage: motion-use <command> [options]
 
   init [dir]          Write a starter brief.json (--style promo|explainer, --name, --lang zh,en, --format landscape,vertical)
   validate [brief]    Check a brief: fields, files, voiceover lengths, characters the fonts cannot draw
+  voiceover [brief]   Speak each scene's "narration" into voiceover/<lang>/<scene-id>.mp3 (--engine azure|edge)
   still [brief]       Render keyframes as PNGs plus a contact sheet (--at 1.5,4 for exact seconds)
   render [brief]      Render MP4s for every language and format in the brief
   doctor              Check Node, ffmpeg, Chrome and the bundled engine (--install-browser fetches Chrome)
@@ -29,6 +31,8 @@ Options for still/render:
   --format vertical   Only these formats (default: all in the brief)
   --out <dir>         Output directory (default: <brief dir>/out)
   --quality <q>       render only: draft | standard | high (default: standard)
+  --max-size <size>   render only: re-encode any MP4 above this size (e.g. 9MB) until it fits
+  --target github     render only: same as --max-size 9.5MB (GitHub's inline video limit is 10 MB)
   --force             Overwrite output files motion-use did not write
   --json              Machine-readable result on stdout
 
@@ -44,7 +48,7 @@ export async function main(argv) {
   const [cmd, ...rest] = argv;
   if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") return console.log(HELP), 0;
   if (cmd === "--version" || cmd === "-v" || cmd === "version") return console.log(VERSION), 0;
-  const commands = { init, validate, still, render, doctor, upgrade: upgradeCmd };
+  const commands = { init, validate, voiceover, still, render, doctor, upgrade: upgradeCmd };
   if (!Object.hasOwn(commands, cmd)) return fail(`unknown command "${cmd}". Run motion-use --help`);
   let args;
   try {
@@ -59,6 +63,9 @@ export async function main(argv) {
         out: { type: "string" },
         at: { type: "string" },
         quality: { type: "string" },
+        engine: { type: "string" },
+        "max-size": { type: "string" },
+        target: { type: "string" },
         json: { type: "boolean" },
         check: { type: "boolean" },
         force: { type: "boolean" },
@@ -191,7 +198,7 @@ async function each(briefPath, o, fn) {
     for (const f of c.formats) {
       const id = `${c.brief.name}-${l}-${f}`;
       const proj = await buildProject(c.brief, l, f, path.join(out, ".build", id));
-      results.push(await fn(proj, id, out));
+      results.push(await fn(proj, id, out, c.brief));
     }
   return { code: results.every((r) => r.ok) ? 0 : 1, results, warnings: c.report.warnings };
 }
@@ -227,7 +234,13 @@ async function render(o, [briefPath]) {
   const q = o.quality ?? "standard";
   const quality = Object.hasOwn(QUALITY, q) ? QUALITY[q] : null;
   if (!quality) return fail("--quality must be draft, standard or high", o.json);
-  const r = await each(briefPath, o, async (proj, id, out) => {
+  const TARGETS = { github: "9.5MB" };
+  if (o.target && !Object.hasOwn(TARGETS, o.target)) return fail(`--target must be one of: ${Object.keys(TARGETS).join(", ")}`, o.json);
+  const maxBytes = parseSize(o["max-size"] ?? (o.target ? TARGETS[o.target] : null));
+  if (maxBytes === undefined) return fail('--max-size takes a size like 9MB, 9.5M or 9000000', o.json);
+  const r = await each(briefPath, o, async (proj, id, out, brief) => {
+    const edgeFiles = edgeGenerated(brief, proj.lang);
+    if (edgeFiles.length && !o.json) console.error(`motion-use: ${id} uses ${edgeFiles.length} voiceover file(s) made with edge-tts: preview quality, and whether they may be published is not established. For a public video, regenerate with --engine azure.`);
     const file = path.join(out, `${id}.mp4`);
     const blocked = guardOutput(out, file, o.force);
     if (blocked) return { ok: false, id, error: blocked };
@@ -237,13 +250,89 @@ async function render(o, [briefPath]) {
     const hf = await runHyperframes([ "render", proj.dir, "--output", tmp, "--fps", String(proj.fps), "--quality", quality, "--quiet" ].filter(Boolean), {});
     const ok = hf.code === 0 && fs.existsSync(tmp) && fs.statSync(tmp).size > 0;
     if (!ok) return { ok, id, error: hf.out.trim().split("\n").slice(-15).join("\n") };
+    let fitted = null;
+    if (maxBytes && fs.statSync(tmp).size > maxBytes) {
+      fitted = fitSize(tmp, maxBytes, proj.dir);
+      if (!fitted.ok) return { ok: false, id, error: fitted.error };
+    }
+    const bytes = fs.statSync(tmp).size;
     commitOutput(out, tmp, file);
-    if (!o.json) console.log(file);
-    return { ok, id, file, seconds: proj.total, lang: proj.lang, format: proj.format };
+    if (!o.json && bytes > 10e6) console.error(`motion-use: ${path.basename(file)} is ${mb(bytes)}; GitHub plays videos inline only up to 10 MB (use --target github)`);
+    if (!o.json) console.log(`${file}  ${mb(bytes)}${fitted ? ` (re-encoded at CRF ${fitted.crf} to fit)` : ""}`);
+    // Frame 0 as a PNG: the cover to upload where a platform asks for one.
+    const coverFile = path.join(out, `${id}-cover.png`);
+    let cover = null;
+    if (!guardOutput(out, coverFile, o.force)) {
+      const tmpCover = path.join(proj.dir, "cover.png");
+      try {
+        execFileSync("ffmpeg", ["-v", "error", "-y", "-i", file, "-frames:v", "1", tmpCover], { stdio: ["ignore", "ignore", "pipe"] });
+        commitOutput(out, tmpCover, coverFile);
+        cover = coverFile;
+      } catch (e) {
+        console.error(`motion-use: cover image not created (${e.code === "ENOENT" ? "ffmpeg not found" : e.stderr?.toString().trim()})`);
+      }
+    } else console.error(`motion-use: cover image skipped: ${guardOutput(out, coverFile, o.force)}`);
+    return { ok, id, file, cover, bytes, refit_crf: fitted?.crf ?? null, edge_voiceover: edgeFiles.length, seconds: proj.total, lang: proj.lang, format: proj.format };
   });
   if (o.json && r.results) console.log(JSON.stringify({ ok: r.code === 0, outputs: r.results, warnings: r.warnings }, null, 2));
   else for (const x of r.results ?? []) if (!x.ok) console.error(`motion-use: render failed for ${x.id}:\n${x.error}`);
   return r.code;
+}
+
+const mb = (b) => `${(b / 1e6).toFixed(1)} MB`;
+
+/** "9MB" / "9.5M" / "9000000" -> bytes (1 MB = 1,000,000 bytes). null when not given, undefined when invalid. */
+export function parseSize(s) {
+  if (s === null || s === undefined) return null;
+  const m = /^(\d+(?:\.\d+)?)\s*(k|kb|m|mb|g|gb)?$/i.exec(String(s).trim());
+  if (!m) return undefined;
+  const mult = { k: 1e3, kb: 1e3, m: 1e6, mb: 1e6, g: 1e9, gb: 1e9 }[(m[2] ?? "").toLowerCase()] ?? 1;
+  const n = Math.round(Number(m[1]) * mult);
+  return n >= 100e3 ? n : undefined;
+}
+
+/**
+ * Re-encode `file` in place with rising x264 CRF until it is at most `max` bytes.
+ * Motion-use frames are mostly flat text and shapes, so this usually shrinks a file
+ * severalfold with no visible change.
+ */
+function fitSize(file, max, workDir) {
+  const tmp = path.join(workDir, "fit.mp4");
+  for (const crf of [23, 26, 28, 30, 33, 36]) {
+    try {
+      execFileSync("ffmpeg", ["-v", "error", "-y", "-i", file, "-c:v", "libx264", "-preset", "slow", "-crf", String(crf), "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", tmp], { stdio: ["ignore", "ignore", "pipe"] });
+    } catch (e) {
+      return { ok: false, error: `re-encoding failed: ${e.code === "ENOENT" ? "ffmpeg not found" : e.stderr?.toString().trim()}` };
+    }
+    if (fs.statSync(tmp).size <= max) {
+      fs.renameSync(tmp, file);
+      return { ok: true, crf };
+    }
+  }
+  return { ok: false, error: `cannot get under ${mb(max)} even at CRF 36 (${mb(fs.statSync(tmp).size)}); shorten the video or raise --max-size` };
+}
+
+async function voiceover(o, [briefPath]) {
+  // The folder may not exist yet on a first run: create it so validation passes.
+  const { data, dir } = readBrief(briefPath ?? "brief.json");
+  if (typeof data?.voiceover?.dir === "string") fs.mkdirSync(path.resolve(dir, data.voiceover.dir), { recursive: true });
+  const { brief, errors, warnings } = validateBrief(data, dir);
+  if (errors.length) {
+    if (o.json) console.log(JSON.stringify({ ok: false, errors, warnings }, null, 2));
+    else printReport({ errors, warnings, timelines: [] });
+    return 1;
+  }
+  if (o.engine && !["azure", "edge"].includes(o.engine)) return fail("--engine must be azure or edge", o.json);
+  const langs = list(o.lang) ?? brief.languages;
+  if (!brief.scenes.some((s) => s.narration)) return fail('no scene has "narration" text; add it to the scenes you want spoken', o.json);
+  const res = await generateVoiceover(brief, { langs, engine: o.engine, force: o.force, log: o.json ? () => {} : (m) => console.error(m) });
+  const failed = res.rows.filter((r) => r.status === "error");
+  if (o.json) console.log(JSON.stringify({ ok: failed.length === 0, engine: res.engine, files: res.rows }, null, 2));
+  else {
+    for (const r of res.rows) console.log(`${r.status.padEnd(9)} ${path.relative(process.cwd(), r.file)}${r.reason ? `  (${r.reason})` : ""}${r.error ? `  ${r.error}` : ""}`);
+    if (res.engine === "edge") console.error("note: edge-tts is preview quality and its audio is not cleared for publishing; for a public video use --engine azure (AZURE_SPEECH_KEY, AZURE_SPEECH_REGION).");
+  }
+  return failed.length ? 1 : 0;
 }
 
 async function still(o, [briefPath]) {
@@ -314,10 +403,19 @@ async function doctor(o) {
     add("chrome", r.code === 0 && p && fs.existsSync(p), r.code === 0 ? p : "no Chrome found for rendering", "run: motion-use doctor --install-browser (downloads Chrome for rendering), or install Google Chrome");
   }
   for (const f of ["NotoSansSC[wght].ttf", "JetBrainsMono[wght].ttf"]) add(`font ${f}`, fs.existsSync(path.join(ROOT, "assets", "fonts", f)), "bundled", "reinstall motion-use");
+  // Voiceover engines are optional: reported, never a failure.
+  const azureReady = Boolean(process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION);
+  const optional = [
+    { name: "voiceover azure", ok: azureReady, detail: azureReady ? `region ${process.env.AZURE_SPEECH_REGION}` : "not configured (optional): set AZURE_SPEECH_KEY and AZURE_SPEECH_REGION" },
+    { name: "voiceover edge", ok: edgeAvailable(), detail: edgeAvailable() ? "edge-tts found (preview only)" : "not installed (optional): pip install edge-tts" },
+  ];
+  const defaultEngine = pickEngine();
   const ok = checks.every((c) => c.ok);
-  if (o.json) console.log(JSON.stringify({ ok, version: VERSION, checks }, null, 2));
+  if (o.json) console.log(JSON.stringify({ ok, version: VERSION, checks, optional, voiceover_default_engine: defaultEngine }, null, 2));
   else {
     for (const c of checks) console.log(`${c.ok ? "ok  " : "FAIL"} ${c.name.padEnd(28)} ${c.detail}${c.fix ? `\n     fix: ${c.fix}` : ""}`);
+    for (const c of optional) console.log(`${c.ok ? "ok  " : "--  "} ${c.name.padEnd(28)} ${c.detail}`);
+    console.log(`voiceover default engine: ${defaultEngine}`);
     console.log(ok ? "all good" : "some checks failed");
   }
   return ok ? 0 : 1;

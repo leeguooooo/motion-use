@@ -3,4 +3,7 @@ dist/
 out/
 .DS_Store
 .env
+# Generated narration in examples: regenerate with `motion-use voiceover` (edge-tts output is not cleared for publishing)
+examples/*/voiceover/*/*.mp3
+examples/*/voiceover/.motion-use-voiceover.json
 .env.*

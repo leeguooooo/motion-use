@@ -12,6 +12,10 @@ const IMAGE_EXT = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"];
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const LANG_RE = /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/;
 export const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+export const VO_ENGINES = ["azure", "edge"];
+const VOICE_RE = /^[A-Za-z]{2,3}-[A-Za-z]{2,4}(-[A-Za-z]+)?-[A-Za-z0-9]+(Neural|MultilingualNeural|HDNeural)?$/;
+const RATE_RE = /^[+-]\d{1,3}%$/;
+const langsFor = (data) => (Array.isArray(data.languages) ? data.languages.filter((l) => typeof l === "string") : ["en"]);
 export const THEME_KEYS = ["accent", "background", "text"];
 const TONES = ["ok", "warn", "dim", "error"];
 
@@ -59,7 +63,7 @@ export function validateBrief(data, baseDir) {
     r.error("$", "the brief must be a JSON object");
     return { brief: null, errors: r.errors, warnings: r.warnings };
   }
-  const known = ["$schema", "version", "name", "style", "languages", "formats", "fps", "theme", "music", "sfx", "voiceover", "product", "scenes"];
+  const known = ["$schema", "version", "name", "style", "languages", "formats", "fps", "cover", "theme", "music", "sfx", "voiceover", "product", "scenes"];
   for (const k of Object.keys(data)) if (!known.includes(k)) r.warn(`$.${k}`, `unknown field, ignored (known: ${known.join(", ")})`);
 
   if (data.version !== 1) r.error("$.version", "must be 1");
@@ -137,6 +141,9 @@ export function validateBrief(data, baseDir) {
     music = { kind: "file", file: file(music.file, "$.music.file", AUDIO_EXT, "audio"), volume };
   } else r.error("$.music", '"builtin", "none", or {"file": "path", "volume": 0.5}');
 
+  const cover = data.cover ?? "first-scene";
+  if (!["first-scene", "animate"].includes(cover)) r.error("$.cover", '"first-scene" (frame 0 shows the finished first scene) or "animate" (it animates in from an empty frame)');
+
   const sfx = data.sfx ?? true;
   if (typeof sfx !== "boolean") r.error("$.sfx", "true or false");
 
@@ -155,7 +162,26 @@ export function validateBrief(data, baseDir) {
           if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) r.error("$.voiceover.dir", `directory not found: ${dir}`);
         }
       }
-      voiceover = { dir, volume };
+      // Generated narration (`motion-use voiceover`): engine, voice per language, speaking rate.
+      const engine = vo.engine ?? null;
+      if (engine !== null && !VO_ENGINES.includes(engine)) r.error("$.voiceover.engine", `one of: ${VO_ENGINES.join(", ")}`);
+      const voices = {};
+      if (vo.voices !== undefined) {
+        if (!isObj(vo.voices)) r.error("$.voiceover.voices", 'an object of voice names per language, like {"zh": "zh-CN-YunxiNeural"}');
+        else
+          for (const [l, v] of Object.entries(vo.voices)) {
+            if (typeof v !== "string" || !VOICE_RE.test(v)) r.error(`$.voiceover.voices.${l}`, 'a voice name like "zh-CN-YunxiNeural"');
+            else voices[l] = v;
+          }
+      }
+      const rates = {};
+      if (vo.rate !== undefined) {
+        const one = typeof vo.rate === "string";
+        const entries = one ? langsFor(data).map((l) => [l, vo.rate]) : isObj(vo.rate) ? Object.entries(vo.rate) : null;
+        if (!entries) r.error("$.voiceover.rate", 'a rate like "+8%", or one per language like {"zh": "+8%"}');
+        else for (const [l, v] of entries) typeof v === "string" && RATE_RE.test(v) ? (rates[l] = v) : r.error(one ? "$.voiceover.rate" : `$.voiceover.rate.${l}`, 'a percentage like "+8%" or "-5%"');
+      }
+      voiceover = { dir, volume, engine, voices, rates };
     }
   }
 
@@ -190,6 +216,7 @@ export function validateBrief(data, baseDir) {
           }
         }
       }
+      scene.narration = text(s.narration, `${p}.narration`, { required: false, max: 600 });
       SCENE_FIELDS[s.type](s, scene, p, { r, text, file });
       scenes.push(scene);
     });
@@ -211,7 +238,7 @@ export function validateBrief(data, baseDir) {
     }
   }
 
-  const brief = { version: 1, name, style, languages: langs, formats, fps, theme, music, sfx, voiceover, product: isObj(product) ? product : {}, scenes };
+  const brief = { version: 1, name, style, languages: langs, formats, fps, cover, theme, music, sfx, voiceover, product: isObj(product) ? product : {}, scenes };
   return { brief, errors: r.errors, warnings: r.warnings };
 }
 
@@ -234,6 +261,8 @@ const SCENE_FIELDS = {
     const panes = arr(s.panes ?? [{ label: "Terminal" }], `${p}.panes`, r, 1, 2, "panes");
     out.panes = panes.map((pane, i) => ({
       label: text(pane?.label, `${p}.panes[${i}].label`, { max: 40 }),
+      // What precedes a typed line: "$" for a shell, ">" for an agent chat like Claude Code.
+      prompt: pane?.prompt === undefined ? "$" : typeof pane.prompt === "string" && pane.prompt.length <= 3 ? pane.prompt : (r.error(`${p}.panes[${i}].prompt`, 'up to 3 characters, e.g. "$" or ">"'), "$"),
       accent: pane?.accent !== undefined && !HEX_RE.test(pane.accent) ? (r.error(`${p}.panes[${i}].accent`, "a 6-digit hex color"), undefined) : pane?.accent,
     }));
     out.lines = arr(s.lines, `${p}.lines`, r, 1, 14, "lines").map((line, i) => {
@@ -306,7 +335,7 @@ export function collectText(brief, langs = brief.languages) {
         for (const l of langs) if (v[l]) out.push(v[l]);
         return;
       }
-      for (const [k, val] of Object.entries(v)) if (!["id", "type", "image", "voiceover", "accent", "kind", "tone", "from", "to", "pane"].includes(k)) walk(val);
+      for (const [k, val] of Object.entries(v)) if (!["id", "type", "image", "voiceover", "narration", "accent", "kind", "tone", "from", "to", "pane"].includes(k)) walk(val);
     }
   };
   walk(brief.scenes);

@@ -1,0 +1,149 @@
+// `motion-use voiceover`: turn each scene's `narration` into voiceover/<lang>/<scene-id>.mp3.
+//
+// Engines:
+//   azure  Azure AI Speech REST API (AZURE_SPEECH_KEY, AZURE_SPEECH_REGION). Licensed for publishing.
+//   edge   the `edge-tts` CLI, which uses the Microsoft Edge read-aloud service. Same voices,
+//          but whether its audio may be published is not established: treat it as a preview.
+//
+// Files motion-use generates are recorded in <dir>/.motion-use-voiceover.json (hash, text,
+// engine, voice). A file that is not recorded there, or changed since, is a recording the
+// user made: it is never overwritten without --force.
+import { execFileSync, spawnSync } from "node:child_process";
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+
+export const DEFAULT_VOICES = { zh: "zh-CN-YunxiNeural", en: "en-US-AndrewMultilingualNeural" };
+export const MANIFEST = ".motion-use-voiceover.json";
+const sha = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
+
+const xml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+
+/** SSML for one line. Exported for tests: narration text must never become markup. */
+export function ssml(text, voice, rate = "+0%") {
+  const lang = voice.split("-").slice(0, 2).join("-");
+  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${xml(lang)}"><voice name="${xml(voice)}"><prosody rate="${xml(rate)}">${xml(text)}</prosody></voice></speak>`;
+}
+
+export function pickEngine(requested) {
+  if (requested) return requested;
+  return process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION ? "azure" : "edge";
+}
+
+async function azure(text, voice, rate, out) {
+  const key = process.env.AZURE_SPEECH_KEY;
+  const region = process.env.AZURE_SPEECH_REGION;
+  if (!key || !region) throw new Error("the azure engine needs AZURE_SPEECH_KEY and AZURE_SPEECH_REGION");
+  const res = await fetch(`https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+    method: "POST",
+    headers: {
+      "Ocp-Apim-Subscription-Key": key,
+      "Content-Type": "application/ssml+xml",
+      "X-Microsoft-OutputFormat": "audio-24khz-96kbitrate-mono-mp3",
+      "User-Agent": "motion-use",
+    },
+    body: ssml(text, voice, rate),
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!res.ok) throw new Error(`Azure Speech returned ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  fs.writeFileSync(out, Buffer.from(await res.arrayBuffer()));
+}
+
+function edge(text, voice, rate, out) {
+  const r = spawnSync("edge-tts", ["--voice", voice, `--rate=${rate}`, "--text", text, "--write-media", out], { encoding: "utf8" });
+  if (r.error?.code === "ENOENT") throw new Error("edge-tts is not installed (pip install edge-tts, or uv tool install edge-tts)");
+  if (r.status !== 0) throw new Error(`edge-tts failed: ${(r.stderr || r.stdout).trim().split("\n").pop()}`);
+}
+
+export function readVoManifest(dir) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dir, MANIFEST), "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Generate missing or outdated narration audio. Returns one row per scene × language.
+ * A scene without narration text for a language is skipped (a recording can still go there).
+ */
+export async function generateVoiceover(brief, { langs = brief.languages, engine: requested, force = false, log = () => {} } = {}) {
+  const vo = brief.voiceover;
+  if (!vo?.dir) throw new Error('the brief has no voiceover folder; add "voiceover": {"dir": "voiceover"}');
+  const engine = pickEngine(requested ?? vo.engine);
+  const manifest = readVoManifest(vo.dir);
+  const rows = [];
+  for (const lang of langs) {
+    const voice = vo.voices[lang] ?? DEFAULT_VOICES[lang];
+    const rate = vo.rates[lang] ?? "+0%";
+    for (const scene of brief.scenes) {
+      const text = scene.narration?.[lang];
+      if (!text) continue;
+      const rel = path.join(lang, `${scene.id}.mp3`);
+      const out = path.join(vo.dir, rel);
+      const row = { scene: scene.id, lang, file: out, engine, voice };
+      if (!voice) {
+        rows.push({ ...row, status: "error", error: `no voice for "${lang}"; set voiceover.voices.${lang}` });
+        continue;
+      }
+      // Another recording for this scene (e.g. scene.wav) would be picked up instead of the mp3.
+      const other = [".wav", ".m4a", ".aac", ".ogg"].map((e) => path.join(vo.dir, lang, scene.id + e)).find((f) => fs.existsSync(f));
+      if (other && !force) {
+        rows.push({ ...row, status: "kept", reason: `${path.basename(other)} already exists for this scene` });
+        continue;
+      }
+      const rec = manifest[rel];
+      const want = { text, engine, voice, rate };
+      if (fs.existsSync(out)) {
+        const mine = rec && rec.sha === sha(fs.readFileSync(out));
+        if (!mine && !force) {
+          rows.push({ ...row, status: "kept", reason: "a recording that motion-use did not make (use --force to replace it)" });
+          continue;
+        }
+        if (mine && rec.text === text && rec.engine === engine && rec.voice === voice && rec.rate === rate) {
+          rows.push({ ...row, status: "unchanged" });
+          continue;
+        }
+      }
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      const tmp = `${out}.partial.mp3`;
+      try {
+        log(`${lang}/${scene.id}: ${engine} ${voice}`);
+        if (engine === "azure") await azure(text, voice, rate, tmp);
+        else edge(text, voice, rate, tmp);
+        if (!fs.existsSync(tmp) || fs.statSync(tmp).size === 0) throw new Error("no audio was written");
+        fs.renameSync(tmp, out);
+      } catch (e) {
+        fs.rmSync(tmp, { force: true });
+        rows.push({ ...row, status: "error", error: e.message });
+        continue;
+      }
+      manifest[rel] = { ...want, sha: sha(fs.readFileSync(out)) };
+      rows.push({ ...row, status: "generated" });
+    }
+  }
+  fs.writeFileSync(path.join(vo.dir, MANIFEST), JSON.stringify(manifest, null, 2) + "\n");
+  return { engine, rows };
+}
+
+/** Voiceover files in use that came from the edge engine (for the publish warning in render). */
+export function edgeGenerated(brief, lang) {
+  if (!brief.voiceover?.dir) return [];
+  const manifest = readVoManifest(brief.voiceover.dir);
+  return brief.scenes
+    .map((s) => s.voiceover?.[lang])
+    .filter(Boolean)
+    .filter((f) => {
+      const rec = manifest[path.relative(brief.voiceover.dir, f)];
+      return rec?.engine === "edge" && fs.existsSync(f) && rec.sha === sha(fs.readFileSync(f));
+    });
+}
+
+export function edgeAvailable() {
+  try {
+    execFileSync("edge-tts", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}

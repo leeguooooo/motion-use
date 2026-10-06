@@ -48,7 +48,7 @@ export function plan(brief, lang, format, { probe = audioSeconds } = {}) {
   const ctx = { fmt, pad, style: brief.style, asset };
   let start = 0;
   const scenes = brief.scenes.map((scene, i) => {
-    const r = renderScene(scene, lang, ctx);
+    const r = renderScene(scene, lang, ctx, { cover: i === 0 && brief.cover === "first-scene" });
     const voFile = scene.voiceover?.[lang];
     const vo = voFile ? probe(voFile) : 0;
     // An explicit duration never cuts off the scene's own animation.

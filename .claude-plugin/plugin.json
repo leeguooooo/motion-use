@@ -1,9 +1,13 @@
 {
   "name": "motion-use",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Promo and explainer videos from a JSON brief: zh/en, landscape/vertical, timed to your voiceover, rendered locally to MP4. Part of the *-use family.",
-  "author": { "name": "leeguooooo" },
+  "author": {
+    "name": "leeguooooo"
+  },
   "homepage": "https://github.com/leeguooooo/motion-use",
   "license": "MIT",
-  "skills": ["./"]
+  "skills": [
+    "./"
+  ]
 }

@@ -46,6 +46,11 @@ test("media must be local files that exist", () => {
   assert.ok(errs(base({ voiceover: { dir: "file.txt" } })).includes("$.voiceover.dir"));
 });
 
+test("cover accepts first-scene or animate", () => {
+  assert.equal(validateBrief(base(), tmp).brief.cover, "first-scene");
+  assert.ok(errs(base({ cover: "black" })).includes("$.cover"));
+});
+
 test("scene ids, types, numbers and diagram references are checked", () => {
   assert.ok(errs(base({ scenes: [{ id: "A B", type: "title", title: "x" }] })).includes("$.scenes[0].id"));
   assert.ok(errs(base({ scenes: [{ type: "nope" }] })).includes("$.scenes[0].type"));

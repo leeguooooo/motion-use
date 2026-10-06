@@ -31,10 +31,22 @@ test("voiceover stretches its scene and never overlaps the next one", () => {
 
 test("an explicit duration never cuts off a scene's animation", () => {
   const long = "x".repeat(150);
-  const b = brief([{ id: "t", type: "terminal", duration: 1, lines: [{ cmd: long }] }]);
+  const b = brief([{ id: "t", type: "terminal", duration: 1, lines: [{ cmd: long }] }], { cover: "animate" });
   const p = plan(b, "en", "landscape");
   assert.ok(p.scenes[0].duration > 150 / 28);
   assert.ok(p.scenes[0].raised);
+});
+
+test("the first scene is the cover: finished at frame 0; later scenes still animate in", () => {
+  const scenes = [{ id: "a", type: "terminal", title: "Cover", lines: [{ cmd: "make it" }, { out: "done" }] }, { id: "b", type: "title", title: "Next" }];
+  const delays = (html) => [...html.matchAll(/ (-?\d+(?:\.\d+)?)s (?:both|forwards)/g)].map((m) => Number(m[1]));
+  const p = plan(brief(scenes), "en", "landscape");
+  assert.ok(delays(p.scenes[0].html).length > 0);
+  assert.ok(delays(p.scenes[0].html).every((d) => d <= 0), "a cover element starts after frame 0");
+  assert.ok(delays(p.scenes[1].html).some((d) => d > 0));
+  assert.ok(p.scenes[0].duration >= 2.5);
+  const animated = plan(brief(scenes, { cover: "animate" }), "en", "landscape");
+  assert.ok(delays(animated.scenes[0].html).some((d) => d > 0));
 });
 
 test("brief text is escaped: hostile text cannot add markup", async () => {

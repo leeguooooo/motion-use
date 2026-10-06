@@ -23,9 +23,14 @@ If `motion-use` is missing, run the installer line above as part of the video ta
 3. **Assets (optional).**
    - Images: `image` scenes take local PNG/JPG/WebP/GIF/SVG files, by path relative to the brief. If the user wants a generated illustration and the image-use skill is available, generate it with image-use, then copy the file it reports into the brief's folder (e.g. `images/hero.png`) and reference that path. Screenshots work too. URLs are rejected: download first.
    - Voiceover: the user's recordings go in `voiceover/<lang>/<scene-id>.mp3` (or .wav/.m4a). Each scene grows to fit its narration and narration never overlaps. No recordings → the video still renders, with music.
+   - Generated voiceover: write a short `narration` line per scene (what a presenter would say, not the on-screen text read aloud), then `motion-use voiceover <brief>`. With `AZURE_SPEECH_KEY`/`AZURE_SPEECH_REGION` set it uses Azure (fine to publish); otherwise edge-tts, which is a preview: tell the user before they publish a video made with it. It never overwrites the user's own recordings.
 4. **Validate.** `motion-use validate <brief>` (add `--json` to parse). Fix every error; read the warnings (characters the fonts cannot draw, scenes stretched for voiceover).
 5. **Look before rendering.** `motion-use still <brief> --lang zh --format vertical` writes one PNG per scene plus a contact sheet. Open the sheet and check: text fits, nothing hides behind the vertical-video side buttons (right edge) or caption area (bottom), the story reads in order. Fix the brief and repeat.
-6. **Render.** `motion-use render <brief>` writes `out/<name>-<lang>-<format>.mp4` for every combination (`--lang`, `--format` to narrow, `--quality draft` for a quick look). Report the paths and durations to the user.
+6. **Render.** For a GitHub README add `--target github` (keeps each file under GitHub's 10 MB inline limit). `motion-use render <brief>` writes `out/<name>-<lang>-<format>.mp4` for every combination (`--lang`, `--format` to narrow, `--quality draft` for a quick look). Report the paths and durations to the user.
+
+## The cover
+
+The first frame is the thumbnail everywhere (feeds, players, GitHub). Scene 1 is shown already finished at frame 0, so write it as a cover: a short hook, readable at thumbnail size. `render` also writes `<name>-<lang>-<format>-cover.png`; give that to platforms that ask for a cover image.
 
 ## Choosing a style
 

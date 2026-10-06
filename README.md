@@ -44,7 +44,8 @@ Full schema: [references/brief.md](references/brief.md). Examples: [examples/](e
 ## What you get
 
 - **Two looks.** `promo`: dark, glowing, a sound on every beat. `explainer`: light paper, calm, steps that highlight in turn and diagrams that draw their arrows. `theme.accent` sets your brand color.
-- **Voiceover timing.** Put recordings at `voiceover/<lang>/<scene-id>.mp3`. Each scene grows to fit its narration; narrations never overlap. Without recordings the video still renders, with music.
+- **Voiceover.** Put recordings at `voiceover/<lang>/<scene-id>.mp3`, or write `narration` per scene and run `motion-use voiceover` (Azure AI Speech, or edge-tts as a preview). Each scene grows to fit its narration; narrations never overlap. Without any, the video still renders, with music.
+- **A real cover.** Frame 0 is the finished first scene, so players and feeds show a thumbnail instead of a black frame; `render` also writes it as a PNG.
 - **Your images.** `image` scenes take local PNG, JPG, WebP, GIF or SVG: screenshots, exports, or illustrations made with [image-use](https://github.com/leeguooooo/image-use).
 - **Vertical safe areas.** 9:16 keeps text clear of the like/share column and the caption block.
 - **Reproducible and local.** Animations are CSS that [HyperFrames](https://github.com/heygen-com/hyperframes) seeks frame by frame; fonts ship with motion-use and are cut to the characters each video uses; music is synthesized to the video's length. Rendering loads nothing from the network and runs the engine with telemetry off (`HYPERFRAMES_NO_TELEMETRY`, `DO_NOT_TRACK`). The CLI checks GitHub for a newer release at most once a day; `MOTION_USE_NO_UPDATE_CHECK=1` turns that off.
@@ -68,8 +69,9 @@ The installer downloads the release archive and its `.sha256` from GitHub, verif
 |---|---|
 | `init [dir]` | Starter brief: `--style`, `--name`, `--lang zh,en`, `--format landscape,vertical` |
 | `validate [brief]` | Check the brief, files, voiceover lengths and glyph coverage; print timelines |
+| `voiceover [brief]` | Speak each scene's `narration`: `--engine azure` (licensed) or `edge` (preview) |
 | `still [brief]` | Keyframes and a contact sheet; `--at 1.5,4` for exact seconds |
-| `render [brief]` | MP4 per language × format; `--quality draft\|standard\|high` |
+| `render [brief]` | MP4 per language × format, plus a cover PNG; `--quality draft\|standard\|high`, `--target github` / `--max-size 9MB` |
 | `doctor` | Check Node, FFmpeg, Chrome, the engine and fonts |
 | `upgrade` | Update the CLI and its skill; `--check` only looks |
 

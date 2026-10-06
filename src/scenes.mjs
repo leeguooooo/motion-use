@@ -3,7 +3,7 @@
 // stretches the scene further for voiceover. `cues` are sound effects at
 // scene-relative times. All timing is CSS animation-delay, which HyperFrames
 // seeks frame by frame, so every frame is reproducible.
-import { anim, esc, lines, sec, typed } from "./html.mjs";
+import { anim, esc, lines, sec, typed, withTimeOffset } from "./html.mjs";
 import { fitPx, typeScale } from "./styles.mjs";
 
 const CPS = 28; // typing speed, characters per second
@@ -11,10 +11,19 @@ const HOLD = 1.6; // seconds the finished scene stays still before it ends
 
 const t = (v, lang) => (v ? v[lang] : "");
 
-export function renderScene(scene, lang, ctx) {
+const COVER_HOLD = 2.5; // a cover scene stays on screen at least this long
+
+/**
+ * `cover: true` renders the scene already finished at its first frame, so frame 0
+ * of the video (the thumbnail players and feeds show) is a composed picture
+ * instead of an empty background.
+ */
+export function renderScene(scene, lang, ctx, { cover = false } = {}) {
   const fn = RENDER[scene.type];
   const out = fn(scene, lang, ctx);
-  return { ...out, content: out.content + HOLD };
+  if (!cover) return { ...out, content: out.content + HOLD };
+  const done = withTimeOffset(out.content, () => fn(scene, lang, ctx));
+  return { html: done.html, cues: [], content: Math.max(COVER_HOLD, HOLD) };
 }
 
 const heading = (text, delay, cls, ctx) => {
@@ -55,7 +64,7 @@ const RENDER = {
       }
       if (line.kind === "cmd") {
         const tp = typed(text, at + 0.15, CPS);
-        panes[line.pane].push(`<div class="mu-line" style="animation:${anim("mu-show", 0.001, at, "linear")}"><span class="mu-prompt">$ </span>${tp.html}</div>`);
+        panes[line.pane].push(`<div class="mu-line" style="animation:${anim("mu-show", 0.001, at, "linear")}"><span class="mu-prompt">${esc(s.panes[line.pane].prompt)} </span>${tp.html}</div>`);
         at = tp.end + 0.35;
       } else {
         panes[line.pane].push(`<div class="mu-line mu-tone-${line.tone}" style="animation:${anim("mu-show", 0.2, at, "linear")}">${esc(text)}</div>`);
@@ -176,9 +185,13 @@ const RENDER = {
 
   cta(s, lang, ctx) {
     const { style } = ctx;
-    const brandPx = fitPx(t(s.title, lang), ctx.fmt.w - ctx.pad.l - ctx.pad.r, typeScale(ctx.fmt).brand, 40, true);
+    const width = ctx.fmt.w - ctx.pad.l - ctx.pad.r;
+    const brandPx = fitPx(t(s.title, lang), width, typeScale(ctx.fmt).brand, 40, true);
+    // Keep the install line on one line when it can be read that way; very long ones still wrap.
+    const u = Math.min(ctx.fmt.w, ctx.fmt.h) / 1080;
+    const cmdPx = fitPx(t(s.command, lang), width - 60 * u, (ctx.fmt.vertical ? 30 : 32) * u, 22 * u, true);
     return {
-      html: `<div class="mu-stack mu-cta"><div class="mu-brand" style="font-size:${brandPx.toFixed(1)}px;animation:${anim("mu-pop", 0.7, 0)}">${esc(t(s.title, lang))}</div>${sub(t(s.subtitle, lang), 0.35)}${s.command ? `<code class="mu-cmd" style="animation:${anim("mu-up", 0.6, 0.6)}">${esc(t(s.command, lang))}</code>` : ""}${s.url ? `<div class="mu-url" style="animation:${anim("mu-up", 0.6, 0.85)}">${esc(t(s.url, lang))}</div>` : ""}</div>`,
+      html: `<div class="mu-stack mu-cta"><div class="mu-brand" style="font-size:${brandPx.toFixed(1)}px;animation:${anim("mu-pop", 0.7, 0)}">${esc(t(s.title, lang))}</div>${sub(t(s.subtitle, lang), 0.35)}${s.command ? `<code class="mu-cmd" style="font-size:${cmdPx.toFixed(1)}px;animation:${anim("mu-up", 0.6, 0.6)}">${esc(t(s.command, lang))}</code>` : ""}${s.url ? `<div class="mu-url" style="animation:${anim("mu-up", 0.6, 0.85)}">${esc(t(s.url, lang))}</div>` : ""}</div>`,
       content: 1.6,
       cues: style === "promo" ? [{ at: 0, sfx: "switch", volume: 0.4 }] : [],
     };

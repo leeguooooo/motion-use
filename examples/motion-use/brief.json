@@ -1,0 +1,224 @@
+{
+  "version": 1,
+  "name": "motion-use",
+  "style": "promo",
+  "languages": [
+    "zh",
+    "en"
+  ],
+  "formats": [
+    "landscape",
+    "vertical"
+  ],
+  "fps": 30,
+  "theme": {
+    "accent": "#7cf2b0"
+  },
+  "music": "builtin",
+  "sfx": true,
+  "voiceover": {
+    "dir": "voiceover",
+    "voices": {
+      "zh": "zh-CN-YunxiNeural",
+      "en": "en-US-AndrewMultilingualNeural"
+    },
+    "rate": {
+      "zh": "+8%",
+      "en": "+5%"
+    }
+  },
+  "scenes": [
+    {
+      "id": "cover",
+      "type": "title",
+      "narration": {
+        "zh": "一句话，让 AI 给你的项目做推广片。",
+        "en": "One sentence, and your AI makes the promo video."
+      },
+      "title": {
+        "zh": "一句话，\n让 AI 给你的项目做推广片",
+        "en": "One sentence.\nYour AI makes the promo video."
+      },
+      "subtitle": {
+        "zh": "motion-use · 给 AI agent 用的视频工具",
+        "en": "motion-use · a video tool for AI agents"
+      }
+    },
+    {
+      "id": "ask",
+      "type": "terminal",
+      "narration": {
+        "zh": "你只要告诉它想要什么。它会读你的 README，写好脚本，检查画面，再渲染出中英文、横版和竖版的视频。",
+        "en": "Just tell it what you want. It reads your README, writes the script, checks the frames, and renders Chinese and English, landscape and vertical."
+      },
+      "title": {
+        "zh": "你只说要什么",
+        "en": "You say what you want"
+      },
+      "panes": [
+        {
+          "label": "Claude Code",
+          "accent": "#d97757",
+          "prompt": ">"
+        }
+      ],
+      "lines": [
+        {
+          "cmd": {
+            "zh": "给 mail-use 做个推广片，中英双语，横竖版都要",
+            "en": "Make a promo for mail-use, Chinese and English, landscape and vertical"
+          }
+        },
+        {
+          "out": {
+            "zh": "读 README 和 --help，只用真实命令",
+            "en": "Reading the README and --help, real commands only"
+          },
+          "tone": "dim"
+        },
+        {
+          "out": {
+            "zh": "写 brief.json：4 个场景",
+            "en": "Writing brief.json: 4 scenes"
+          },
+          "tone": "dim"
+        },
+        {
+          "out": {
+            "zh": "motion-use still → 检查关键帧",
+            "en": "motion-use still → checking keyframes"
+          },
+          "tone": "dim"
+        },
+        {
+          "out": {
+            "zh": "motion-use render → 4 个 MP4 ✓",
+            "en": "motion-use render → 4 MP4s ✓"
+          }
+        }
+      ]
+    },
+    {
+      "id": "flow",
+      "type": "diagram",
+      "narration": {
+        "zh": "AI 负责写脚本，motion-use 负责在本地出片。",
+        "en": "The AI writes the brief, and motion-use renders it on your machine."
+      },
+      "title": {
+        "zh": "AI 写 brief，motion-use 出片",
+        "en": "The AI writes a brief, motion-use renders it"
+      },
+      "nodes": [
+        {
+          "id": "you",
+          "label": {
+            "zh": "你",
+            "en": "You"
+          },
+          "note": {
+            "zh": "一句话",
+            "en": "one sentence"
+          }
+        },
+        {
+          "id": "agent",
+          "label": "AI agent",
+          "note": "Claude Code · Codex"
+        },
+        {
+          "id": "engine",
+          "label": "motion-use",
+          "note": {
+            "zh": "本地渲染",
+            "en": "renders locally"
+          }
+        },
+        {
+          "id": "mp4",
+          "label": "MP4",
+          "note": {
+            "zh": "中英 × 横竖",
+            "en": "zh/en × 16:9/9:16"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "you",
+          "to": "agent",
+          "label": {
+            "zh": "需求",
+            "en": "ask"
+          }
+        },
+        {
+          "from": "agent",
+          "to": "engine",
+          "label": "brief"
+        },
+        {
+          "from": "engine",
+          "to": "mp4",
+          "label": {
+            "zh": "渲染",
+            "en": "render"
+          }
+        }
+      ]
+    },
+    {
+      "id": "why",
+      "type": "features",
+      "narration": {
+        "zh": "它专门为 AI 设计：缺工具会自己安装，同一份脚本，每次出的视频都一样。",
+        "en": "It's built for agents: it installs itself when missing, and the same brief always gives the same video."
+      },
+      "title": {
+        "zh": "为 agent 设计",
+        "en": "Built for agents"
+      },
+      "items": [
+        {
+          "zh": "缺 CLI 自动安装",
+          "en": "Installs itself when missing"
+        },
+        {
+          "zh": "关键帧先给 AI 看",
+          "en": "Keyframes for the AI to check"
+        },
+        {
+          "zh": "可配 image-use 插图",
+          "en": "Pairs with image-use"
+        },
+        {
+          "zh": "按你的录音对齐",
+          "en": "Timed to your voiceover"
+        },
+        {
+          "zh": "同一 brief 同一视频",
+          "en": "Same brief, same video"
+        }
+      ],
+      "subtitle": {
+        "zh": "推广片和讲解片两种风格",
+        "en": "Two looks: promo and explainer"
+      }
+    },
+    {
+      "id": "install",
+      "type": "cta",
+      "narration": {
+        "zh": "把 motion-use 装进你的 AI 助手，开源免费。",
+        "en": "Add motion-use to your AI agent. It's free and open source."
+      },
+      "title": "motion-use",
+      "subtitle": {
+        "zh": "装进你的 AI agent · 开源 MIT",
+        "en": "Add it to your AI agent · open source, MIT"
+      },
+      "command": "/plugin install motion-use@leeguooooo-plugins",
+      "url": "github.com/leeguooooo/motion-use"
+    }
+  ]
+}
