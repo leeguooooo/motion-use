@@ -2,6 +2,10 @@
 
 Promo and explainer videos from a JSON brief. Chinese and English, 16:9 and 9:16, timed to your own voiceover, rendered locally to MP4. The same brief gives the same video every time.
 
+https://github.com/user-attachments/assets/1e4a150d-2db3-4793-b738-d897751c6d8e
+
+*This video was made by motion-use from [examples/motion-use/brief.json](examples/motion-use/brief.json).*
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/leeguooooo/motion-use/main/install.sh | sh
 motion-use doctor
@@ -82,6 +86,10 @@ All commands take `--json`. `still` and `render` take `--lang`, `--format` and `
 motion-use is MIT. The engine, HyperFrames, is Apache-2.0. Fonts are SIL OFL; sound effects are CC0 or original; one dependency of the engine (`@img/sharp-libvips`) is LGPL-3.0. Every file and dependency is listed in [ASSETS.md](ASSETS.md). How motion-use compares with HyperFrames, Remotion and others: [docs/alternatives.md](docs/alternatives.md).
 
 ## 中文说明
+
+https://github.com/user-attachments/assets/b3f0b448-d5b6-4053-834e-89bc9515f37f
+
+*这条视频由 motion-use 根据 [examples/motion-use/brief.json](examples/motion-use/brief.json) 生成。*
 
 motion-use 用一份 JSON brief 生成推广片和讲解片：中英双语、横竖两种画幅，场景时长会跟着你自己录的旁白调整，在本地渲染成 MP4。同一份 brief 每次渲染出的视频都一样。
 
