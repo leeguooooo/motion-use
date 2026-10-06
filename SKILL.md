@@ -39,6 +39,10 @@ A recording of the actual product beats any mock-up, and it is what makes each v
 - Point at what matters with `highlights` and `zoom`. Boxes are in the source's pixels: run `motion-use validate` for the size, extract the frame you mean (`ffmpeg -ss 3 -i clip.mp4 -frames:v 1 f.png`), look at it, and read the coordinates from it. Never guess boxes without looking.
 - Use mock-up scenes (`terminal`, `diagram`) for what cannot be recorded.
 
+## Brand
+
+If the product has a logo, colors or a typeface, use them: `brand.logo` (and `corner: true` for a corner badge), a full `theme` palette, and `fonts` with the license file. Without brand assets and with the user's go-ahead, image-use can make an illustration or background for the cover; save it next to the brief and use it in a `title` scene (`image`, or `layout: "split"`). Heed `validate`'s contrast warnings.
+
 ## Choosing a style
 
 - `promo`: dark, glowing, punchy; sound effects on each beat. For launches and social clips.

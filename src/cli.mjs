@@ -154,7 +154,7 @@ function check(briefPath, o) {
     }
   });
   if (errors.length) return { ok: false, brief, dir, report };
-  const missing = missingGlyphs(collectText(brief));
+  const missing = missingGlyphs(collectText(brief), brief.fonts);
   if (missing.length) {
     report.missing_glyphs = missing;
     warnings.push({ path: "$.scenes", message: `the bundled fonts cannot draw ${missing.map((c) => `"${c}" U+${c.codePointAt(0).toString(16).toUpperCase()}`).join(", ")}; they will use a system font or show as boxes` });

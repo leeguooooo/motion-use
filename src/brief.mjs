@@ -57,7 +57,19 @@ export const VO_ENGINES = ["azure", "edge"];
 const VOICE_RE = /^[A-Za-z]{2,3}-[A-Za-z]{2,4}(-[A-Za-z]+)?-[A-Za-z0-9]+(Neural|MultilingualNeural|HDNeural)?$/;
 const RATE_RE = /^[+-]\d{1,3}%$/;
 const langsFor = (data) => (Array.isArray(data.languages) ? data.languages.filter((l) => typeof l === "string") : ["en"]);
-export const THEME_KEYS = ["accent", "background", "text"];
+// accent2: a second highlight color; panel: cards and terminals; dim: secondary text; border: outlines.
+export const THEME_KEYS = ["accent", "accent2", "background", "panel", "text", "dim", "border"];
+const FONT_EXT = [".ttf", ".otf", ".woff", ".woff2"];
+
+/** WCAG contrast ratio of two #rrggbb colors. */
+export function contrast(a, b) {
+  const lum = (hex) => {
+    const [r, g, bl] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m);
+  return (x + 0.05) / (y + 0.05);
+}
 const TONES = ["ok", "warn", "dim", "error"];
 
 class Report {
@@ -104,7 +116,7 @@ export function validateBrief(data, baseDir) {
     r.error("$", "the brief must be a JSON object");
     return { brief: null, errors: r.errors, warnings: r.warnings };
   }
-  const known = ["$schema", "version", "name", "style", "languages", "formats", "fps", "cover", "theme", "music", "sfx", "voiceover", "product", "scenes"];
+  const known = ["$schema", "version", "name", "style", "languages", "formats", "fps", "cover", "theme", "brand", "fonts", "music", "sfx", "voiceover", "product", "scenes"];
   for (const k of Object.keys(data)) if (!known.includes(k)) r.warn(`$.${k}`, `unknown field, ignored (known: ${known.join(", ")})`);
 
   if (data.version !== 1) r.error("$.version", "must be 1");
@@ -173,6 +185,40 @@ export function validateBrief(data, baseDir) {
     else if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) r.error(p, `file not found: ${abs}`);
     return abs;
   };
+
+  // Contrast: warn only, the style's own colors fill in what the theme leaves out.
+  const STYLE_DEFAULTS = { promo: { background: "#0b0d12", text: "#e8ebf2", accent: "#7cf2b0" }, explainer: { background: "#f6f3ec", text: "#1d2330", accent: "#2f6fec" } };
+  const eff = { ...(STYLE_DEFAULTS[style] ?? STYLE_DEFAULTS.promo), ...theme };
+  if (contrast(eff.text, eff.background) < 4.5) r.warn("$.theme.text", `text on background has contrast ${contrast(eff.text, eff.background).toFixed(1)}:1; under 4.5:1 is hard to read`);
+  if (contrast(eff.accent, eff.background) < 3) r.warn("$.theme.accent", `accent on background has contrast ${contrast(eff.accent, eff.background).toFixed(1)}:1; under 3:1 headings in the accent color are hard to read`);
+
+  const brand = {};
+  if (data.brand !== undefined) {
+    if (!isObj(data.brand)) r.error("$.brand", 'an object like {"logo": "logo.svg"}');
+    else {
+      if (data.brand.logo !== undefined) brand.logo = file(data.brand.logo, "$.brand.logo", [".svg", ".png", ".webp", ".jpg", ".jpeg"], "logo");
+      brand.corner = data.brand.corner ?? false;
+      if (typeof brand.corner !== "boolean") r.error("$.brand.corner", "true shows the logo small in a corner of every scene");
+      if (brand.corner && !brand.logo) r.error("$.brand.logo", "corner needs a logo");
+    }
+  }
+
+  // Fonts the user brings: each needs its license file, which travels with the subset.
+  const fonts = {};
+  if (data.fonts !== undefined) {
+    if (!isObj(data.fonts)) r.error("$.fonts", 'an object like {"sans": {"file": "Brand.ttf", "license": "OFL.txt"}}');
+    else
+      for (const [k, v] of Object.entries(data.fonts)) {
+        const fp = `$.fonts.${k}`;
+        if (!["sans", "mono"].includes(k)) r.error(fp, "only sans (headings and text) and mono (terminals and code)");
+        else if (!isObj(v)) r.error(fp, '{"file": "Brand.ttf", "license": "LICENSE.txt"}');
+        else {
+          const f = file(v.file, `${fp}.file`, FONT_EXT, "font");
+          const lic = v.license === undefined ? (r.error(`${fp}.license`, "the font's license text file; it is copied next to the font in every build, and you are responsible for the font allowing this use"), undefined) : file(v.license, `${fp}.license`, [".txt", ".md", ""], "license");
+          fonts[k] = { file: f, license: lic };
+        }
+      }
+  }
 
   let music = data.music ?? "builtin";
   if (music === "builtin" || music === "none") music = { kind: music, volume: 0.5 };
@@ -285,7 +331,7 @@ export function validateBrief(data, baseDir) {
     }
   }
 
-  const brief = { version: 1, name, style, languages: langs, formats, fps, cover, theme, music, sfx, voiceover, product: isObj(product) ? product : {}, scenes };
+  const brief = { version: 1, name, style, languages: langs, formats, fps, cover, theme, brand, fonts, music, sfx, voiceover, product: isObj(product) ? product : {}, scenes };
   return { brief, errors: r.errors, warnings: r.warnings };
 }
 

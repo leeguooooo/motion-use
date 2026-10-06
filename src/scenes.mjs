@@ -91,7 +91,9 @@ const RENDER = {
       };
     }
     const cls = layout === "left" ? "mu-stack mu-title mu-title-left" : "mu-stack mu-title";
-    const titleImg = s.image ? `<figure class="mu-title-img" style="animation:${anim("mu-zoom", 1.0, 0.3)}"><img src="${esc(ctx.asset(s.image))}" alt=""></figure>` : "";
+    // The logo opens the video when scene 1 is a title.
+    const logo = ctx.first && ctx.logo && !s.image ? `<img class="mu-logo" src="${esc(ctx.logo)}" alt="" style="animation:${anim("mu-pop", 0.6, 0)}">` : "";
+    const titleImg = s.image ? `<figure class="mu-title-img" style="animation:${anim("mu-zoom", 1.0, 0.3)}"><img src="${esc(ctx.asset(s.image))}" alt=""></figure>` : logo;
     return {
       html: `<div class="${cls}">${titleImg}${heading(t(s.title, lang), 0.05, "mu-hero", ctx)}${rule}${sub(t(s.subtitle, lang), 0.45)}</div>`,
       content: 1.2,
@@ -335,7 +337,7 @@ const RENDER = {
     const u = Math.min(ctx.fmt.w, ctx.fmt.h) / 1080;
     const cmdPx = fitPx(t(s.command, lang), width - 60 * u, (ctx.fmt.vertical ? 30 : 32) * u, 22 * u, true);
     return {
-      html: `<div class="mu-stack mu-cta"><div class="mu-brand" style="font-size:${brandPx.toFixed(1)}px;animation:${anim("mu-pop", 0.7, 0)}">${esc(t(s.title, lang))}</div>${sub(t(s.subtitle, lang), 0.35)}${s.command ? `<code class="mu-cmd" style="font-size:${cmdPx.toFixed(1)}px;animation:${anim("mu-up", 0.6, 0.6)}">${esc(t(s.command, lang))}</code>` : ""}${s.url ? `<div class="mu-url" style="animation:${anim("mu-up", 0.6, 0.85)}">${esc(t(s.url, lang))}</div>` : ""}</div>`,
+      html: `<div class="mu-stack mu-cta">${ctx.logo ? `<img class="mu-logo" src="${esc(ctx.logo)}" alt="" style="animation:${anim("mu-pop", 0.6, 0)}">` : ""}<div class="mu-brand" style="font-size:${brandPx.toFixed(1)}px;animation:${anim("mu-pop", 0.7, 0)}">${esc(t(s.title, lang))}</div>${sub(t(s.subtitle, lang), 0.35)}${s.command ? `<code class="mu-cmd" style="font-size:${cmdPx.toFixed(1)}px;animation:${anim("mu-up", 0.6, 0.6)}">${esc(t(s.command, lang))}</code>` : ""}${s.url ? `<div class="mu-url" style="animation:${anim("mu-up", 0.6, 0.85)}">${esc(t(s.url, lang))}</div>` : ""}</div>`,
       content: 1.6,
       cues: style === "promo" ? [{ at: 0, sfx: "switch", volume: 0.4 }] : [],
     };

@@ -90,7 +90,8 @@ export function plan(brief, lang, format, opts = {}) {
     return infos.get(abs);
   };
   const posters = [];
-  const ctx = { fmt, pad, style: brief.style, asset, media, poster: (abs, at) => {
+  const logo = brief.brand?.logo ? asset(brief.brand.logo) : null;
+  const ctx = { fmt, pad, style: brief.style, asset, media, logo, poster: (abs, at) => {
     // The last frame of a clip, shown under the video so the scene never goes black after it ends.
     const rel = `assets/media/poster-${posters.length}.png`;
     posters.push({ abs, at, rel });
@@ -99,7 +100,7 @@ export function plan(brief, lang, format, opts = {}) {
   let start = 0;
   const scenes = brief.scenes.map((scene, i) => {
     if (scene.type === "image" || scene.type === "video") checkMedia(scene, i, media(scene.image ?? scene.video));
-    const r = renderScene(scene, lang, ctx, { cover: i === 0 && brief.cover === "first-scene" });
+    const r = renderScene(scene, lang, { ...ctx, first: i === 0 }, { cover: i === 0 && brief.cover === "first-scene" });
     const voFile = scene.voiceover?.[lang];
     const vo = voFile ? probe(voFile) : 0;
     // An explicit duration never cuts off the scene's own animation.
@@ -110,7 +111,7 @@ export function plan(brief, lang, format, opts = {}) {
     return out;
   });
   const total = Math.round((start + FADE) * 1000) / 1000;
-  return { lang, format, fmt, pad, scenes, total, assets, posters };
+  return { lang, format, fmt, pad, scenes, total, assets, posters, logo };
 }
 
 export const BUILD_MARK = ".motion-use-build";
@@ -139,7 +140,7 @@ export async function buildProject(brief, lang, format, outDir, opts = {}) {
       throw new Error(`cannot extract a frame from ${ps.abs}: ${e.code === "ENOENT" ? "ffmpeg not found" : e.stderr?.toString().trim()}`);
     }
   }
-  const fontSizes = await writeSubsets(collectText(brief, [lang]), path.join(outDir, "assets", "fonts"));
+  const fontSizes = await writeSubsets(collectText(brief, [lang]), path.join(outDir, "assets", "fonts"), brief.fonts ?? {});
   // The subsets are modified fonts; their license travels with them.
   for (const f of fs.readdirSync(FONT_DIR).filter((f) => f.startsWith("OFL-"))) fs.copyFileSync(path.join(FONT_DIR, f), path.join(outDir, "assets", "fonts", f));
 
@@ -203,11 +204,12 @@ export async function buildProject(brief, lang, format, outDir, opts = {}) {
 <meta name="viewport" content="width=${p.fmt.w}, height=${p.fmt.h}">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; connect-src 'self' data: blob:">
 <title>${esc(brief.name)} ${esc(lang)} ${esc(format)}</title>
-<style>${css(brief.style, p.fmt, brief.theme, p.pad)}</style>
+<style>${css(brief.style, p.fmt, brief.theme, p.pad, { sans: Boolean(brief.fonts?.sans), mono: Boolean(brief.fonts?.mono) })}</style>
 </head>
 <body>
 <div id="root" data-composition-id="main" data-no-timeline data-start="0" data-duration="${p.total}" data-width="${p.fmt.w}" data-height="${p.fmt.h}">
 ${sections}
+${brief.brand?.corner && p.logo ? `<img class="mu-corner-logo" src="${esc(p.logo)}" alt="">` : ""}
 ${audio.join("\n")}
 </div>
 </body>

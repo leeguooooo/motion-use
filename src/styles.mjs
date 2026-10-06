@@ -4,8 +4,8 @@ import { HEX_RE, THEME_KEYS } from "./brief.mjs";
 // Sizes are in px of the output frame and scale with the frame's short side.
 
 export const PALETTES = {
-  promo: { background: "#0b0d12", text: "#e8ebf2", dim: "#8a93a6", accent: "#7cf2b0", panel: "#12151d", border: "#262b38", warn: "#ffcf5c", error: "#ff6b6b", glow: "#1b2240" },
-  explainer: { background: "#f6f3ec", text: "#1d2330", dim: "#5f6776", accent: "#2f6fec", panel: "#ffffff", border: "#d9d3c6", warn: "#b7791f", error: "#c53030", glow: "#e9e2d3" },
+  promo: { accent2: "#6ea8ff", background: "#0b0d12", text: "#e8ebf2", dim: "#8a93a6", accent: "#7cf2b0", panel: "#12151d", border: "#262b38", warn: "#ffcf5c", error: "#ff6b6b", glow: "#1b2240" },
+  explainer: { accent2: "#d9480f", background: "#f6f3ec", text: "#1d2330", dim: "#5f6776", accent: "#2f6fec", panel: "#ffffff", border: "#d9d3c6", warn: "#b7791f", error: "#c53030", glow: "#e9e2d3" },
 };
 
 /**
@@ -43,7 +43,7 @@ export function fitPx(text, width, base, min = base * 0.55, mono = false) {
   return Math.max(min, Math.min(base, (width * 0.96) / widest));
 }
 
-export function css(style, fmt, theme, pad) {
+export function css(style, fmt, theme, pad, fonts = {}) {
   // Defense in depth: validateBrief already drops anything else, but never let a
   // non-color value into the stylesheet.
   const p = { ...PALETTES[style] };
@@ -53,9 +53,11 @@ export function css(style, fmt, theme, pad) {
   const common = `
 @font-face { font-family: "MU Sans"; src: url(assets/fonts/sans.woff2) format("woff2"); font-weight: 100 900; }
 @font-face { font-family: "MU Mono"; src: url(assets/fonts/mono.woff2) format("woff2"); font-weight: 100 800; }
-:root { --bg: ${p.background}; --text: ${p.text}; --dim: ${p.dim}; --accent: ${p.accent}; --panel: ${p.panel}; --border: ${p.border}; --warn: ${p.warn}; --error: ${p.error}; --glow: ${p.glow}; }
+${fonts.sans ? `@font-face { font-family: "MU Brand Sans"; src: url(assets/fonts/brand-sans.woff2) format("woff2"); font-weight: 100 900; }` : ""}
+${fonts.mono ? `@font-face { font-family: "MU Brand Mono"; src: url(assets/fonts/brand-mono.woff2) format("woff2"); font-weight: 100 900; }` : ""}
+:root { --font-sans: ${fonts.sans ? '"MU Brand Sans", ' : ""}"MU Sans", sans-serif; --font-mono: ${fonts.mono ? '"MU Brand Mono", ' : ""}"MU Mono", ${fonts.sans ? '"MU Brand Sans", ' : ""}"MU Sans", monospace; --accent2: ${p.accent2}; --bg: ${p.background}; --text: ${p.text}; --dim: ${p.dim}; --accent: ${p.accent}; --panel: ${p.panel}; --border: ${p.border}; --warn: ${p.warn}; --error: ${p.error}; --glow: ${p.glow}; }
 html, body { margin: 0; background: var(--bg); }
-#root { position: relative; width: ${fmt.w}px; height: ${fmt.h}px; overflow: hidden; background: var(--bg); color: var(--text); font-family: "MU Sans", sans-serif; }
+#root { position: relative; width: ${fmt.w}px; height: ${fmt.h}px; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font-sans); }
 .mu-scene { position: absolute; inset: 0; box-sizing: border-box; padding: ${pad.t}px ${pad.r}px ${pad.b}px ${pad.l}px; display: flex; align-items: center; justify-content: center; }
 .mu-stack { display: flex; flex-direction: column; align-items: center; gap: ${px(fmt.vertical ? 56 : 44)}; width: 100%; }
 .mu-h { margin: 0; font-weight: 900; line-height: 1.18; text-align: center; font-size: ${px(fmt.vertical ? 82 : 76)}; letter-spacing: -0.01em; overflow-wrap: anywhere; }
@@ -69,7 +71,7 @@ html, body { margin: 0; background: var(--bg); }
 .mu-term-bar { display: flex; align-items: center; gap: ${px(9)}; padding: ${px(14)} ${px(20)}; border-bottom: 1px solid var(--border); }
 .mu-term-bar i { width: ${px(13)}; height: ${px(13)}; border-radius: 50%; background: var(--border); }
 .mu-term-bar b { margin-left: ${px(10)}; color: var(--pane); font-size: ${px(28)}; }
-.mu-term-body { padding: ${px(22)} ${px(26)}; min-height: ${px(fmt.vertical ? 300 : 340)}; font-family: "MU Mono", "MU Sans", monospace; font-size: ${px(fmt.vertical ? 30 : 29)}; line-height: 1.5; display: flex; flex-direction: column; gap: ${px(6)}; overflow-wrap: anywhere; }
+.mu-term-body { padding: ${px(22)} ${px(26)}; min-height: ${px(fmt.vertical ? 300 : 340)}; font-family: var(--font-mono); font-size: ${px(fmt.vertical ? 30 : 29)}; line-height: 1.5; display: flex; flex-direction: column; gap: ${px(6)}; overflow-wrap: anywhere; }
 .mu-prompt { color: var(--dim); }
 .mu-tone-ok { color: var(--accent); } .mu-tone-warn { color: var(--warn); } .mu-tone-dim { color: var(--dim); } .mu-tone-error { color: var(--error); }
 .mu-steps { list-style: none; margin: 0; padding: 0; position: relative; width: 100%; }
@@ -105,6 +107,7 @@ html, body { margin: 0; background: var(--bg); }
 .mu-split-img { margin: 0; flex: 1; display: flex; justify-content: center; }
 .mu-split-img img { max-width: 100%; max-height: ${Math.round((fmt.h - pad.t - pad.b) * (fmt.vertical ? 0.42 : 0.8))}px; border-radius: ${px(18)}; border: 2px solid var(--border); }
 .mu-stat-value { font-weight: 900; line-height: 1; color: var(--accent); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.mu-stat .mu-sub { color: var(--accent2); }
 .mu-stat-label { font-weight: 700; font-size: ${px(fmt.vertical ? 48 : 44)}; text-align: center; }
 @property --mu-n { syntax: "<integer>"; inherits: false; initial-value: 0; }
 .mu-count { counter-reset: mu-n var(--mu-n); }
@@ -118,13 +121,13 @@ html, body { margin: 0; background: var(--bg); }
 .mu-win { border-color: var(--accent); box-shadow: 0 0 ${px(40)} color-mix(in srgb, var(--accent) 30%, transparent); }
 .mu-win .mu-compare-label { color: var(--accent); }
 .mu-lose { opacity: .72; }
-.mu-compare-vs { align-self: center; font-weight: 900; font-size: ${px(64)}; color: var(--accent); }
+.mu-compare-vs { align-self: center; font-weight: 900; font-size: ${px(64)}; color: var(--accent2); }
 .mu-kinetic { gap: ${px(10)}; }
 .mu-kinetic-line { font-weight: 900; line-height: 1.12; text-align: center; overflow-wrap: anywhere; }
 .mu-kinetic-last { color: var(--accent); }
 @keyframes mu-slam { from { opacity: 0; transform: scale(1.35); filter: blur(${px(8)}); } to { opacity: 1; transform: none; filter: none; } }
 .mu-code { width: ${fmt.vertical ? "100%" : "80%"}; }
-.mu-code-body { padding: ${px(18)} 0; font-family: "MU Mono", "MU Sans", monospace; font-size: ${px(fmt.vertical ? 26 : 28)}; line-height: 1.55; }
+.mu-code-body { padding: ${px(18)} 0; font-family: var(--font-mono); font-size: ${px(fmt.vertical ? 26 : 28)}; line-height: 1.55; }
 .mu-code-line { display: flex; gap: ${px(16)}; padding: 0 ${px(24)}; white-space: pre-wrap; overflow-wrap: anywhere; }
 .mu-code-no { width: ${px(36)}; text-align: right; color: var(--dim); flex: none; }
 .mu-code-mark { width: ${px(18)}; flex: none; color: var(--dim); }
@@ -135,9 +138,9 @@ html, body { margin: 0; background: var(--bg); }
 .mu-figure { margin: 0; max-width: 100%; max-height: ${fmt.vertical ? "52%" : "60%"}; display: flex; justify-content: center; }
 .mu-figure img { max-width: 100%; max-height: ${Math.round((fmt.h - pad.t - pad.b) * (fmt.vertical ? 0.55 : 0.6))}px; object-fit: contain; border-radius: ${px(18)}; border: 2px solid var(--border); }
 .mu-cta { gap: ${px(36)}; }
-.mu-brand { font-family: "MU Mono", "MU Sans", monospace; font-weight: 800; font-size: ${px(fmt.vertical ? 170 : 180)}; line-height: 1; overflow-wrap: anywhere; text-align: center; }
-.mu-cmd { font-family: "MU Mono", "MU Sans", monospace; font-size: ${px(fmt.vertical ? 30 : 32)}; padding: ${px(18)} ${px(28)}; border-radius: ${px(14)}; background: var(--panel); border: 2px solid var(--border); color: var(--accent); max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; text-align: center; }
-.mu-url { font-family: "MU Mono", "MU Sans", monospace; font-weight: 700; font-size: ${px(fmt.vertical ? 32 : 34)}; overflow-wrap: anywhere; text-align: center; }
+.mu-brand { font-family: var(--font-mono); font-weight: 800; font-size: ${px(fmt.vertical ? 170 : 180)}; line-height: 1; overflow-wrap: anywhere; text-align: center; }
+.mu-cmd { font-family: var(--font-mono); font-size: ${px(fmt.vertical ? 30 : 32)}; padding: ${px(18)} ${px(28)}; border-radius: ${px(14)}; background: var(--panel); border: 2px solid var(--border); color: var(--accent); max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; text-align: center; }
+.mu-url { font-family: var(--font-mono); font-weight: 700; font-size: ${px(fmt.vertical ? 32 : 34)}; overflow-wrap: anywhere; text-align: center; }
 .mu-media { position: relative; overflow: hidden; border-radius: ${px(18)}; border: 2px solid var(--border); background: #000; flex: none; }
 .mu-media .mu-zoom { position: absolute; inset: 0; transform-origin: 0 0; }
 .mu-media-src { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
@@ -148,6 +151,8 @@ html, body { margin: 0; background: var(--bg); }
 @keyframes mu-mark-out { from { opacity: 1; } to { opacity: 0; } }
 @keyframes mu-zoom-to { from { transform: none; } to { transform: translate(var(--zx), var(--zy)) scale(var(--zs)); } }
 @keyframes mu-zoom-back { from { transform: translate(var(--zx), var(--zy)) scale(var(--zs)); } to { transform: none; } }
+.mu-logo { display: block; max-height: ${px(fmt.vertical ? 150 : 130)}; max-width: ${px(520)}; object-fit: contain; }
+.mu-corner-logo { position: absolute; z-index: 5; right: ${pad.r}px; bottom: ${Math.round(pad.b * (fmt.vertical ? 0.5 : 0.45))}px; height: ${px(54)}; max-width: ${px(220)}; object-fit: contain; opacity: .85; }
 @keyframes mu-show { from { opacity: 0; } to { opacity: 1; } }
 @keyframes mu-up { from { opacity: 0; transform: translateY(${px(36)}); } to { opacity: 1; transform: none; } }
 @keyframes mu-pop { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: none; } }
@@ -195,7 +200,7 @@ const explainer = (fmt, px) => `
 .mu-arrowhead { fill: var(--text); }
 .mu-edge-label { color: var(--accent); }
 .mu-figure img { box-shadow: 0 ${px(16)} ${px(40)} rgba(0,0,0,.12); }
-.mu-brand { font-family: "MU Sans", sans-serif; font-weight: 900; color: var(--text); }
+.mu-brand { font-family: var(--font-sans); font-weight: 900; color: var(--text); }
 .mu-cmd { color: var(--text); }
 .mu-url { color: var(--accent); }
 `;

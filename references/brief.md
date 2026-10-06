@@ -13,7 +13,9 @@ A brief is one JSON file. Paths inside it are relative to the brief's folder. Ru
 | `formats` | `["landscape"]` | `"landscape"` (1920×1080) and/or `"vertical"` (1080×1920) |
 | `fps` | `30` | 24, 25, 30 or 60 |
 | `cover` | `"first-scene"` | `"first-scene"`: the first frame shows the first scene already finished, so players and feeds get a real thumbnail. `"animate"`: the first scene animates in from an empty frame |
-| `theme` | style colors | `{ "accent": "#hex", "background": "#hex", "text": "#hex" }` |
+| `theme` | style colors | Any of `accent`, `accent2` (second highlight), `background`, `panel` (cards, terminals), `text`, `dim` (secondary text), `border`, as `#rrggbb`. `validate` warns when text or accent contrast against the background is too low |
+| `brand` | none | `{ "logo": "logo.svg", "corner": true }`: the logo opens the video (when scene 1 is a title) and sits on the end card; `corner` also shows it small on every scene |
+| `fonts` | bundled | `{ "sans": { "file": "Brand.ttf", "license": "OFL.txt" }, "mono": { … } }`: your own fonts (.ttf, .otf, .woff, .woff2), cut to the video's characters like the bundled ones. The license file is required and is copied next to the font in every build; make sure the font's license allows it. Characters a brand font lacks fall back to the bundled fonts |
 | `music` | `"builtin"` | `"builtin"` (original track synthesized to the video's length), `"none"`, or `{ "file": "song.mp3", "volume": 0.5 }` |
 | `sfx` | `true` | Small whooshes, clicks and dings on scene beats |
 | `voiceover` | none | `{ "dir": "voiceover", "volume": 1 }`: files at `<dir>/<lang>/<scene-id>.mp3` (.wav, .m4a, .aac, .ogg). For generated narration also `"engine": "azure"\|"edge"`, `"voices": { "zh": "zh-CN-YunxiNeural" }`, `"rate": "+8%"` or `{ "zh": "+8%", "en": "+5%" }` (see Voiceover below) |
