@@ -12,9 +12,9 @@ Checked 2026-10-05. Licenses are as reported by the GitHub API on that date. Onl
 
 ## Where motion-use fits
 
-motion-use is the narrow end of this list: a fixed set of scene types in two looks (promo and explainer), filled from a JSON brief.
+motion-use supports authored films as its default workflow: a directing document, exact shot windows and deterministic drawing code. Scene templates in two looks remain an optional fast path. The CLI manages assets, rendering and measured delivery review; the agent still owns the creative decisions.
 
-- **Same brief, same video.** No per-video code to write or review; the agent's job is the brief. Frames are CSS animations that HyperFrames seeks exactly, so two renders are identical (recorded clips aside, which can differ by invisible pixel noise).
+- **Exact-time rendering.** Film code is authored and reviewed per video; each pose is a function of the requested time. In template mode, the agent fills a brief. Frames are CSS animations that HyperFrames seeks exactly, so two renders are identical (recorded clips aside, which can differ by invisible pixel noise).
 - **The matrix for free.** Chinese and English, 16:9 and 9:16, from one brief, with vertical safe areas.
 - **Voiceover drives timing.** Drop in recordings; scenes stretch to fit and narrations never overlap.
 - **Local and license-light.** Fonts are bundled and subset per video, music is synthesized, sound effects are CC0 or original; rendering loads nothing from the network and runs the engine with telemetry off. MIT code on an Apache-2.0 engine.

@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "kind": "film",
+  "name": "ocs-film",
+  "duration": 12,
+  "fps": 60,
+  "bpm": 100,
+  "languages": [
+    "zh",
+    "en"
+  ],
+  "formats": [
+    "landscape",
+    "vertical"
+  ],
+  "composition": "composition/draw.js",
+  "music": "builtin",
+  "motionBlur": {
+    "samples": 4,
+    "shutter": 0.6
+  },
+  "copy": {
+    "zh": {
+      "open": "各自忙。",
+      "gap": "互相看不见。",
+      "message": "帮我看下这个 diff",
+      "command": "ocs dm reviewer",
+      "wake": "醒了。",
+      "wakeNote": "把消息送到目标 agent。",
+      "together": "开始协作。",
+      "brand": "ocs",
+      "promise": "让 AI 彼此发消息、唤醒。",
+      "cta": "GitHub / open-cross-session",
+      "a": "Claude Code",
+      "b": "Codex",
+      "c": "Pi",
+      "d": "Terminal",
+      "note": "协作示意 · 本地及已配对的局域网"
+    },
+    "en": {
+      "open": "Working apart.",
+      "gap": "Out of reach.",
+      "message": "Review this diff",
+      "command": "ocs dm reviewer",
+      "wake": "Awake.",
+      "wakeNote": "A message reaches its agent.",
+      "together": "Working together.",
+      "brand": "ocs",
+      "promise": "Message agents. Wake them up.",
+      "cta": "GitHub / open-cross-session",
+      "a": "Claude Code",
+      "b": "Codex",
+      "c": "Pi",
+      "d": "Terminal",
+      "note": "Illustrated workflow · local and paired LAN sessions"
+    }
+  },
+  "shots": [
+    {
+      "id": "apart",
+      "start": 0,
+      "end": 1.8,
+      "purpose": "Show agents working in isolation",
+      "action": "Two large names enter on opposing paths; a message cannot cross the gap"
+    },
+    {
+      "id": "write",
+      "start": 1.8,
+      "end": 3.6,
+      "purpose": "Show the direct message",
+      "action": "The camera pushes into a dot as it opens into a message capsule; the command is written underneath",
+      "hold": 0.9,
+      "holdReason": "Read the message and the direct-message command before the packet leaves."
+    },
+    {
+      "id": "deliver",
+      "start": 3.6,
+      "end": 5.4,
+      "purpose": "Make delivery visible",
+      "action": "The same capsule accelerates along the connector and contracts into the receiving agent"
+    },
+    {
+      "id": "wake",
+      "start": 5.4,
+      "end": 7.2,
+      "purpose": "Show what makes OCS useful",
+      "action": "A wake pulse expands to fill the frame; the recipient responds along the return path",
+      "hold": 1.1,
+      "holdReason": "Let the wake result register after the frame-filling arrival."
+    },
+    {
+      "id": "connect",
+      "start": 7.2,
+      "end": 9.6,
+      "purpose": "Show the supported agent ecosystem",
+      "action": "The camera pulls out of the recipient into a four-agent routing system; packets follow its paths"
+    },
+    {
+      "id": "resolve",
+      "start": 9.6,
+      "end": 12,
+      "purpose": "Resolve the journey into the product identity",
+      "action": "The connected system contracts into a mark which becomes the ocs wordmark; the destination appears"
+    }
+  ],
+  "audio": [
+    {
+      "effect": "click",
+      "role": "sfx",
+      "start": 3.38312,
+      "volume": 0.55
+    },
+    {
+      "effect": "whoosh",
+      "role": "sfx",
+      "start": 5.32243,
+      "volume": 0.45
+    },
+    {
+      "effect": "switch",
+      "role": "sfx",
+      "start": 7.07858,
+      "volume": 0.65
+    },
+    {
+      "effect": "ding",
+      "role": "sfx",
+      "start": 9.79306,
+      "volume": 0.4
+    }
+  ]
+}

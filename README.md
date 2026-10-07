@@ -1,10 +1,8 @@
 # motion-use
 
-Promo and explainer videos from a JSON brief. Chinese and English, 16:9 and 9:16, timed to your own voiceover, rendered locally to MP4. The same brief gives the same video every time.
+Direct a film with your coding agent: plan the action, author exact-time animation, render locally, then inspect the delivered MP4. Chinese/English, landscape/portrait/square, local fonts and assets. Scene templates remain available for quick explainers.
 
-https://github.com/user-attachments/assets/1e4a150d-2db3-4793-b738-d897751c6d8e
-
-*This video was made by motion-use from [examples/motion-use/brief.json](examples/motion-use/brief.json).*
+A directed example: [OCS — a message crosses the gap](examples/ocs-film/film.json), with its [drawing code](examples/ocs-film/composition/draw.js) and [director notes](examples/ocs-film/DIRECTOR.md).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/leeguooooo/motion-use/main/install.sh | sh
@@ -15,10 +13,30 @@ Part of the [*-use family](https://github.com/leeguooooo/plugins): tools that gi
 
 [中文说明](#中文说明)
 
-## Quick start
+## Directed films (default)
 
 ```bash
-motion-use init my-video --style promo        # or --style explainer
+motion-use init my-film --name my-product --lang zh,en --format landscape,vertical
+# direct the film in DIRECTOR.md, film.json and composition/draw.js
+motion-use validate my-film
+motion-use still my-film --allow-code
+motion-use render my-film --allow-code --quality high --json
+```
+
+The agent writes the choreography; the CLI does not turn every paragraph into a scene. Shots have a purpose and visible action. The drawing is a pure function of time, so a shape can carry between shots, the camera can follow it, and motion can align with the audio beat grid. Optional subframe sampling adds motion blur. Fonts and named images preload; local browser bundles can prepare more complex renderers.
+
+The starter is an editable drawing study, not a finished ad. Replace its choreography for the subject. The [OCS film](examples/ocs-film/film.json) demonstrates another approach: large agent names compress into endpoints; one message travels, expands into a wake pulse, then resolves into the wordmark. It is an illustrated workflow, not a recording of actual message delivery.
+
+`--allow-code` is for drawing code you wrote or trust. It executes inside the renderer; static lint is not a security sandbox. Ordinary text remains JSON data. Named files are copied individually, so a composition folder's secrets and unrelated files do not enter the build.
+
+Every render also writes a cover, a contact sheet sampled from the **delivered MP4**, and a technical report: decoding, actual duration/FPS/dimensions, audio presence, loudness/peak, per-shot RMS, dark/still intervals. It never labels an encode as aesthetic approval: `visual_review` remains pending until a person/agent watches and reviews it. Canvas text is not covered by DOM layout audits. Audio uses two-pass normalization to working -14 LUFS / -1 dBTP targets; `--no-normalize` preserves original levels.
+
+Full drawing/audio contract: [references/film.md](references/film.md). For an existing MP4, `motion-use verify file.mp4 --json` creates a review report without re-rendering it.
+
+## Scene templates
+
+```bash
+motion-use init my-video --mode template --style promo        # or --style explainer
 # edit my-video/brief.json
 motion-use validate my-video/brief.json      # errors with JSON paths, timelines, missing glyphs
 motion-use still my-video/brief.json         # one PNG per scene + a contact sheet
@@ -72,11 +90,12 @@ The installer downloads the release archive and its `.sha256` from GitHub, verif
 
 | Command | |
 |---|---|
-| `init [dir]` | Starter brief: `--style`, `--name`, `--lang zh,en`, `--format landscape,vertical` |
+| `init [dir]` | Directed film by default; `--mode template` selects a starter brief: `--style`, `--name`, `--lang zh,en`, `--format landscape,vertical` |
 | `validate [brief]` | Check the brief, files, voiceover lengths and glyph coverage; print timelines |
 | `voiceover [brief]` | Speak each scene's `narration`: `--engine azure` (licensed) or `edge` (preview) |
 | `still [brief]` | Keyframes and a contact sheet; `--at 1.5,4` for exact seconds |
 | `render [brief]` | MP4 per language × format, plus a cover PNG; `--quality draft\|standard\|high`, `--target github` / `--max-size 9MB` |
+| `verify <mp4>` | Decode and measure a delivered video; create review frames and a report |
 | `doctor` | Check Node, FFmpeg, Chrome, the engine and fonts |
 | `upgrade` | Update the CLI and its skill; `--check` only looks |
 
@@ -88,20 +107,20 @@ motion-use is MIT. The engine, HyperFrames, is Apache-2.0. Fonts are SIL OFL; so
 
 ## 中文说明
 
-https://github.com/user-attachments/assets/b3f0b448-d5b6-4053-834e-89bc9515f37f
+[OCS 新示例](examples/ocs-film/film.json)：消息从一个 agent 出发，抵达另一个 agent 后展开为唤醒画面，再收回协作网络和片尾。镜头和画面由 agent 编写，所有姿态按时间计算。
 
-*这条视频由 motion-use 根据 [examples/motion-use/brief.json](examples/motion-use/brief.json) 生成。*
-
-motion-use 用一份 JSON brief 生成推广片和讲解片：中英双语、横竖两种画幅，场景时长会跟着你自己录的旁白调整，在本地渲染成 MP4。同一份 brief 每次渲染出的视频都一样。
+motion-use 默认让 agent 先写镜头计划，再写逐帧动画代码。镜头之间可以保留同一个对象，跟随动作移动视角，按音乐节拍安排变化。在本地渲染中英双语、横竖版和方形视频。原有 JSON 场景模板仍可通过 `--mode template` 使用。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/leeguooooo/motion-use/main/install.sh | sh
-motion-use init my-video --style explainer
-motion-use still my-video/brief.json
-motion-use render my-video/brief.json
+motion-use init my-video
+# 改写 DIRECTOR.md、film.json 和 composition/draw.js
+motion-use still my-video --allow-code
+motion-use render my-video --allow-code --quality high
 ```
 
-- 两种风格：`promo`（深色、带光效、每个节拍有音效）和 `explainer`（浅色、节奏平稳，步骤依次高亮，流程图的箭头逐条画出）。
+- 新的自由创作模式：镜头时间明确，不会自动加停留或拉长旁白。成片附带技术报告和抽帧图；技术通过仍需看实际视频。
+- 模板模式有两种风格：`promo`（深色、带光效、每个节拍有音效）和 `explainer`（浅色、节奏平稳，步骤依次高亮，流程图的箭头逐条画出）。
 - 旁白：把录音放进 `voiceover/<语言>/<场景 id>.mp3`，场景会自动拉长，旁白之间不会重叠。没有旁白也能出片。
 - 图片：`image` 场景接受本地图片，可以是截图，也可以用 image-use 生成。
 - 竖版会给抖音、视频号、Reels 右侧的按钮列和底部的文案区留出空间。
