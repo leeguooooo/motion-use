@@ -2,7 +2,7 @@
   "version": 1,
   "kind": "film",
   "name": "ocs-film",
-  "duration": 12,
+  "duration": 14.4,
   "fps": 60,
   "bpm": 100,
   "languages": [
@@ -58,75 +58,106 @@
   "shots": [
     {
       "id": "apart",
-      "start": 0,
-      "end": 1.8,
+      "start": 0.0,
+      "end": 2.16,
       "purpose": "Show agents working in isolation",
-      "action": "Two large names enter on opposing paths; a message cannot cross the gap"
+      "action": "Two large names enter on opposing paths; a message cannot cross the gap",
+      "narration": {
+        "zh": "AI 各自忙。",
+        "en": "Agents work alone."
+      }
     },
     {
       "id": "write",
-      "start": 1.8,
-      "end": 3.6,
+      "start": 2.16,
+      "end": 4.32,
       "purpose": "Show the direct message",
       "action": "The camera pushes into a dot as it opens into a message capsule; the command is written underneath",
       "hold": 0.9,
-      "holdReason": "Read the message and the direct-message command before the packet leaves."
+      "holdReason": "Read the message and the direct-message command before the packet leaves.",
+      "narration": {
+        "zh": "发一条消息。",
+        "en": "Send a message."
+      }
     },
     {
       "id": "deliver",
-      "start": 3.6,
-      "end": 5.4,
+      "start": 4.32,
+      "end": 6.48,
       "purpose": "Make delivery visible",
-      "action": "The same capsule accelerates along the connector and contracts into the receiving agent"
+      "action": "The same capsule accelerates along the connector and contracts into the receiving agent",
+      "narration": {
+        "zh": "唤醒对方。",
+        "en": "Wake the other agent."
+      }
     },
     {
       "id": "wake",
-      "start": 5.4,
-      "end": 7.2,
+      "start": 6.48,
+      "end": 8.64,
       "purpose": "Show what makes OCS useful",
       "action": "A wake pulse expands to fill the frame; the recipient responds along the return path",
       "hold": 1.1,
-      "holdReason": "Let the wake result register after the frame-filling arrival."
+      "holdReason": "Let the wake result register after the frame-filling arrival.",
+      "narration": {
+        "zh": "一起开始协作。",
+        "en": "Start working together."
+      }
     },
     {
       "id": "connect",
-      "start": 7.2,
-      "end": 9.6,
+      "start": 8.64,
+      "end": 11.52,
       "purpose": "Show the supported agent ecosystem",
-      "action": "The camera pulls out of the recipient into a four-agent routing system; packets follow its paths"
+      "action": "The camera pulls out of the recipient into a four-agent routing system; packets follow its paths",
+      "narration": {
+        "zh": "Claude、Codex 和 Pi。",
+        "en": "Claude, Codex and Pi."
+      }
     },
     {
       "id": "resolve",
-      "start": 9.6,
-      "end": 12,
+      "start": 11.52,
+      "end": 14.4,
       "purpose": "Resolve the journey into the product identity",
-      "action": "The connected system contracts into a mark which becomes the ocs wordmark; the destination appears"
+      "action": "The connected system contracts into a mark which becomes the ocs wordmark; the destination appears",
+      "narration": {
+        "zh": "让 AI 彼此连接。",
+        "en": "Open Cross-session."
+      }
     }
   ],
   "audio": [
     {
       "effect": "click",
       "role": "sfx",
-      "start": 3.38312,
+      "start": 4.10312,
       "volume": 0.55
     },
     {
       "effect": "whoosh",
       "role": "sfx",
-      "start": 5.32243,
+      "start": 6.40243,
       "volume": 0.45
     },
     {
       "effect": "switch",
       "role": "sfx",
-      "start": 7.07858,
+      "start": 8.51858,
       "volume": 0.65
     },
     {
       "effect": "ding",
       "role": "sfx",
-      "start": 9.79306,
+      "start": 11.75306,
       "volume": 0.4
     }
-  ]
+  ],
+  "voiceover": {
+    "dir": "voiceover",
+    "rate": {
+      "zh": "+15%",
+      "en": "+10%"
+    }
+  }
 }

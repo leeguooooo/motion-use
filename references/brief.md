@@ -133,3 +133,7 @@ Narration can be recorded or generated. Either way it ends up at `<voiceover.dir
 ## Safe areas
 
 Vertical videos keep text out of the right 150 px (like/comment/share buttons) and the bottom 330 px (caption block) used by Douyin, Reels and Shorts. These are working values from those apps, not published specs; check your platform with `motion-use still`.
+
+## Required narration
+
+A template with a narration script requires speech by default. Render generates missing/outdated speech in its project-local voiceover folder, preserves user recordings, and checks the voice-only stem against the delivered mix. Set `voiceover.required: false` only for an intentionally unnarrated output. External recordings can still be imported by scene file; automatic generation stays inside the project.

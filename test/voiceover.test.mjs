@@ -24,6 +24,8 @@ test("narration, voices and rates are validated", () => {
   const ok = brief({ voiceover: { dir: "vo", voices: { en: "en-US-AndrewMultilingualNeural" }, rate: { en: "+5%" } } });
   assert.equal(ok.voiceover.rates.en, "+5%");
   assert.equal(ok.scenes[0].narration.en, "Hello there.");
+  assert.equal(ok.voiceover.required,true);
+  assert.equal(brief({voiceover:{dir:"vo",required:false}}).voiceover.required,false);
 });
 
 test("SSML keeps narration as text", () => {

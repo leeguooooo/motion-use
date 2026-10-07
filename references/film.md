@@ -42,6 +42,16 @@ Optional `libraries: ["vendor/library.js"]` loads explicit local classic browser
 
 `motionBlur` samples 1/2/4 subframes over a 0–1 frame backward shutter and averages the rendered canvases. The sampling order is deterministic. Default: one sample, no blur. Tune exposure for readable movement; blur does not rescue an unclear layout.
 
+## Narration is required by default
+
+Add `narration` to each narrated shot as a language map, e.g. `{"zh":"发一条消息。","en":"Send a message."}`. A root `narration` map instead makes one continuous track. Optional `voiceover` settings accept `dir`, `engine` (`azure`/`edge`), `voices`, `rate` and `volume`. Defaults: `voiceover/`, configured Azure or the Edge preview provider, and the bundled Chinese/English voice choices. For other languages, set an appropriate voice explicitly.
+
+`motion-use voiceover <project>` supports films and caches one audio file per language/shot. `render` automatically generates missing or outdated narration before frame capture. Generation uses the voice provider's network service; the frame renderer stays local. Imported `audio` tracks with `role: "voiceover"` take precedence. Optional `lang` selects one language; omit it for an intentionally shared track. User recordings are preserved.
+
+Each shot's spoken window starts 80 ms after its start and ends 80 ms before its end. Whole-film narration has 100 ms at each edge. Audio that does not fit fails: shorten the script or retime the authored shots and drawing; words are never trimmed to fit. `voiceover:false` opts into a deliberately unnarrated film, not an automatic fallback after a provider failure.
+
+Final delivery verifies that the voice-only reference actually appears in the MP4's mix, using per-window waveform correlation and non-silence checks. This checks presence and alignment of the expected signal, not speech recognition or listening quality. A music-only MP4 cannot pass required narration, and a failed candidate never replaces the last delivered video. Generated audio and voice manifests are excluded from release packages. Narrated film filenames end in `-VO.mp4`, making them distinct from older unnarrated exports.
+
 ## Sound and narration
 
 `music` accepts `"none"`, `"builtin"`, or `{"file":"audio/song.wav","volume":0.6,"bpm":120}`. Root `bpm` wins over music's BPM. Built-in music uses that same tempo, so `motion.beat(seconds)` lines up with it. For imported music, BPM is an authored value; this CLI does not analyze a track's first downbeat. Place a track with an offset through `audio` when needed.

@@ -19,11 +19,12 @@ Part of the [*-use family](https://github.com/leeguooooo/plugins): tools that gi
 motion-use init my-film --name my-product --lang zh,en --format landscape,vertical
 # direct the film in DIRECTOR.md, film.json and composition/draw.js
 motion-use validate my-film
+motion-use voiceover my-film                 # narration per shot; cached
 motion-use still my-film --allow-code
 motion-use render my-film --allow-code --quality high --json
 ```
 
-The agent writes the choreography; the CLI does not turn every paragraph into a scene. Shots have a purpose and visible action. The drawing is a pure function of time, so a shape can carry between shots, the camera can follow it, and motion can align with the audio beat grid. Optional subframe sampling adds motion blur. Fonts and named images preload; local browser bundles can prepare more complex renderers.
+The agent writes the choreography; the CLI does not turn every paragraph into a scene. Shots have a purpose and visible action. The drawing is a pure function of time, so a shape can carry between shots, the camera can follow it, and motion can align with the audio beat grid. Narration is required by default: write it per shot, then generate or import the speech. Render automatically generates missing narration; it fails if speech is missing, overlong or absent from the delivered mix. Use `voiceover:false` only for deliberately unnarrated films. Optional subframe sampling adds motion blur. Fonts and named images preload; local browser bundles can prepare more complex renderers.
 
 The starter is an editable drawing study, not a finished ad. Replace its choreography for the subject. The [OCS film](examples/ocs-film/film.json) demonstrates another approach: large agent names compress into endpoints; one message travels, expands into a wake pulse, then resolves into the wordmark. It is an illustrated workflow, not a recording of actual message delivery.
 
@@ -119,7 +120,7 @@ motion-use still my-video --allow-code
 motion-use render my-video --allow-code --quality high
 ```
 
-- 新的自由创作模式：镜头时间明确，不会自动加停留或拉长旁白。成片附带技术报告和抽帧图；技术通过仍需看实际视频。
+- 新的自由创作模式：镜头时间明确，不会自动加停留或拉长旁白。成片附带技术报告和抽帧图；技术通过仍需看实际视频。默认必须有旁白；按镜头生成和复用语音，缺失、截断或没有混入成片都会报错，不能用纯配乐冒充完成。
 - 模板模式有两种风格：`promo`（深色、带光效、每个节拍有音效）和 `explainer`（浅色、节奏平稳，步骤依次高亮，流程图的箭头逐条画出）。
 - 旁白：把录音放进 `voiceover/<语言>/<场景 id>.mp3`，场景会自动拉长，旁白之间不会重叠。没有旁白也能出片。
 - 图片：`image` 场景接受本地图片，可以是截图，也可以用 image-use 生成。

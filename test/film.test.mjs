@@ -25,7 +25,8 @@ const project = () => {
   const dir = temp();
   initFilm({ lang: "zh", format: "landscape" }, dir);
   const file = path.join(dir, "film.json");
-  return { dir, file, data: JSON.parse(fs.readFileSync(file, "utf8")) };
+  const data=JSON.parse(fs.readFileSync(file,"utf8")); data.voiceover=false; fs.writeFileSync(file,JSON.stringify(data));
+  return { dir, file, data };
 };
 test("default init creates an authored film and never replaces its code on re-init", async () => {
   const { dir, file } = project();

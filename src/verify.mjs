@@ -95,6 +95,91 @@ export function normalizeAudio(file, output) {
   return { applied: true, target_lufs: -14, target_peak_dbtp: -1 };
 }
 
+export function buildNarrationStem(tracks, seconds, output) {
+  const inputs = tracks.flatMap((a) => ["-i", a.file]);
+  const filters = tracks.map(
+    (a, i) =>
+      `[${i}:a]atrim=start=${a.offset}:duration=${a.length},asetpts=PTS-STARTPTS,volume=${a.volume},afade=t=in:d=0.015,afade=t=out:st=${Math.max(0, a.length - 0.03)}:d=0.03,adelay=${Math.round(a.start * 1000)}:all=1[v${i}]`,
+  );
+  filters.push(
+    `${tracks.map((_, i) => `[v${i}]`).join("")}amix=inputs=${tracks.length}:normalize=0,apad,atrim=duration=${seconds},aresample=16000[out]`,
+  );
+  run("ffmpeg", [
+    "-v",
+    "error",
+    "-y",
+    ...inputs,
+    "-filter_complex",
+    filters.join(";"),
+    "-map",
+    "[out]",
+    "-ac",
+    "1",
+    "-c:a",
+    "pcm_s16le",
+    output,
+  ]);
+}
+
+export function verifyNarration(file, stem, tracks) {
+  const pcm = (f) =>
+    execFileSync(
+      "ffmpeg",
+      [
+        "-v",
+        "error",
+        "-i",
+        f,
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-f",
+        "f32le",
+        "-",
+      ],
+      { maxBuffer: 32 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] },
+    );
+  const delivered = pcm(file),
+    reference = pcm(stem),
+    segments = [];
+  for (const a of tracks) {
+    const start = Math.floor(a.start * 16000),
+      end = Math.min(
+        Math.floor((a.start + a.length) * 16000),
+        reference.length / 4,
+        delivered.length / 4,
+      );
+    let dot = 0,
+      rx = 0,
+      dy = 0;
+    for (let i = start; i < end; i++) {
+      const x = reference.readFloatLE(i * 4),
+        y = delivered.readFloatLE(i * 4);
+      dot += x * y;
+      rx += x * x;
+      dy += y * y;
+    }
+    const rms = rx > 0 ? 10 * Math.log10(rx / Math.max(1, end - start)) : null;
+    const correlation = rx && dy ? dot / Math.sqrt(rx * dy) : 0;
+    segments.push({
+      id: a.id ?? path.basename(a.file),
+      lang: a.lang ?? null,
+      start: a.start,
+      end: a.start + a.length,
+      reference_rms_dbfs: rms,
+      correlation: +correlation.toFixed(4),
+      ok: rms !== null && rms > -55 && correlation >= 0.45,
+    });
+  }
+  return {
+    ok: segments.length > 0 && segments.every((s) => s.ok),
+    method: "time-aligned voice-stem correlation against delivered mix",
+    segments,
+  };
+}
+
 export function reviewTimes(seconds, fps, shots = []) {
   const values = [
     0,
@@ -148,7 +233,16 @@ export function compareDelivery(meta, expected = {}) {
   return errors;
 }
 
-export function verifyVideo(file, outDir, { expected = {}, shots = [] } = {}) {
+export function verifyVideo(
+  file,
+  outDir,
+  {
+    expected = {},
+    shots = [],
+    narrationStem = null,
+    narrationTracks = [],
+  } = {},
+) {
   file = path.resolve(file);
   const meta = probeVideo(file),
     errors = compareDelivery(meta, expected),
@@ -239,6 +333,19 @@ export function verifyVideo(file, outDir, { expected = {}, shots = [] } = {}) {
       f.seconds = +(f.end - f.start).toFixed(4);
     }
   }
+  let narration = null;
+  if (expected.narration === true && !narrationStem)
+    errors.push("required narration is missing (music is not voiceover)");
+  if (narrationStem)
+    try {
+      narration = verifyNarration(file, narrationStem, narrationTracks);
+      if (!narration.ok)
+        errors.push(
+          "narration is missing, silent, mistimed or drowned in the delivered mix",
+        );
+    } catch (e) {
+      errors.push(`narration verification failed: ${e.message}`);
+    }
   for (const f of freezes)
     if (f.end === undefined) {
       f.end = meta.seconds;
@@ -335,6 +442,7 @@ export function verifyVideo(file, outDir, { expected = {}, shots = [] } = {}) {
     observed: meta,
     expected,
     audio: sound,
+    narration,
     section_audio: sections,
     errors,
     warnings,
