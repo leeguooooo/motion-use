@@ -23,8 +23,8 @@ function mulberry32(seed) {
   };
 }
 
-export function synthMusic(mood, seconds) {
-  const m = MOODS[mood];
+export function synthMusic(mood, seconds, options = {}) {
+  const m = { ...MOODS[mood], ...(options.bpm ? { bpm: options.bpm } : {}) };
   const N = Math.ceil(seconds * SR);
   const L = new Float32Array(N);
   const R = new Float32Array(N);
@@ -157,4 +157,4 @@ function wav(pcm, channels) {
   return Buffer.concat([h, pcm]);
 }
 
-export const writeMusic = (file, mood, seconds) => fs.writeFileSync(file, synthMusic(mood, seconds));
+export const writeMusic = (file, mood, seconds, options) => fs.writeFileSync(file, synthMusic(mood, seconds, options));

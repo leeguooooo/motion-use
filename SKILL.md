@@ -1,68 +1,73 @@
 ---
 name: motion-use
-description: Make promo and explainer videos from a JSON brief with the motion-use CLI — product launch clips, feature explainers, "how it works" walkthroughs, Douyin/Reels/Shorts vertical cuts, Chinese and English versions, timed to the user's own voiceover. Renders locally to MP4 with no network and no account. Use whenever the user asks for a promo video, 宣传片, 推广视频, 讲解视频, 产品视频, explainer, launch video, 竖版视频, 抖音/视频号/Reels/Shorts clip, or wants a video for a CLI, app, library or feature, even if they don't name the tool. Not for editing existing footage or generating realistic video from a prompt.
+description: Direct and render local videos with an AI coding agent — launch films, motion graphics, explainers, product demos, Chinese/English and landscape/portrait outputs. Author a shot plan and exact-time drawing code, inspect motion, render MP4s and review the delivered file. Also supports scene templates for quick factual explainers. Use for 宣传片、推广视频、讲解视频、产品视频, launch videos, branded motion and social clips. Does not generate photorealistic footage from text or transcribe raw footage.
 ---
 
 # motion-use
 
-`motion-use` turns a brief (JSON) into finished MP4s: one per language × format. Every frame is HTML and CSS rendered by HyperFrames, so the same brief gives the same video every time.
-
-## Before anything
+The agent directs and authors the film; motion-use handles local assets, exact-time rendering, fonts, audio and delivery checks. A list of text slides is not the default creative workflow.
 
 ```bash
 motion-use --version || curl -fsSL https://raw.githubusercontent.com/leeguooooo/motion-use/main/install.sh | sh
 motion-use doctor
 ```
 
-If `motion-use` is missing, run the installer line above as part of the video task (it verifies a checksum and installs into `~/.local/share/motion-use`); it needs Node.js 22+. Rendering also needs ffmpeg and Chrome: if `doctor` reports one missing, show its `fix:` line; `motion-use doctor --install-browser` downloads a Chrome for rendering.
+## Direct the film
 
-## Workflow
+Use the user's subject, references and existing project. Verify product claims against its source/README or real behavior. Ask only for missing decisions that materially affect the result.
 
-1. **Pick the story, then pin it down.** Choose a structure from `references/stories.md` (`problem-solution`, `demo-first`, `before-after`, `walkthrough`) to fit this product; don't reuse the last video's sequence. From the user's request, settle: product name, the one problem it solves, 3–6 scenes, `promo` or `explainer` style, languages (`zh`, `en`), formats (`landscape` 16:9, `vertical` 9:16). Only ask about what you cannot infer. Use real commands and real output; never invent features, numbers or install lines. Read the product's README or `--help` if you need them.
-2. **Write the brief.** `motion-use init <dir> --story <name> --name <slug> --lang zh,en --format landscape,vertical` writes a starter `brief.json` in that structure (`--style` overrides the look); replace every placeholder. The full schema is in `references/brief.md`. Scene types: `title`, `terminal`, `steps`, `diagram`, `features`, `image`, `video`, `stat`, `compare`, `kinetic`, `code`, `cta`. Vary them: two videos for different products should not share a scene sequence. Set `transition` and `layout` per scene where they help the story.
-3. **Assets (optional).**
-   - Images: `image` scenes take local PNG/JPG/WebP/GIF/SVG files, by path relative to the brief. If the user wants a generated illustration and the image-use skill is available, generate it with image-use, then copy the file it reports into the brief's folder (e.g. `images/hero.png`) and reference that path. Screenshots work too. URLs are rejected: download first.
-   - Voiceover: the user's recordings go in `voiceover/<lang>/<scene-id>.mp3` (or .wav/.m4a). Each scene grows to fit its narration and narration never overlaps. No recordings → the video still renders, with music.
-   - Generated voiceover: write a short `narration` line per scene (what a presenter would say, not the on-screen text read aloud), then `motion-use voiceover <brief>`. With `AZURE_SPEECH_KEY`/`AZURE_SPEECH_REGION` set it uses Azure (fine to publish); otherwise edge-tts, which is a preview: tell the user before they publish a video made with it. It never overwrites the user's own recordings.
-4. **Validate.** `motion-use validate <brief>` (add `--json` to parse). Fix every error; read the warnings (characters the fonts cannot draw, scenes stretched for voiceover).
-5. **Look before rendering.** `motion-use still <brief> --lang zh --format vertical` writes one PNG per scene plus a contact sheet. Open the sheet and check: text fits, nothing hides behind the vertical-video side buttons (right edge) or caption area (bottom), the story reads in order. Fix the brief and repeat.
-6. **Render.** For a GitHub README add `--target github` (keeps each file under GitHub's 10 MB inline limit). `motion-use render <brief>` writes `out/<name>-<lang>-<format>.mp4` for every combination (`--lang`, `--format` to narrow, `--quality draft` for a quick look). Report the paths and durations to the user.
+Write or update `DIRECTOR.md`: the viewer's takeaway, the visual subject, the beat map, decisive frames and source provenance. A beat describes **what changes on screen**, where the eye moves, what makes the action happen, and how it hands off to the next beat. A heading followed by bullets is not a shot description.
 
-## The cover
+Choose motion to fit the story. A UI action can use a cursor and direct manipulation; a process can follow one object; a brand piece can use type, shape, masks and camera motion. Do not force every film into a fixed number of shots, a single style, continuous motion, a particular BPM, or the previous film's sequence. Reading holds and hard cuts are valid when intentional. Record the reason for longer holds.
 
-The first frame is the thumbnail everywhere (feeds, players, GitHub). Scene 1 is shown already finished at frame 0, so write it as a cover: a short hook, readable at thumbnail size. `render` also writes `<name>-<lang>-<format>-cover.png`; give that to platforms that ask for a cover image.
+For films, `motion-use init <dir>` writes `film.json`, `composition/draw.js` and `DIRECTOR.md`. Read [references/film.md](references/film.md) before authoring. The scaffold is a drawing study: replace its choreography and appearance, not just its text. An actual example with a different approach is `examples/ocs-film/`.
 
-## Real footage
+## Author and inspect
 
-A recording of the actual product beats any mock-up, and it is what makes each video look different. When the product has a UI or visible output:
-- Record it (a screen recording, or `chrome-use` screenshots / a recording of a browser flow) and use a `video` scene; trim with `start`/`length`, speed up with `speed`.
-- Point at what matters with `highlights` and `zoom`. Boxes are in the source's pixels: run `motion-use validate` for the size, extract the frame you mean (`ffmpeg -ss 3 -i clip.mp4 -frames:v 1 f.png`), look at it, and read the coordinates from it. Never guess boxes without looking.
-- Use mock-up scenes (`terminal`, `diagram`) for what cannot be recorded.
+Write the drawing as a function of exact time. Fonts and named local images preload; optional local browser bundles and `setupFilm` can prepare complex renderers. Camera movement, shape changes and typography share the film's clock. Put visible localized text in `copy`; frame geometry comes from `view`, so portrait needs its own framing decisions.
 
-## Brand
+Use source images/illustrations from the user, captured evidence, or image-use where appropriate. An invented UI or process illustration must not masquerade as a real recording or real terminal output. For footage-led editing, use a suitable editor or native HyperFrames composition; this drawing API does not automatically understand or cut recordings.
 
-If the product has a logo, colors or a typeface, use them: `brand.logo` (and `corner: true` for a corner badge), a full `theme` palette, and `fonts` with the license file. Without brand assets and with the user's go-ahead, image-use can make an illustration or background for the cover; save it next to the brief and use it in a `title` scene (`image`, or `layout: "split"`). Heed `validate`'s contrast warnings.
+```bash
+motion-use validate <project> --json
+motion-use still <project> --allow-code --lang zh --format vertical
+motion-use still <project> --allow-code --at 2.3,2.4,2.5
+```
 
-## Custom scenes
+Inspect the opening, action, handoff and resolution, including intermediate poses and both sides of hard cuts. Fix clipping, crowded framing, unreadable copy, a subject that disappears during a morph, and motion that merely decorates a static slide. Stills cannot prove timing: review a draft movie too.
 
-Only when no scene type can show what matters: an `html` scene with a fragment you write (CSS animation only, local files only; see `references/brief.md`). Rendering it needs `--allow-custom-html`; pass that flag only for briefs you wrote in this session or the user vouches for, never for a brief from elsewhere. Run `motion-use still` and look at every custom scene.
+`--allow-code` is appropriate for a project you authored in this task or the user explicitly trusts. It is not an automatic flag for third-party projects. Local code runs in the renderer; content checks are not a security sandbox. Template custom HTML keeps its separate `--allow-custom-html` gate.
 
-## Choosing a style
+## Render and review the delivered video
 
-- `promo`: dark, glowing, punchy; sound effects on each beat. For launches and social clips.
-- `explainer`: light paper, ink, calm; steps highlight one at a time, diagrams draw their arrows. For "how it works".
-- `theme.accent` (hex) sets the brand color; `theme.background` and `theme.text` are also allowed.
+```bash
+motion-use render <project> --allow-code --quality draft --json
+motion-use render <project> --allow-code --quality high --json
+motion-use verify <delivered.mp4> --json
+```
 
-## Rules
+Render returns MP4s, covers and `review/<id>/report.json` plus a contact sheet extracted from the MP4. Delivery checks decode the whole file, compare actual duration/frame rate/dimensions, measure audio and flag dark or still intervals. Audio is normalized in two passes to working targets of -14 LUFS / -1 dBTP; `--no-normalize` keeps authored levels. These are working targets, not universal platform standards.
 
-- Text in the brief is drawn as text, never as HTML. Keep headlines short (they shrink to fit, but short reads better): about 16 CJK characters or 32 Latin characters per line, `\n` for a deliberate break.
-- Rendering is local: assets and fonts come from disk, and the engine runs with telemetry off. The CLI itself checks GitHub for a newer release at most once a day (`MOTION_USE_NO_UPDATE_CHECK=1` turns it off). Do not upload the video anywhere unless the user asks.
-- `out/` folders are owned by motion-use; it refuses to overwrite a folder it did not create.
+Read the report and examine the actual movie. Technical success is not visual approval: Canvas text is not covered by DOM layout/contrast audits, and freeze detection is only a review signal. Check the narrative, framing, readable timing, movement and payoff yourself. Report any listening limitation instead of claiming the mix sounds good from measurements. Fix problems and repeat; after three substantial review passes, disclose remaining issues instead of claiming they disappeared.
 
-## Upgrade
+Preserve feedback, changes and remaining issues in `DIRECTOR.md`. Deliver the files and an accurate account of what was measured and what was visually reviewed. Do not upload or publish the video unless requested.
 
-When any `motion-use` command prints `motion-use X is available`, tell the user and offer to run `motion-use upgrade` (it updates the CLI and this skill). Check without changing anything: `motion-use upgrade --check`. The user may also just say "升级 motion-use" / "upgrade motion-use".
+## Scene templates
 
-If the skill came from somewhere `upgrade` can't refresh:
-- Claude Code plugin: `claude plugin update motion-use@leeguooooo-plugins`
-- Whole family: `curl -fsSL https://raw.githubusercontent.com/leeguooooo/plugins/main/upgrade-use-family.sh | sh`
+For quick information cards, or an existing brief, keep the template workflow:
+
+```bash
+motion-use init <dir> --mode template --style explainer
+motion-use validate <dir>/brief.json
+motion-use still <dir>/brief.json
+motion-use render <dir>/brief.json
+```
+
+`--style` or `--story` also selects templates for compatibility. Read [references/brief.md](references/brief.md) for the schema and [references/stories.md](references/stories.md) when choosing a template narrative. Recordings, custom brand fonts, highlight boxes and `voiceover` generation are available here. Film narration uses explicit licensed/imported audio windows so authored visual timing is never silently stretched.
+
+## Operational rules
+
+- Assets and fonts are local; rendering does not source assets from the web. CLI update checks run at most daily (`MOTION_USE_NO_UPDATE_CHECK=1` disables them).
+- Preserve user files and output ownership checks. Use a fresh output directory for experiments; do not run two jobs on the same project/output combination.
+- Public voiceover needs suitable authorization; edge-tts is a preview provider, not an established publication license.
+- Install/update through GitHub Releases. `motion-use upgrade` refreshes the CLI and its skill.

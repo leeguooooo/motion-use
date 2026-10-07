@@ -36,4 +36,4 @@ Rendering also uses programs motion-use does not install: **Node.js**, **FFmpeg*
 
 ## Not included
 
-motion-use does not use GSAP or Remotion. Animations are plain CSS, which HyperFrames seeks frame by frame.
+motion-use ships neither GSAP nor Remotion. Template animations use seekable CSS; authored films use time-driven Canvas drawing. A trusted film may supply explicit local browser libraries, whose licenses remain the film author's responsibility.

@@ -1,7 +1,7 @@
 {
   "name": "motion-use",
-  "version": "0.3.0",
-  "description": "Promo and explainer videos from a JSON brief: zh/en, landscape/vertical, timed to your voiceover, rendered locally to MP4. Part of the *-use family.",
+  "version": "0.4.0",
+  "description": "Directed local films with exact-time animation, authored shots and delivered-video verification. Built on HyperFrames.",
   "author": {
     "name": "leeguooooo"
   },
