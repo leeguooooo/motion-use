@@ -202,6 +202,11 @@ test("delivery compares real metadata and samples both sides of cuts", () => {
   assert.ok(t.some((x) => Math.abs(x - (7.2 - 1 / 60)) < 1e-5));
   assert.ok(t.every((x) => x >= 0 && x < 18));
 });
+test("operational failures preserve the CLI JSON contract",async()=>{
+  const saved=console.log;let output="";console.log=x=>output+=x;process.env.MOTION_USE_NO_UPDATE_CHECK="1";
+  try {assert.equal(await main(["verify",path.join(temp(),"missing.mp4"),"--json"]),1);} finally {console.log=saved;}
+  const r=JSON.parse(output);assert.equal(r.ok,false);assert.equal(typeof r.error,"string");
+});
 test("verification decodes a real MP4 and reports missing sound without pretending visual approval", () => {
   const dir = temp(),
     file = path.join(dir, "clip.mp4");

@@ -135,7 +135,7 @@ export async function main(argv) {
     return await commands[cmd](args.values, args.positionals);
   } catch (e) {
     if (e instanceof BriefError) return fail(e.message, args.values.json);
-    throw e;
+    return fail(e.message, args.values.json);
   }
 }
 
