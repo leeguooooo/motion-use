@@ -24,6 +24,8 @@ For films, `motion-use init <dir>` writes `film.json`, `composition/draw.js` and
 
 ## Author and inspect
 
+Narration is required by default. Write `narration` per shot (text per language), or a whole-film narration script, before fixing the shot windows. Run `motion-use voiceover <project>` to generate/cache the audio and check that each sentence fits; retime the picture or shorten the script if it does not. Never truncate words or disable narration to make a short film fit. Use `voiceover:false` only when the user explicitly wants an unnarrated piece. `render` also generates missing/outdated narration automatically; a TTS error stops delivery rather than falling back to music-only output.
+
 Write the drawing as a function of exact time. Fonts and named local images preload; optional local browser bundles and `setupFilm` can prepare complex renderers. Camera movement, shape changes and typography share the film's clock. Put visible localized text in `copy`; frame geometry comes from `view`, so portrait needs its own framing decisions.
 
 Use source images/illustrations from the user, captured evidence, or image-use where appropriate. An invented UI or process illustration must not masquerade as a real recording or real terminal output. For footage-led editing, use a suitable editor or native HyperFrames composition; this drawing API does not automatically understand or cut recordings.
@@ -48,6 +50,8 @@ motion-use verify <delivered.mp4> --json
 
 Render returns MP4s, covers and `review/<id>/report.json` plus a contact sheet extracted from the MP4. Delivery checks decode the whole file, compare actual duration/frame rate/dimensions, measure audio and flag dark or still intervals. Audio is normalized in two passes to working targets of -14 LUFS / -1 dBTP; `--no-normalize` keeps authored levels. These are working targets, not universal platform standards.
 
+The narration check compares a voice-only reference stem with the delivered mix at each spoken window. Music alone, a silent voice track, a missing language, mistimed speech or a voice drowned by the bed fails delivery.
+
 Read the report and examine the actual movie. Technical success is not visual approval: Canvas text is not covered by DOM layout/contrast audits, and freeze detection is only a review signal. Check the narrative, framing, readable timing, movement and payoff yourself. Report any listening limitation instead of claiming the mix sounds good from measurements. Fix problems and repeat; after three substantial review passes, disclose remaining issues instead of claiming they disappeared.
 
 Preserve feedback, changes and remaining issues in `DIRECTOR.md`. Deliver the files and an accurate account of what was measured and what was visually reviewed. Do not upload or publish the video unless requested.
@@ -63,11 +67,12 @@ motion-use still <dir>/brief.json
 motion-use render <dir>/brief.json
 ```
 
-`--style` or `--story` also selects templates for compatibility. Read [references/brief.md](references/brief.md) for the schema and [references/stories.md](references/stories.md) when choosing a template narrative. Recordings, custom brand fonts, highlight boxes and `voiceover` generation are available here. Film narration uses explicit licensed/imported audio windows so authored visual timing is never silently stretched.
+`--style` or `--story` also selects templates for compatibility. Read [references/brief.md](references/brief.md) for the schema and [references/stories.md](references/stories.md) when choosing a template narrative. Recordings, custom brand fonts, highlight boxes and `voiceover` generation are available here. When a template declares narration, render generates missing speech and requires its presence in delivery too. `voiceover.required:false` is only for deliberately unnarrated template output. Film narration can be generated or imported and uses explicit shot windows, so authored visual timing is never silently stretched.
 
 ## Operational rules
 
 - Assets and fonts are local; rendering does not source assets from the web. CLI update checks run at most daily (`MOTION_USE_NO_UPDATE_CHECK=1` disables them).
 - Preserve user files and output ownership checks. Use a fresh output directory for experiments; do not run two jobs on the same project/output combination.
+- If Edge is selected but missing, install the known `edge-tts` tool with `uv tool install edge-tts` (or Python/pip) and retry. Do not disable narration as a workaround.
 - Public voiceover needs suitable authorization; edge-tts is a preview provider, not an established publication license.
 - Install/update through GitHub Releases. `motion-use upgrade` refreshes the CLI and its skill.

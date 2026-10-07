@@ -289,7 +289,9 @@ export function validateBrief(data, baseDir) {
         if (!entries) r.error("$.voiceover.rate", 'a rate like "+8%", or one per language like {"zh": "+8%"}');
         else for (const [l, v] of entries) typeof v === "string" && RATE_RE.test(v) ? (rates[l] = v) : r.error(one ? "$.voiceover.rate" : `$.voiceover.rate.${l}`, 'a percentage like "+8%" or "-5%"');
       }
-      voiceover = { dir, volume, engine, voices, rates };
+      const required=vo.required ?? (Array.isArray(data.scenes)&&data.scenes.some(s=>s?.narration));
+      if(typeof required!=="boolean")r.error("$.voiceover.required","true or false; false is only for deliberately unnarrated output");
+      voiceover = { dir, volume, engine, voices, rates, required };
     }
   }
 

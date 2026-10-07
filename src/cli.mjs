@@ -37,7 +37,8 @@ import {
   isFilm,
   resolveProject,
 } from "./film.mjs";
-import { normalizeAudio, verifyVideo } from "./verify.mjs";
+import { normalizeAudio, verifyVideo, buildNarrationStem } from "./verify.mjs";
+import { generateFilmNarration } from "./film-voiceover.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const VERSION = JSON.parse(
@@ -431,6 +432,29 @@ async function each(briefPath, o, fn) {
       const proj = c.film
         ? await buildFilm(c.film, l, f, path.join(out, ".build", id))
         : await buildProject(c.brief, l, f, path.join(out, ".build", id));
+      if (!c.film) {
+        proj.narrationTracks = proj.scenes
+          .filter((s) => s.vo)
+          .map((s) => ({
+            id: s.id,
+            lang: l,
+            file: s.vo.file,
+            start: s.vo.at,
+            offset: 0,
+            length: s.vo.seconds,
+            volume: c.brief.voiceover?.volume ?? 1,
+          }));
+        proj.narrationRequired = c.brief.voiceover?.required ?? false;
+        proj.narrationStem = proj.narrationTracks.length
+          ? path.join(proj.dir, "assets", "audio", "narration-stem.wav")
+          : null;
+        if (proj.narrationStem)
+          buildNarrationStem(
+            proj.narrationTracks,
+            proj.total,
+            proj.narrationStem,
+          );
+      }
       results.push(await fn(proj, id, out, c.brief));
     }
   return {
@@ -484,118 +508,249 @@ async function render(o, [briefPath]) {
   );
   if (maxBytes === undefined)
     return fail("--max-size takes a size like 9MB, 9.5M or 9000000", o.json);
-  const r = await each(briefPath, o, async (proj, id, out, brief) => {
-    const edgeFiles = proj.film ? [] : edgeGenerated(brief, proj.lang);
-    if (edgeFiles.length && !o.json)
-      console.error(
-        `motion-use: ${id} uses ${edgeFiles.length} voiceover file(s) made with edge-tts: preview quality, and whether they may be published is not established. For a public video, regenerate with --engine azure.`,
+  if (isFilm(briefPath)) {
+    if (o.engine && !["edge", "azure"].includes(o.engine))
+      return fail("--engine must be azure or edge", o.json);
+    if (!o["allow-code"])
+      return fail(
+        "this film executes authored drawing code; pass --allow-code only for a project you wrote or trust",
+        o.json,
       );
-    const file = path.join(out, `${id}.mp4`);
-    const blocked = guardOutput(out, file, o.force);
-    if (blocked) return { ok: false, id, error: blocked };
-    const tmp = path.join(proj.dir, "render.mp4");
-    fs.rmSync(tmp, { force: true });
-    if (!o.json) console.error(`rendering ${id} (${proj.total.toFixed(1)}s)…`);
-    const hf = await runHyperframes(
-      [
-        "render",
-        proj.dir,
-        "--output",
-        tmp,
-        "--fps",
-        String(proj.fps),
-        "--quality",
-        quality,
-        "--quiet",
-        o.gpu ? "--browser-gpu" : "--no-browser-gpu",
-      ].filter(Boolean),
-      {},
-    );
-    const ok = hf.code === 0 && fs.existsSync(tmp) && fs.statSync(tmp).size > 0;
-    if (!ok)
-      return { ok, id, error: hf.out.trim().split("\n").slice(-15).join("\n") };
-    let normalization = { applied: false, reason: "disabled" };
-    if (!o["no-normalize"]) {
-      const norm = path.join(proj.dir, "normalized.mp4");
-      normalization = normalizeAudio(tmp, norm);
-      if (normalization.applied) fs.renameSync(norm, tmp);
+    const c = checkFilm(briefPath, { ...o, skipGeneratedVoiceover: true });
+    if (!c.ok) {
+      if (o.json)
+        console.log(JSON.stringify({ ok: false, ...c.report }, null, 2));
+      else printReport(c.report);
+      return 1;
     }
-    let fitted = null;
-    if (maxBytes && fs.statSync(tmp).size > maxBytes) {
-      fitted = fitSize(tmp, maxBytes, proj.dir);
-      if (!fitted.ok) return { ok: false, id, error: fitted.error };
-    }
-    const bytes = fs.statSync(tmp).size;
-    commitOutput(out, tmp, file);
-    const verification = verifyVideo(file, path.join(out, "review", id), {
-      expected: {
-        duration: proj.total,
-        fps: proj.fps,
-        width: proj.fmt.w,
-        height: proj.fmt.h,
-        audio: proj.film
-          ? (brief.music !== "none" && brief.music !== undefined) ||
-            brief.tracks.length > 0
-          : undefined,
-      },
-      shots: proj.scenes.map((s) => ({
-        id: s.id,
-        start: s.start,
-        end: s.start + s.duration,
-      })),
+    const generated = await generateFilmNarration(c.film, {
+      langs: c.langs,
+      engine: o.engine,
+      log: o.json ? () => {} : (m) => console.error(m),
     });
-    if (!o.json && bytes > 10e6)
-      console.error(
-        `motion-use: ${path.basename(file)} is ${mb(bytes)}; GitHub plays videos inline only up to 10 MB (use --target github)`,
+    const failed = generated.rows.filter((r) => r.status === "error");
+    if (failed.length)
+      return fail(
+        `narration generation failed: ${failed.map((r) => r.error).join("; ")}`,
+        o.json,
       );
-    if (!o.json)
-      console.log(
-        `${file}  ${mb(bytes)}${fitted ? ` (re-encoded at CRF ${fitted.crf} to fit)` : ""}`,
+  } else {
+    const { data, dir } = readBrief(resolveProject(briefPath));
+    if (data.scenes?.some((s) => s?.type === "html") && !o["allow-custom-html"])
+      return fail(
+        "custom HTML requires --allow-custom-html before executing this project",
+        o.json,
       );
-    // Frame 0 as a PNG: the cover to upload where a platform asks for one.
-    const coverFile = path.join(out, `${id}-cover.png`);
-    let cover = null;
-    if (!guardOutput(out, coverFile, o.force)) {
-      const tmpCover = path.join(proj.dir, "cover.png");
-      try {
-        execFileSync(
-          "ffmpeg",
-          ["-v", "error", "-y", "-i", file, "-frames:v", "1", tmpCover],
-          { stdio: ["ignore", "ignore", "pipe"] },
+    if (
+      data.scenes?.some((s) => s?.narration) &&
+      data.voiceover?.required !== false
+    ) {
+      if (typeof data.voiceover?.dir !== "string")
+        return fail(
+          "a narration script needs voiceover.dir; do not deliver music-only output",
+          o.json,
         );
-        commitOutput(out, tmpCover, coverFile);
-        cover = coverFile;
-      } catch (e) {
-        console.error(
-          `motion-use: cover image not created (${e.code === "ENOENT" ? "ffmpeg not found" : e.stderr?.toString().trim()})`,
+      const voiceDir = path.resolve(dir, data.voiceover.dir),
+        relative = path.relative(dir, voiceDir);
+      if (
+        !relative ||
+        relative === ".." ||
+        relative.startsWith(".." + path.sep) ||
+        path.isAbsolute(relative)
+      )
+        return fail(
+          "automatic narration requires a voiceover directory inside the project; import external recordings by scene file instead",
+          o.json,
         );
+      let parent = voiceDir;
+      while (!fs.existsSync(parent)) parent = path.dirname(parent);
+      const resolved = path.relative(
+        fs.realpathSync(dir),
+        fs.realpathSync(parent),
+      );
+      if (
+        resolved === ".." ||
+        resolved.startsWith(".." + path.sep) ||
+        path.isAbsolute(resolved)
+      )
+        return fail("voiceover directory symlink escapes the project", o.json);
+      fs.mkdirSync(voiceDir, { recursive: true });
+      const checked = validateBrief(data, dir);
+      if (checked.errors.length) {
+        if (o.json)
+          console.log(
+            JSON.stringify({ ok: false, errors: checked.errors }, null, 2),
+          );
+        else
+          printReport({ errors: checked.errors, warnings: [], timelines: [] });
+        return 1;
       }
-    } else
-      console.error(
-        `motion-use: cover image skipped: ${guardOutput(out, coverFile, o.force)}`,
+      if (o.engine && !["azure", "edge"].includes(o.engine))
+        return fail("--engine must be azure or edge", o.json);
+      const generated = await generateVoiceover(checked.brief, {
+        langs: list(o.lang) ?? checked.brief.languages,
+        engine: o.engine,
+        log: o.json ? () => {} : (m) => console.error(m),
+      });
+      const failed = generated.rows.filter((r) => r.status === "error");
+      if (failed.length)
+        return fail(
+          `narration generation failed: ${failed.map((r) => r.error).join("; ")}`,
+          o.json,
+        );
+    }
+  }
+  const r = await each(
+    briefPath,
+    { ...o, requireNarration: list(o.lang) ?? true },
+    async (proj, id, out, brief) => {
+      const edgeFiles = proj.film
+        ? edgeGenerated(
+            {
+              voiceover: brief.narrationConfig,
+              scenes: proj.narrationTracks.map((a) => ({
+                voiceover: { [proj.lang]: a.file },
+              })),
+            },
+            proj.lang,
+          )
+        : edgeGenerated(brief, proj.lang);
+      if (edgeFiles.length && !o.json)
+        console.error(
+          `motion-use: ${id} uses ${edgeFiles.length} voiceover file(s) made with edge-tts: preview quality, and whether they may be published is not established. For a public video, regenerate with --engine azure.`,
+        );
+      const file = path.join(
+        out,
+        `${id}${proj.film && proj.narrationTracks.length ? "-VO" : ""}.mp4`,
       );
-    return {
-      ok: verification.ok,
-      id,
-      file,
-      cover,
-      bytes,
-      refit_crf: fitted?.crf ?? null,
-      edge_voiceover: edgeFiles.length,
-      seconds: verification.observed.seconds,
-      lang: proj.lang,
-      format: proj.format,
-      normalization,
-      verification: {
+      const blocked = guardOutput(out, file, o.force);
+      if (blocked) return { ok: false, id, error: blocked };
+      const tmp = path.join(proj.dir, "render.mp4");
+      fs.rmSync(tmp, { force: true });
+      if (!o.json)
+        console.error(`rendering ${id} (${proj.total.toFixed(1)}s)…`);
+      const hf = await runHyperframes(
+        [
+          "render",
+          proj.dir,
+          "--output",
+          tmp,
+          "--fps",
+          String(proj.fps),
+          "--quality",
+          quality,
+          "--quiet",
+          o.gpu ? "--browser-gpu" : "--no-browser-gpu",
+        ].filter(Boolean),
+        {},
+      );
+      const ok =
+        hf.code === 0 && fs.existsSync(tmp) && fs.statSync(tmp).size > 0;
+      if (!ok)
+        return {
+          ok,
+          id,
+          error: hf.out.trim().split("\n").slice(-15).join("\n"),
+        };
+      let normalization = { applied: false, reason: "disabled" };
+      if (!o["no-normalize"]) {
+        const norm = path.join(proj.dir, "normalized.mp4");
+        normalization = normalizeAudio(tmp, norm);
+        if (normalization.applied) fs.renameSync(norm, tmp);
+      }
+      let fitted = null;
+      if (maxBytes && fs.statSync(tmp).size > maxBytes) {
+        fitted = fitSize(tmp, maxBytes, proj.dir);
+        if (!fitted.ok) return { ok: false, id, error: fitted.error };
+      }
+      const bytes = fs.statSync(tmp).size;
+      const verification = verifyVideo(tmp, path.join(out, "review", id), {
+        expected: {
+          duration: proj.total,
+          fps: proj.fps,
+          width: proj.fmt.w,
+          height: proj.fmt.h,
+          audio: proj.film
+            ? (brief.music !== "none" && brief.music !== undefined) ||
+              brief.tracks.length > 0
+            : undefined,
+          narration: proj.narrationRequired,
+        },
+        shots: proj.scenes.map((s) => ({
+          id: s.id,
+          start: s.start,
+          end: s.start + s.duration,
+        })),
+        narrationStem: proj.narrationStem,
+        narrationTracks: proj.narrationTracks,
+      });
+      if (!verification.ok)
+        return {
+          ok: false,
+          id,
+          error: verification.errors.join("; "),
+          verification: { ok: false, report: verification.report },
+        };
+      commitOutput(out, tmp, file);
+      verification.file = file;
+      fs.writeFileSync(
+        verification.report,
+        JSON.stringify(verification, null, 2) + "\n",
+      );
+      if (!o.json && bytes > 10e6)
+        console.error(
+          `motion-use: ${path.basename(file)} is ${mb(bytes)}; GitHub plays videos inline only up to 10 MB (use --target github)`,
+        );
+      if (!o.json)
+        console.log(
+          `${file}  ${mb(bytes)}${fitted ? ` (re-encoded at CRF ${fitted.crf} to fit)` : ""}`,
+        );
+      // Frame 0 as a PNG: the cover to upload where a platform asks for one.
+      const coverFile = path.join(out, `${id}-cover.png`);
+      let cover = null;
+      if (!guardOutput(out, coverFile, o.force)) {
+        const tmpCover = path.join(proj.dir, "cover.png");
+        try {
+          execFileSync(
+            "ffmpeg",
+            ["-v", "error", "-y", "-i", file, "-frames:v", "1", tmpCover],
+            { stdio: ["ignore", "ignore", "pipe"] },
+          );
+          commitOutput(out, tmpCover, coverFile);
+          cover = coverFile;
+        } catch (e) {
+          console.error(
+            `motion-use: cover image not created (${e.code === "ENOENT" ? "ffmpeg not found" : e.stderr?.toString().trim()})`,
+          );
+        }
+      } else
+        console.error(
+          `motion-use: cover image skipped: ${guardOutput(out, coverFile, o.force)}`,
+        );
+      return {
         ok: verification.ok,
-        report: verification.report,
-        sheet: verification.sheet,
-        warnings: verification.warnings,
-        errors: verification.errors,
-        visual_review: verification.visual_review,
-      },
-    };
-  });
+        id,
+        file,
+        cover,
+        bytes,
+        refit_crf: fitted?.crf ?? null,
+        edge_voiceover: edgeFiles.length,
+        seconds: verification.observed.seconds,
+        lang: proj.lang,
+        format: proj.format,
+        normalization,
+        verification: {
+          ok: verification.ok,
+          report: verification.report,
+          sheet: verification.sheet,
+          warnings: verification.warnings,
+          errors: verification.errors,
+          visual_review: verification.visual_review,
+          narration: verification.narration,
+        },
+      };
+    },
+  );
   if (o.json && r.results)
     console.log(
       JSON.stringify(
@@ -679,11 +834,46 @@ function fitSize(file, max, workDir) {
 }
 
 async function voiceover(o, [briefPath]) {
-  if (isFilm(briefPath))
-    return fail(
-      "film narration uses explicit audio windows; import recorded/licensed voiceover under $.audio (references/film.md)",
-      o.json,
-    );
+  if (isFilm(briefPath)) {
+    const c = checkFilm(briefPath, { ...o, skipGeneratedVoiceover: true });
+    if (!c.ok) {
+      if (o.json)
+        console.log(JSON.stringify({ ok: false, ...c.report }, null, 2));
+      else printReport(c.report);
+      return 1;
+    }
+    if (o.engine && !["edge", "azure"].includes(o.engine))
+      return fail("--engine must be azure or edge", o.json);
+    const res = await generateFilmNarration(c.film, {
+      langs: c.langs,
+      engine: o.engine,
+      force: o.force,
+      log: o.json ? () => {} : (m) => console.error(m),
+    });
+    const post = checkFilm(briefPath, { ...o, requireNarration: c.langs });
+    const ok = post.ok && !res.rows.some((r) => r.status === "error");
+    if (o.json)
+      console.log(
+        JSON.stringify(
+          {
+            ok,
+            engine: res.engine,
+            files: res.rows,
+            errors: post.report.errors,
+          },
+          null,
+          2,
+        ),
+      );
+    else {
+      for (const row of res.rows)
+        console.log(
+          `${row.status}: ${row.lang}/${row.scene}${row.error ? ": " + row.error : ""}`,
+        );
+      if (!post.ok) printReport(post.report);
+    }
+    return ok ? 0 : 1;
+  }
   // The folder may not exist yet on a first run: create it so validation passes.
   const { data, dir } = readBrief(briefPath ?? "brief.json");
   if (typeof data?.voiceover?.dir === "string")

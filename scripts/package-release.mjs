@@ -18,6 +18,8 @@ fs.mkdirSync(stage, { recursive: true });
 const copy = (rel) => {
   const from = path.join(root, rel);
   if (SKIP.has(path.basename(rel)) || path.basename(rel).startsWith(".env")) return;
+  // Generated voices are local artifacts, not redistributable release assets.
+  if(path.basename(rel)===".motion-use-voiceover.json"||rel.split(path.sep).includes("voiceover")&&!fs.statSync(from).isDirectory()&&path.basename(rel)!=="README.txt")return;
   if (fs.statSync(from).isDirectory()) return fs.readdirSync(from).forEach((f) => copy(path.join(rel, f)));
   fs.mkdirSync(path.dirname(path.join(stage, rel)), { recursive: true });
   fs.copyFileSync(from, path.join(stage, rel));

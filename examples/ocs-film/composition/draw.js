@@ -1,5 +1,6 @@
 // A typographic world becomes a message, a wake pulse, a network, then a wordmark.
 window.drawFrame = function (c, t, film, view, M) {
+  t *= 12 / film.duration; // retimed picture and narration share the authored timeline
   const W = view.width,
     H = view.height,
     V = view.vertical,

@@ -29,6 +29,8 @@ jobs:
       # A real render on every platform: fonts, ffmpeg and Chrome differ between them.
       - name: render smoke test
         run: |
+          # This template fixture is deliberately music-only; narration is covered below.
+          node -e 'const fs=require("fs"),p="examples/mail-use/brief.json",d=JSON.parse(fs.readFileSync(p));d.voiceover.required=false;fs.writeFileSync(p,JSON.stringify(d));'
           node bin/motion-use.mjs validate examples/mail-use/brief.json
           node bin/motion-use.mjs still examples/chrome-use/brief.json --lang zh --format vertical
           node bin/motion-use.mjs render examples/mail-use/brief.json --lang zh --format vertical --quality draft --json > render.json
@@ -40,9 +42,11 @@ jobs:
           node bin/motion-use.mjs init "$RUNNER_TEMP/film" --lang en --format square
           node bin/motion-use.mjs validate "$RUNNER_TEMP/film"
           # Shorten only the smoke fixture, preserving a contiguous shot plan.
-          node --input-type=module -e 'import fs from "node:fs"; const p=process.env.RUNNER_TEMP+"/film/film.json"; const d=JSON.parse(fs.readFileSync(p)); d.duration=2; d.shots=[{id:"smoke",start:0,end:2,purpose:"Exercise exact-time capture",action:"Two objects move"}]; fs.writeFileSync(p,JSON.stringify(d));'
+          # A local tone stands in for a voice fixture; no cloud TTS in CI.
+          ffmpeg -v error -y -f lavfi -i 'sine=frequency=880:duration=1' "$RUNNER_TEMP/film/voice.wav"
+          node --input-type=module -e 'import fs from "node:fs"; const p=process.env.RUNNER_TEMP+"/film/film.json"; const d=JSON.parse(fs.readFileSync(p)); d.duration=2; d.shots=[{id:"smoke",start:0,end:2,purpose:"Exercise exact-time capture",action:"Two objects move"}]; d.audio=[{file:"voice.wav",lang:"en",role:"voiceover",start:0.1,volume:1}]; fs.writeFileSync(p,JSON.stringify(d));'
           node bin/motion-use.mjs render "$RUNNER_TEMP/film" --allow-code --quality draft --json > film-render.json
-          node -e 'const r=require("./film-render.json"); if (!r.ok || !r.outputs[0].verification.ok) process.exit(1);'
+          node -e 'const r=require("./film-render.json"); if (!r.ok || !r.outputs[0].verification.ok || !r.outputs[0].verification.narration.ok) process.exit(1);'
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -8,6 +8,8 @@ import { writeSubsets, missingGlyphs } from "./fonts.mjs";
 import { writeMusic } from "./music.mjs";
 import { esc } from "./html.mjs";
 import { BriefError } from "./brief.mjs";
+import { resolveNarration } from "./film-voiceover.mjs";
+import { buildNarrationStem } from "./verify.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const FILM_FORMATS = { ...FORMATS, square: [1440, 1440] };
@@ -45,7 +47,15 @@ export function isFilm(file) {
   }
 }
 
-export function validateFilm(data, dir, { probe = audioSeconds } = {}) {
+export function validateFilm(
+  data,
+  dir,
+  {
+    probe = audioSeconds,
+    requireNarration = false,
+    skipGeneratedVoiceover = false,
+  } = {},
+) {
   const errors = [],
     warnings = [];
   const error = (p, message) => errors.push({ path: p, message });
@@ -238,6 +248,11 @@ export function validateFilm(data, dir, { probe = audioSeconds } = {}) {
       error(`${p}.volume`, "0–2");
     if (a.role !== undefined && !["voiceover", "music", "sfx"].includes(a.role))
       error(`${p}.role`, "voiceover, music or sfx");
+    if (
+      a.lang !== undefined &&
+      (!Array.isArray(data.languages) || !data.languages.includes(a.lang))
+    )
+      error(`${p}.lang`, "a language in this film");
     if (file)
       try {
         const sourceSeconds = probe(file),
@@ -290,6 +305,17 @@ export function validateFilm(data, dir, { probe = audioSeconds } = {}) {
   const glyphs = missingGlyphs(JSON.stringify(data.copy ?? {}));
   if (glyphs.length)
     error("$.copy", `missing font glyphs: ${glyphs.join(" ")}`);
+  const narration = resolveNarration(
+    { ...data, dir, tracks },
+    {
+      error,
+      warn: (p, message) => warnings.push({ path: p, message }),
+      requireFiles: requireNarration,
+      skipGenerated: skipGeneratedVoiceover,
+      probe,
+    },
+  );
+  tracks.push(...narration.tracks);
   return {
     errors,
     warnings,
@@ -304,6 +330,9 @@ export function validateFilm(data, dir, { probe = audioSeconds } = {}) {
       libraries,
       dir,
       fonts: {},
+      narrationConfig: narration.config,
+      narrationPlans: narration.plans,
+      narrationPending: narration.pending,
     },
     shots,
   };
@@ -313,7 +342,7 @@ export function checkFilm(input, o = {}) {
   const file = resolveProject(input),
     dir = path.dirname(file);
   const data = JSON.parse(fs.readFileSync(file, "utf8"));
-  const { film, errors, warnings } = validateFilm(data, dir);
+  const { film, errors, warnings } = validateFilm(data, dir, o);
   const langs = o.lang
       ? o.lang.split(",")
       : Array.isArray(film.languages)
@@ -438,7 +467,8 @@ export async function buildFilm(film, lang, format, outDir) {
       path.join(ROOT, "assets", "fonts", f),
       path.join(fontDir, f),
     );
-  const audio = [];
+  const audio = [],
+    selectedTracks = film.tracks.filter((a) => !a.lang || a.lang === lang);
   if (film.music !== "none" && film.music !== undefined) {
     let rel = "assets/audio/music.wav";
     if (film.music === "builtin")
@@ -453,7 +483,7 @@ export async function buildFilm(film, lang, format, outDir) {
       typeof film.music === "object" ? (film.music.volume ?? 0.6) : 0.6;
     // Voiceover windows carve the music, with short ramps at both edges.
     const points = [{ t: 0, v: volume }];
-    const voices = film.tracks
+    const voices = selectedTracks
       .filter((a) => a.role === "voiceover")
       .sort((a, b) => a.start - b.start);
     const windows = [];
@@ -480,13 +510,19 @@ export async function buildFilm(film, lang, format, outDir) {
       `<audio id="film-music" src="${rel}" data-start="0" data-duration="${film.duration}" data-volume="${volume}" data-fade-out="0.3" data-track-index="10"${automation}></audio>`,
     );
   }
-  film.tracks.forEach((a, i) => {
+  selectedTracks.forEach((a, i) => {
     const rel = `assets/audio/clip-${i}${path.extname(a.file)}`;
     fs.copyFileSync(a.file, path.join(outDir, rel));
     audio.push(
       `<audio id="film-audio-${i}" src="${rel}" data-start="${a.start}" data-media-start="${a.offset}" data-duration="${a.length}" data-volume="${a.volume}" data-fade-in="0.015" data-fade-out="0.03" data-track-index="${11 + i}"></audio>`,
     );
   });
+  const voiceTracks = selectedTracks.filter((a) => a.role === "voiceover");
+  const narrationStem = voiceTracks.length
+    ? path.join(outDir, "assets", "audio", "narration-stem.wav")
+    : null;
+  if (narrationStem)
+    buildNarrationStem(voiceTracks, film.duration, narrationStem);
   const config = {
     name: film.name,
     duration: film.duration,
@@ -527,5 +563,8 @@ export async function buildFilm(film, lang, format, outDir) {
       (s.start + s.end) / 2,
       Math.max(s.start, s.end - 1 / film.fps),
     ]),
+    narrationStem,
+    narrationTracks: voiceTracks,
+    narrationRequired: film.voiceover !== false,
   };
 }
