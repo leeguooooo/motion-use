@@ -24,7 +24,7 @@ const copy = (rel) => {
   fs.mkdirSync(path.dirname(path.join(stage, rel)), { recursive: true });
   fs.copyFileSync(from, path.join(stage, rel));
 };
-for (const rel of [...pkg.files, "package.json", "package-lock.json", "README.md", "CONTRIBUTING.md", "install.sh", ".claude-plugin"]) copy(rel);
+for (const rel of [...pkg.files, "package.json", "package-lock.json", "README.md", "README.zh-CN.md", "CONTRIBUTING.md", "install.sh", ".claude-plugin"]) copy(rel);
 
 const archive = path.join(dist, `${name}.tar.gz`);
 execFileSync("tar", ["-czf", archive, "-C", dist, name], { env: { ...process.env, COPYFILE_DISABLE: "1" } });

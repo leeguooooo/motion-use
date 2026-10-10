@@ -1,5 +1,7 @@
 # motion-use
 
+English | [中文](README.zh-CN.md)
+
 Direct a film with your coding agent: plan the action, author exact-time animation, render locally, then inspect the delivered MP4. Chinese/English, landscape/portrait/square, local fonts and assets. Scene templates remain available for quick explainers.
 
 A directed example: [OCS — a message crosses the gap](examples/ocs-film/film.json), with its [drawing code](examples/ocs-film/composition/draw.js) and [director notes](examples/ocs-film/DIRECTOR.md).
@@ -14,8 +16,6 @@ motion-use doctor
 ```
 
 Part of the [*-use family](https://github.com/leeguooooo/plugins): tools that give AI agents hands. The bundled skill teaches an agent to go from "make a launch video for X" to a brief, keyframes and finished MP4s.
-
-[中文说明](#中文说明)
 
 ## Directed films (default)
 
@@ -109,28 +109,3 @@ All commands take `--json`. `still` and `render` take `--lang`, `--format` and `
 ## Licenses
 
 motion-use is MIT. The engine, HyperFrames, is Apache-2.0. Fonts are SIL OFL; sound effects are CC0 or original; one dependency of the engine (`@img/sharp-libvips`) is LGPL-3.0. Every file and dependency is listed in [ASSETS.md](ASSETS.md). How motion-use compares with HyperFrames, Remotion and others: [docs/alternatives.md](docs/alternatives.md).
-
-## 中文说明
-
-[OCS 新示例](examples/ocs-film/film.json)：消息从一个 agent 出发，抵达另一个 agent 后展开为唤醒画面，再收回协作网络和片尾。镜头和画面由 agent 编写，所有姿态按时间计算。
-
-**案例：毛线接力（three.js）**。六只毛毡小怪物接力推一个白毛线球，放下的线织成 OpenAI 的标志，再膨胀成毛绒管、立起来；熄灯后六色光沿线跑、合成白光，最后闪光灯合影。40 秒、60fps，配乐和音效都用代码生成。成片见上方视频，[源码和导演记录](examples/openai-yarn-film/)。非官方作品，与 OpenAI 无关联。
-
-motion-use 默认让 agent 先写镜头计划，再写逐帧动画代码。镜头之间可以保留同一个对象，跟随动作移动视角，按音乐节拍安排变化。在本地渲染中英双语、横竖版和方形视频。原有 JSON 场景模板仍可通过 `--mode template` 使用。
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/leeguooooo/motion-use/main/install.sh | sh
-motion-use init my-video
-# 改写 DIRECTOR.md、film.json 和 composition/draw.js
-motion-use still my-video --allow-code
-motion-use render my-video --allow-code --quality high
-```
-
-- 新的自由创作模式：镜头时间明确，不会自动加停留或拉长旁白。成片附带技术报告和抽帧图；技术通过仍需看实际视频。默认必须有旁白；按镜头生成和复用语音，缺失、截断或没有混入成片都会报错，不能用纯配乐冒充完成。
-- 模板模式有两种风格：`promo`（深色、带光效、每个节拍有音效）和 `explainer`（浅色、节奏平稳，步骤依次高亮，流程图的箭头逐条画出）。
-- 旁白：把录音放进 `voiceover/<语言>/<场景 id>.mp3`，场景会自动拉长，旁白之间不会重叠。没有旁白也能出片。
-- 图片：`image` 场景接受本地图片，可以是截图，也可以用 image-use 生成。
-- 竖版会给抖音、视频号、Reels 右侧的按钮列和底部的文案区留出空间。
-- 渲染过程不从网络加载任何资源，渲染引擎的统计数据上报已关闭。CLI 每天最多访问一次 GitHub 检查新版本，设置 `MOTION_USE_NO_UPDATE_CHECK=1` 可以关闭。
-
-需要 Node.js 22 以上、FFmpeg 和 Chrome；`motion-use doctor` 会逐项检查。许可证：本项目 MIT，渲染引擎 HyperFrames 为 Apache-2.0，所有素材和依赖的许可证见 [ASSETS.md](ASSETS.md)。
