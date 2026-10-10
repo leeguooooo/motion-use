@@ -1,0 +1,316 @@
+{
+  "version": 1,
+  "kind": "film",
+  "name": "motion-use",
+  "duration": 60,
+  "fps": 60,
+  "languages": [
+    "zh",
+    "en"
+  ],
+  "formats": [
+    "landscape"
+  ],
+  "composition": "composition/draw.js",
+  "look": {
+    "style": "An editing bench on warm paper: real rendered films in black-bordered prints, the agent's real code and real tool output on dark cards, one orange tape that carries the eye from station to station",
+    "palette": [
+      "#EDE7DA",
+      "#17140F",
+      "#FF5B1F",
+      "#22A05A",
+      "#8C8578",
+      "#221F1A"
+    ],
+    "character": "the films themselves, the code and the measurements; no people, no mascots"
+  },
+  "music": {
+    "builtin": "pulse",
+    "volume": 0.3,
+    "hits": [
+      7.4,
+      16.35,
+      22.75,
+      31.2,
+      37.0,
+      46.4,
+      54.0
+    ]
+  },
+  "voiceover": {
+    "rate": "+4%"
+  },
+  "assets": {
+    "guides": "images/guides-zh.png",
+    "clipBefore": "images/clip-before.png",
+    "clipAfter": "images/clip-after.png"
+  },
+  "videos": {
+    "wall": {
+      "file": "footage/wall.mp4",
+      "at": 0,
+      "from": 0,
+      "rate": 1,
+      "length": 22.98,
+      "volume": 0
+    },
+    "ip": {
+      "file": "footage/ip.mp4",
+      "at": 7.4,
+      "from": 0,
+      "rate": 1,
+      "length": 9.48,
+      "volume": 0
+    },
+    "formats": {
+      "file": "footage/formats.mp4",
+      "at": 46.4,
+      "from": 0,
+      "rate": 1,
+      "length": 7.98,
+      "volume": 0
+    }
+  },
+  "data": {
+    "drawBytes": 15989,
+    "filmBytes": 9950,
+    "mp4MB": 10.2,
+    "code": [
+      "window.drawFrame = function (c, t, film, view, M) {",
+      "  const { width: W, height: H, vertical: V } = view,",
+      "    u = M.unit, p = film.copy, k = M.palette();",
+      "  c.fillStyle = k.bg;",
+      "  c.fillRect(0, 0, W, H);",
+      "  const PH = V ? H * 0.32 : H * 0.74,",
+      "    PW = PH * 0.46,"
+    ],
+    "verify": [
+      "$ motion-use verify iphone-use-zh-vertical.mp4",
+      "1080×1920 · 60 fps · 3330 frames · 55.5 s",
+      "loudness  -14.93 LUFS · true peak -0.88 dBTP",
+      "fast_ratio          0.0828   green",
+      "blank_run_s         0        green",
+      "blue_purple_share   0        green",
+      "demo_similarity     0"
+    ],
+    "install": "curl -fsSL https://raw.githubusercontent.com/leeguooooo/motion-use/main/install.sh | sh",
+    "repo": "github.com/leeguooooo/motion-use",
+    "asr": [
+      {
+        "script": "让 AI 直接操作你的真 iPhone…",
+        "heard": "让 AAI 直接操作你的真iphone…",
+        "fixed": {
+          "zh": "写成 \"A I\"",
+          "en": "spell it \"A I\""
+        },
+        "note": {
+          "zh": "",
+          "en": "\"AI\" read as A-A-I"
+        }
+      },
+      {
+        "script": "…还告诉你能不能重试。",
+        "heard": "…还告诉你能不能重视。",
+        "fixed": {
+          "zh": "重试 → 再试",
+          "en": "重试 → 再试"
+        },
+        "note": {
+          "zh": "",
+          "en": "重试 (retry) read as 重视 (value)"
+        }
+      }
+    ]
+  },
+  "copy": {
+    "zh": {
+      "lang": "zh",
+      "hook1": "让 coding agent",
+      "hook2": "当导演",
+      "hookSub": "写代码出片 · 本地渲染 · 自己检查成片",
+      "wallNote": "这六支片子都是 motion-use 做的",
+      "fnTitle": "画面 = f(时间)",
+      "src": "源码",
+      "mp4": "成片",
+      "film55": "55 秒的示例",
+      "notTimeline": "改代码，不拖时间线",
+      "looks": "每部片重新设计",
+      "lYarn": "毛毡 3D",
+      "lBoard": "白板",
+      "lKinetic": "大字",
+      "lData": "数据图",
+      "noTpl": "跟示例太像会提醒",
+      "local": "本地渲染",
+      "measure": "解码整部成片，量出来",
+      "safe": "竖版安全区",
+      "safeNote": "红色 = 平台按钮会挡住",
+      "catch": "渲染时查出来",
+      "cAsr": "配音念错字",
+      "cClip": "文字跑出画面",
+      "before": "上一版",
+      "after": "修好后",
+      "formats": "一份源码",
+      "fZh": "中文",
+      "fEn": "English",
+      "fL": "横版",
+      "fV": "竖版",
+      "masters": "+ 各平台高画质母版",
+      "brand": "motion-use",
+      "promise": "让 coding agent 当导演",
+      "oss": "开源 · 一行命令安装",
+      "lMotion": "动得够",
+      "lLoud": "响度",
+      "lBlank": "没有黑场",
+      "script": "脚本",
+      "heard": "听到",
+      "fixedTo": "建议",
+      "real": "真实输出"
+    },
+    "en": {
+      "lang": "en",
+      "hook1": "Your coding agent,",
+      "hook2": "directing",
+      "hookSub": "film as code · rendered locally · checked after",
+      "wallNote": "All six films were made with motion-use",
+      "fnTitle": "frame = f(time)",
+      "src": "source",
+      "mp4": "MP4",
+      "film55": "a 55-second example",
+      "notTimeline": "edit code, not a timeline",
+      "looks": "A new look every film",
+      "lYarn": "felt 3D",
+      "lBoard": "whiteboard",
+      "lKinetic": "kinetic type",
+      "lData": "data chart",
+      "noTpl": "warns when it copies an example",
+      "local": "Renders locally",
+      "measure": "decodes the MP4 and measures it",
+      "safe": "Vertical safe area",
+      "safeNote": "red = covered by the platform's buttons",
+      "catch": "Caught at render time",
+      "cAsr": "a misread word",
+      "cClip": "text off the frame",
+      "before": "before",
+      "after": "fixed",
+      "formats": "One source",
+      "fZh": "中文",
+      "fEn": "English",
+      "fL": "landscape",
+      "fV": "vertical",
+      "masters": "+ high-quality masters per platform",
+      "brand": "motion-use",
+      "promise": "Let your coding agent direct",
+      "oss": "Open source · one command to install",
+      "lMotion": "motion",
+      "lLoud": "loudness",
+      "lBlank": "no blank frames",
+      "script": "script",
+      "heard": "heard ",
+      "fixedTo": "fix   ",
+      "real": "real output"
+    }
+  },
+  "shots": [
+    {
+      "id": "hook",
+      "start": 0,
+      "end": 7.4,
+      "camera": "pull",
+      "purpose": "State the point while six real films play",
+      "action": "Six real films play as prints on the bench; the camera pulls back from one to the whole wall while the orange tape runs under them",
+      "narration": {
+        "zh": "motion-use 让 coding agent 当导演：写代码出片，在本地渲染，再自己检查成片。",
+        "en": "motion-use lets your coding agent direct a film: it writes it as code, renders it locally, then checks the result."
+      }
+    },
+    {
+      "id": "code",
+      "start": 7.4,
+      "end": 16.35,
+      "camera": "push",
+      "purpose": "Show that a film is a small text file",
+      "action": "The tape leads to the real draw.js beside the iPhone promo it renders; the time counter scrubs and the picture follows; the byte counts roll up against the MP4 size",
+      "narration": {
+        "zh": "每一帧都是时间的函数。这支 55 秒的示例，源码只有 26 KB，agent 改代码，不用拖时间线。",
+        "en": "Each frame is a function of time. This 55-second example is just 26 kilobytes. The agent edits code, not a timeline."
+      },
+      "holdReason": "Narration needs the time; the picture keeps changing inside the shot."
+    },
+    {
+      "id": "looks",
+      "start": 16.35,
+      "end": 22.75,
+      "camera": "whip",
+      "purpose": "Show that films do not share one template",
+      "action": "Four prints with four unrelated looks slide into a row and each gets its label",
+      "narration": {
+        "zh": "画风每次重新设计：毛毡、白板、数据图，互不相像。",
+        "en": "Each film gets a look of its own: felt 3D, whiteboard, charts."
+      }
+    },
+    {
+      "id": "verify",
+      "start": 22.75,
+      "end": 31.2,
+      "camera": "push",
+      "purpose": "Show the delivered MP4 being measured",
+      "action": "The real verify output types into a terminal; each motion light turns green as its line lands",
+      "narration": {
+        "zh": "本地渲染完，它把成片解码一遍：动得够不够、响度、有没有黑场，都量出来。",
+        "en": "It renders on your machine, then decodes the whole MP4 and measures it: motion, loudness, blank frames."
+      },
+      "holdReason": "Narration needs the time; the picture keeps changing inside the shot."
+    },
+    {
+      "id": "safe",
+      "start": 31.2,
+      "end": 37.0,
+      "camera": "pan",
+      "purpose": "Show the vertical safe area",
+      "action": "A real still --guides frame rises; the red platform zones sweep in around the safe box",
+      "narration": {
+        "zh": "竖版会标出平台按钮挡住的区域，字和重点都避开它。",
+        "en": "For vertical video it marks what the platform's buttons cover, and keeps the words clear."
+      }
+    },
+    {
+      "id": "catch",
+      "start": 37.0,
+      "end": 46.4,
+      "camera": "push",
+      "purpose": "Show two real defects the checks now catch",
+      "action": "The real clipped callout from the last film gets an orange box at the frame edge, then flips to the fixed frame; beside it the misread narration line is struck and corrected",
+      "narration": {
+        "zh": "上一支片子里，配音念错了字，还有一行标注跑出了画面。现在这两种问题，渲染时就会查出来。",
+        "en": "In our last film the voice misread a word, and a label ran off the edge. Both now get caught at render time."
+      },
+      "holdReason": "Narration needs the time; the picture keeps changing inside the shot."
+    },
+    {
+      "id": "formats",
+      "start": 46.4,
+      "end": 54.0,
+      "camera": "pull",
+      "purpose": "Show one source becoming four cuts",
+      "action": "The iPhone promo's four real cuts open out of one print: Chinese and English, landscape and vertical",
+      "narration": {
+        "zh": "一份源码，出中文和英文、横版和竖版，还有各平台用的高画质文件。",
+        "en": "One source gives you Chinese and English, landscape and vertical, and high-quality masters for every platform."
+      }
+    },
+    {
+      "id": "outro",
+      "start": 54.0,
+      "end": 60,
+      "camera": "slam",
+      "purpose": "Name and install",
+      "action": "The tape winds into the wordmark; the install command types out and holds",
+      "hold": 2.5,
+      "holdReason": "Time to read the install command.",
+      "narration": {
+        "zh": "motion-use，开源，一行命令就能装。",
+        "en": "motion-use. Open source. One command to install."
+      }
+    }
+  ]
+}
