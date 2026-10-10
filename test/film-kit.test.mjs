@@ -137,6 +137,8 @@ test("portrait subtitles default to the bottom of the platform-safe area", () =>
   k.captions(c, 1);
   const ys = c.calls.filter((x) => x[0] === "fillText").map((x) => x[3]);
   assert.ok(ys.length && ys.every((y) => y > 192 && y < 192 + 1267.2), `subtitle y ${ys} inside the safe area`);
+  const xs = c.calls.filter((x) => x[0] === "fillText").map((x) => x[2]);
+  assert.ok(xs.every((x) => Math.abs(x - (64.8 + 864 / 2)) < 1), `subtitle centred on the safe area, got ${xs}`);
   const runtime = fs.readFileSync(new URL("../src/film-runtime.js", import.meta.url), "utf8");
   assert.match(runtime, /view\.safe = view\.vertical/);
   assert.match(fs.readFileSync(new URL("../src/cli.mjs", import.meta.url), "utf8"), /o\._render = true/);
