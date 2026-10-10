@@ -130,3 +130,17 @@ test("built-in music moods are deterministic, accept accents and validate", asyn
   const bad = validateFilm(data, d).errors.map((e) => e.path);
   assert.ok(bad.includes("$.music.builtin") && bad.includes("$.music.hits"));
 });
+
+test("a rate-limited GitHub API falls back to the releases page redirect", async () => {
+  const { latestRelease } = await import("../src/update.mjs");
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) =>
+    String(url).includes("api.github.com")
+      ? new Response("{}", { status: 403 })
+      : new Response(null, { status: 302, headers: { location: "https://github.com/leeguooooo/motion-use/releases/tag/v9.8.7" } });
+  try {
+    assert.equal(await latestRelease(), "9.8.7");
+  } finally {
+    globalThis.fetch = real;
+  }
+});
