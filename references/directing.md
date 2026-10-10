@@ -41,6 +41,10 @@ Check them before coding and again on the contact sheet.
 5. **Drawing what you have as footage.** Screenshots, photos, recordings and source text go full frame; code explains, labels and moves the camera over them.
 6. **The generic AI look.** Blue-purple gradients, deep-purple starfields, neon cyan-violet glow; a different style per shot; code-drawn mascots. A clean, unified film that is a little slide-like beats a flashy collage.
 
+## Portrait: the platform covers part of the picture
+
+Douyin, TikTok, Xiaohongshu, Reels and Shorts draw their own UI over a 9:16 video: navigation and search on top, the author row, caption, progress bar and like/collect/comment bar at the bottom, an action column on the right. Text and the key action go inside `view.safe`; subtitles sit at its bottom edge, not at the bottom of the frame. Camera pushes in portrait must not carry text or the subject into those bands. Review portrait stills with `--guides`.
+
 ## Pulse rhythm: hold, move on the event, hold
 
 Explainer and launch films move in pulses, not in continuous drift. A uniform slow push on every shot was judged a slideshow; the same storyboard with pulses was approved, even though fully still frames rose from 16% to 72% (the fast frames went from 0.7% to 10%). Stillness is not the problem; uneventful motion is.

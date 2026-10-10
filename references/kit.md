@@ -14,6 +14,8 @@ window.drawFrame = function (c, t, film, view, M) {
 };
 ```
 
+Portrait feeds cover the picture: navigation at the top, the author row, caption and like/comment bar at the bottom, an action column on the right. `view.safe` (`{x, y, w, h}`: 6–86 % across and 10–76 % down in portrait, 5 % margins otherwise) is where text and key action belong; `M.captions(c, t)` already sits at its bottom. Check with `still --guides`, which tints what the platform UI would cover.
+
 Rules: draw from `t` only; paint the background every frame; words go in `film.json` `copy` (per language), numbers and series in `data` (one place to change them), images in `assets`, footage in `videos`. Sizes scale with `u` (1 at 1080p). `k` is the locked palette: `bg`, `surface`, `ink`, `sub`, `accent`, `accent2`.
 
 Every time-based helper is `(c, t, …positional, options)`; points are `[x, y]`; `at` is when it starts.
@@ -54,6 +56,7 @@ Palettes: `paper` `poster` `ink` `navy` `bauhaus` `snow` `wood` `chalk` `whitebo
 ```bash
 motion-use validate .                                  # plan warnings, glyphs, narration fit
 motion-use still . --allow-code --shot peak            # three frames of one shot
+motion-use still . --allow-code --format vertical --guides   # tint what platform UI covers
 motion-use render . --allow-code --from 3 --to 7       # silent draft of a range, no delivery checks
 motion-use render . --allow-code --quality draft --json  # compact summary; full report on disk
 ```

@@ -37,7 +37,7 @@ window.drawFrame = function (ctx, seconds, film, view, motion) {
 
 Paint an opaque background every frame. The caller resets transforms and restores context state. All pose values must derive from the supplied time, not the last rendered frame. The renderer seeks backward and splits capture among workers. Avoid clocks, unseeded random numbers, animation loops and network sourcing.
 
-`film.copy` is already selected for the current language; `film.look` is passed through. `view` supplies width, height, format and vertical. `motion` provides `mix`, `clamp`, `ease` (smoothstep), `progress`, `ramp`, analytic `spring`, deterministic `hash`, `beat`, `round`, `line` and font-aware `text`. `text` shrinks a line to an explicit maximum width; `paragraph` wraps. Neither enforces platform safe areas. Design the portrait composition rather than cropping landscape.
+`film.copy` is already selected for the current language; `film.look` is passed through. `view` supplies width, height, format, vertical and `safe`: the box platform UI leaves visible (portrait 6–86 % × 10–76 %, otherwise 5 % margins). Keep text, subtitles and the key action inside it; `still --guides` tints the rest. `motion` provides `mix`, `clamp`, `ease` (smoothstep), `progress`, `ramp`, analytic `spring`, deterministic `hash`, `beat`, `round`, `line` and font-aware `text`. `text` shrinks a line to an explicit maximum width; `paragraph` wraps. Neither enforces platform safe areas. Design the portrait composition rather than cropping landscape.
 
 The drawing kit adds, all pure functions of time or a seed:
 

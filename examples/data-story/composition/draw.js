@@ -6,7 +6,7 @@ window.drawFrame = function (c, t, film, view, M) {
     k = M.palette();
   c.fillStyle = k.bg;
   c.fillRect(0, 0, W, H);
-  const box = V ? { x: W * 0.1, y: H * 0.3, w: W * 0.8, h: H * 0.32 } : { x: W * 0.08, y: H * 0.3, w: W * 0.56, h: H * 0.44 };
+  const box = V ? { x: W * 0.1, y: H * 0.27, w: W * 0.72, h: H * 0.26 } : { x: W * 0.08, y: H * 0.3, w: W * 0.56, h: H * 0.44 };
   const bars = film.data.bytes,
     step = box.w / 2,
     top = 7911 * 1.1,
@@ -28,8 +28,8 @@ window.drawFrame = function (c, t, film, view, M) {
   M.caption(c, t, p.title, -1, Infinity, { x: left, align: "left", y: 0.15, size: (V ? 58 : 66) * u, color: k.ink, weight: 900 });
   M.caption(c, t, p.unit, -1, Infinity, { x: left, align: "left", y: 0.21, size: 30 * u, color: k.sub, weight: 600 });
   // The result slams in at full size; it does not count up from zero.
-  M.stamp(c, t, "−56%", V ? [W / 2, H * 0.84] : [W * 0.81, H * 0.5], { at: 10.75, size: (V ? 170 : 210) * u, color: k.accent, rotate: 0, box: false });
-  M.stamp(c, t, p.same, V ? [W / 2, H * 0.9] : [W * 0.81, H * 0.64], { at: 11.6, size: 36 * u, color: k.ink, rotate: 0, box: false });
+  M.stamp(c, t, "−56%", V ? [W * 0.46, H * 0.61] : [W * 0.81, H * 0.5], { at: 10.75, size: (V ? 170 : 210) * u, color: k.accent, rotate: 0, box: false });
+  M.stamp(c, t, p.same, V ? [W * 0.46, H * 0.67] : [W * 0.81, H * 0.64], { at: 11.6, size: 36 * u, color: k.ink, rotate: 0, box: false });
   M.caption(c, t, p.source, -1, Infinity, { x: left, align: "left", y: 0.255, size: 22 * u, color: k.sub, weight: 500 });
   M.captions(c, t); // narration subtitles
 };
