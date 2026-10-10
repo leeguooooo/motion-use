@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "kind": "film",
+  "name": "openai-yarn-relay",
+  "duration": 40,
+  "fps": 60,
+  "bpm": 96,
+  "languages": ["zh"],
+  "formats": ["landscape"],
+  "composition": "composition/draw.js",
+  "libraries": ["vendor/scene.js"],
+  "music": {"file": "audio/score.wav", "volume": 1, "bpm": 96},
+  "voiceover": false,
+  "motionBlur": {"samples": 1, "shutter": 0.5},
+  "copy": {"zh": {"wordmark": "OpenAI"}},
+  "shots": [
+    {"id": "roll-in", "start": 0, "end": 2.5, "purpose": "Meet the ball and the first monster", "action": "The red felt monster rolls a white yarn ball into a spotlight on a black lacquer floor"},
+    {"id": "relay", "start": 2.5, "end": 17.5, "purpose": "Six monsters relay the ball", "action": "Each monster pushes the ball around one link; the paid-out thread draws the OpenAI blossom"},
+    {"id": "puff", "start": 17.5, "end": 20.0, "purpose": "Thread becomes plush", "action": "The last thread is laid, the ball vanishes, a wave inflates the thread into plush tubes"},
+    {"id": "rise", "start": 20.0, "end": 25.6, "purpose": "Logo stands", "action": "Monsters run to the front; the logo swings upright behind them and they cheer"},
+    {"id": "dark", "start": 25.6, "end": 27.5, "purpose": "Lights out", "action": "The room goes black; only the monsters' eyes glow", "hold": 1.5, "holdReason": "Darkness beat before the light run"},
+    {"id": "light-run", "start": 27.5, "end": 32.5, "purpose": "Six colours become white", "action": "A light of each monster's colour runs its link, then spreads along all the yarn until they sum to white"},
+    {"id": "group-photo", "start": 32.5, "end": 35.0, "purpose": "Pose", "action": "Monsters gather in front of the white logo, squat, and jump"},
+    {"id": "photo", "start": 35.0, "end": 40.0, "cut": true, "purpose": "The keepsake", "action": "Flash; the frozen instant settles into a polaroid captioned OpenAI", "hold": 3.3, "holdReason": "Final photo needs reading time"}
+  ]
+}
