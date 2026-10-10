@@ -499,16 +499,20 @@ window.__filmKit = function (view, film) {
       exit = easings.expoIn((t - end + 0.18) / 0.18);
     if (enter <= 0 || exit >= 1 || !text) return;
     c.font = fontOf(weight, size, false);
-    // With lines > 1, a line that does not fit wraps (balanced) instead of shrinking; only a
-    // text that still overflows after wrapping is scaled down.
+    // With lines > 1, a line that does not fit wraps (balanced) instead of shrinking. A text that
+    // needs more than `lines` rows is shrunk step by step until it fits in that many, never
+    // collapsed back onto one tiny line.
     let rows = [text];
     if (maxLines > 1 && c.measureText(text).width > maxWidth) {
-      const all = wrap(c, text, maxWidth);
-      if (all.length <= maxLines) {
-        const target = c.measureText(text).width / all.length;
-        rows = wrap(c, text, Math.min(maxWidth, target * 1.08 + size));
-        if (rows.length > maxLines) rows = all;
+      let all = wrap(c, text, maxWidth);
+      while (all.length > maxLines && size > 12 * unit) {
+        size *= 0.92;
+        c.font = fontOf(weight, size, false);
+        all = wrap(c, text, maxWidth);
       }
+      const target = c.measureText(text).width / all.length;
+      rows = wrap(c, text, Math.min(maxWidth, target * 1.08 + size));
+      if (rows.length > all.length) rows = all;
     }
     const lh = size * 1.25,
       block = lh * rows.length;
