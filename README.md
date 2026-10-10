@@ -30,6 +30,7 @@ motion-use validate my-film
 motion-use voiceover my-film                 # narration per shot; cached
 motion-use still my-film --allow-code
 motion-use render my-film --allow-code --quality high --json
+motion-use render my-film --allow-code --release  # platform masters + manifest in out/release/
 motion-use breakdown reference.mp4           # learn from a reference: cuts, beat grid, heatmaps
 motion-use beats song.wav                    # cut to a song: tempo, first downbeat, the drop
 ```
@@ -45,6 +46,8 @@ The starter is an editable drawing study, not a finished ad. Replace its choreog
 `--allow-code` is for drawing code you wrote or trust. It executes inside the renderer; static lint is not a security sandbox. Ordinary text remains JSON data. Named files are copied individually, so a composition folder's secrets and unrelated files do not enter the build.
 
 Every render also writes a cover, a contact sheet sampled from the **delivered MP4**, and a technical report: decoding, actual duration/FPS/dimensions, audio presence, loudness/peak, per-shot RMS, dark/still intervals, motion lights. It never labels an encode as aesthetic approval: `visual_review` remains pending until a person/agent watches and reviews it. Canvas text is not covered by DOM layout audits. Audio uses two-pass normalization to working -14 LUFS / -1 dBTP targets; `--no-normalize` preserves original levels.
+
+**Checks that eyes miss.** Render transcribes every narration clip with whisper and compares it with the script, flagging misreads such as "AI" spoken "A-A-I" or 重试 read as 重视 (`voiceover check` runs it alone). It measures every drawn string against the frame and the portrait safe area and reports text that runs off the edge, with its time. Each render keeps its exact inputs as a snapshot (`render --snapshot <id>` rebuilds that cut after the narration changed). `render --release` writes the files for platforms — x264 veryslow CRF 16 masters, a ≤45 MB copy for X when needed, covers — and a `release-manifest.json` of their hashes; `verify --manifest` proves a file is the current master before you upload it.
 
 Full drawing/audio contract: [references/film.md](references/film.md). For an existing MP4, `motion-use verify file.mp4 --json` creates a review report without re-rendering it.
 
@@ -107,10 +110,10 @@ The installer downloads the release archive and its `.sha256` from GitHub, verif
 |---|---|
 | `init [dir]` | Directed film by default; `--mode template` selects a starter brief: `--style`, `--name`, `--lang zh,en`, `--format landscape,vertical` |
 | `validate [brief]` | Check the brief, files, voiceover lengths and glyph coverage; print timelines |
-| `voiceover [brief]` | Speak each scene's `narration`: `--engine azure` (licensed) or `edge` (preview) |
+| `voiceover [brief]` | Speak each scene's `narration`: `--engine azure` (licensed) or `edge` (preview); `voiceover check` transcribes the clips and flags misreads |
 | `still [brief]` | Keyframes and a contact sheet; `--at 1.5,4` for exact seconds, `--beats 4` one frame per bar; warns when film drawing keeps state between frames |
-| `render [brief]` | MP4 per language × format, plus a cover PNG; `--quality draft\|standard\|high`, `--target github` / `--max-size 9MB` |
-| `verify <mp4>` | Decode and measure a delivered video: review frames, audio, motion lights; `--gate` fails on red, `--loop` checks the loop seam |
+| `render [brief]` | MP4 per language × format, plus a cover PNG; `--quality draft\|standard\|high`, `--target github` / `--max-size 9MB`; `--release` platform masters + manifest, `--snapshot <id>` re-render an earlier cut, `--gate` fail on flagged narration or off-frame text |
+| `verify <mp4>` | Decode and measure a delivered video: review frames, audio, motion lights; `--gate` fails on red, `--loop` checks the loop seam, `--manifest` checks a file is the current release master |
 | `breakdown <video>` | Take a reference apart: cuts, beat grid, contact sheets, transition strips, motion heatmaps, palette, motion lights |
 | `beats <audio>` | Measure a song: tempo, first downbeat, bar loudness, the drop; prints the `music` line that starts the film on a downbeat |
 | `compare <a> <b>` | Frames of two videos side by side: `--times 1.5,4` |

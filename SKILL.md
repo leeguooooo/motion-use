@@ -48,10 +48,15 @@ Read the numbers first; open an image when they do not settle it. Fix clipping, 
 
 ```bash
 motion-use render <dir> --allow-code --quality high --json
+motion-use render <dir> --allow-code --release --json    # what goes to platforms: out/release/ + manifest
+motion-use verify --manifest <dir>/out/release/release-manifest.json <file.mp4>   # before every upload
+motion-use voiceover check <dir>          # whisper hears each clip; flags misreads
 motion-use verify <file.mp4> --json      # any MP4, without re-rendering
 ```
 
 Render writes MP4s, covers and `review/<id>/report.json` measured on the delivered file: decode, duration/fps/size, loudness (-14 LUFS / -1 dBTP), narration present in the mix, and motion lights. For films a red light fails delivery: slideshow pacing, empty mid-film frames, mostly blue-purple. Fix the film; use `--allow-static "reason"` / `--allow-blue-purple "reason"` only when the subject needs it, and tell the user.
+
+Render also checks what eyes miss: every narration clip is transcribed and compared with its script (a flagged line names the misread: "AI" spoken "A-A-I" → write "A I"; 重试 heard 重视 → 再试), and every drawn string is measured against the frame and, in portrait, the safe area (text off the edge for 0.3 s or more is reported with its time). `--gate` makes both fatal. Each render keeps its exact inputs (film, code, voiceover clips) as a snapshot; `render --snapshot <id>` rebuilds that cut after the narration changed. Publish only files from `--release` (x264 veryslow CRF 16; a ≤45 MB X copy when needed), and check each with `verify --manifest` so a stale or README-sized cut never goes out.
 
 A technical pass is not visual approval. Before delivering, have someone who did not make the film review it: spawn a fresh agent with only the MP4, its contact sheet and the intended takeaway; it writes timecoded issues into `<dir>/reviews/<round>.md`. After three substantial passes, disclose what remains. Keep feedback and `## Lessons` (do / evidence / why / when) in DIRECTOR.md. Report exactly what was measured, what was watched and what was not listened to. Do not publish unless asked.
 

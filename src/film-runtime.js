@@ -190,6 +190,58 @@
       else throw error;
     }
   });
+  // Text check (render/still): draw the given times on a private canvas and report every
+  // fillText/strokeText box in output pixels, so text running off the frame is found by
+  // measurement instead of by eye. Never called during capture.
+  window.__motionUseTextProbe = async (times) => {
+    await window.__hf.buildReady["motion-use-film"];
+    const probe = document.createElement("canvas");
+    probe.width = canvas.width;
+    probe.height = canvas.height;
+    const pc = probe.getContext("2d");
+    let boxes = [];
+    const record = (draw) =>
+      function (text, x, y, maxWidth) {
+        try {
+          const s = String(text);
+          if (s.trim() && this.globalAlpha > 0.05) {
+            const m = this.measureText(s);
+            let l = x - m.actualBoundingBoxLeft,
+              r = x + m.actualBoundingBoxRight;
+            if (maxWidth !== undefined && m.width > maxWidth && m.width > 0) {
+              const k = maxWidth / m.width;
+              l = x + (l - x) * k;
+              r = x + (r - x) * k;
+            }
+            const top = y - m.actualBoundingBoxAscent,
+              bottom = y + m.actualBoundingBoxDescent,
+              T = this.getTransform();
+            const xs = [],
+              ys = [];
+            for (const [px, py] of [[l, top], [r, top], [l, bottom], [r, bottom]]) {
+              xs.push(T.a * px + T.c * py + T.e);
+              ys.push(T.b * px + T.d * py + T.f);
+            }
+            boxes.push({ text: s, x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) });
+          }
+        } catch {}
+        return draw.apply(this, arguments);
+      };
+    pc.fillText = record(CanvasRenderingContext2D.prototype.fillText);
+    pc.strokeText = record(CanvasRenderingContext2D.prototype.strokeText);
+    const out = [];
+    for (const t of times) {
+      await loadFrames(missingFrames(t - (film.offset || 0)));
+      boxes = [];
+      pc.resetTransform();
+      pc.clearRect(0, 0, probe.width, probe.height);
+      pc.save();
+      window.drawFrame(pc, t, film, view, motion);
+      pc.restore();
+      out.push({ t, boxes });
+    }
+    return { width: canvas.width, height: canvas.height, safe: view.safe, vertical: view.vertical, samples: out };
+  };
   window.__hf = window.__hf || {};
   window.__hf.buildReady = window.__hf.buildReady || {};
   window.__hf.buildReady["motion-use-film"] = (async () => {

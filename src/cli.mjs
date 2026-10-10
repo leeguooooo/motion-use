@@ -43,6 +43,10 @@ import { breakdownVideo } from "./breakdown.mjs";
 import { analyzeBeats, decodeMono } from "./beats.mjs";
 import { compareVideos } from "./compare.mjs";
 import { measureMotion, gradeMotion } from "./motion-check.mjs";
+import { checkNarration, describeNarration, narrationItems } from "./narration-check.mjs";
+import { probeText, describeText } from "./text-probe.mjs";
+import { createSnapshot, findSnapshot, restoreSnapshot } from "./snapshot.mjs";
+import { X_LIMIT, checkAgainstManifest, encodeMaster, encodeUnder, releaseEntry, writeReleaseManifest } from "./release.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const VERSION = JSON.parse(
@@ -57,12 +61,17 @@ Usage: motion-use <command> [options]
                       --mode template keeps the scene-template workflow; --style/--story also select it
   validate [brief]    Check a brief: fields, files, voiceover lengths, characters the fonts cannot draw
   voiceover [brief]   Speak each scene's "narration" into voiceover/<lang>/<scene-id>.mp3 (--engine azure|edge)
+  voiceover check     Transcribe every narration clip (whisper via uv) and compare it with its script:
+                      catches misread acronyms ("AI" as "A-A-I") and polyphones (重试 heard as 重视)
   still [brief]       Render keyframes as PNGs plus a contact sheet (--at 1.5,4 for exact seconds, --shot id,
                       --beats 1 one frame per beat (4: per bar), --guides tints what platform UI covers in portrait feeds)
   render [brief]      Render MP4s for every language and format in the brief
                       (--from 6 --to 10: a quick silent preview of that range of a film)
+                      --release: high quality, then platform masters + release-manifest.json in out/release/
+                      --snapshot <id|manifest>: render exactly the inputs an earlier render used
   verify <mp4>       Decode and measure a delivered video: frames, audio, motion lights (--gate fails on red,
-                      --loop checks the last frame leads into the first)
+                      --loop checks the last frame leads into the first, --manifest <json> proves the file
+                      is the current release master)
   breakdown <video>   Take a reference video apart: cuts, beat grid, contact sheets, transition strips,
                       motion heatmaps, palette and motion lights (--out <dir>)
   beats <audio>       Find a song's tempo, first downbeat, bar loudness and drop; prints the film.json
@@ -82,6 +91,9 @@ Options for still/render:
   --allow-custom-html Render "html" scenes (custom code; only for briefs you trust)
   --allow-code       Render authored film code (only projects you wrote or trust)
   --no-normalize     Keep original audio levels (default: two-pass -14 LUFS / -1 dBTP)
+  --gate              render: fail on a flagged narration line or text running off the frame
+  --no-asr            render: skip the narration transcription check (--asr-model small|medium|large-v3)
+  --no-text-check     still/render: skip measuring drawn text against the frame and safe area
   --allow-static "why"       Deliver a film that the motion check reads as a slideshow, recording why
   --allow-blue-purple "why"  Deliver a blue-purple film (e.g. a Starry Night study), recording why
   --gpu               Render on the GPU: faster, but frames may differ by invisible noise between runs
@@ -154,6 +166,12 @@ export async function main(argv) {
         gpu: { type: "boolean" },
         loop: { type: "boolean" },
         beats: { type: "string" },
+        release: { type: "boolean" },
+        snapshot: { type: "string" },
+        manifest: { type: "string" },
+        "asr-model": { type: "string" },
+        "no-asr": { type: "boolean" },
+        "no-text-check": { type: "boolean" },
       },
     });
   } catch (e) {
@@ -521,8 +539,30 @@ function commitOutput(out, tmp, file) {
 
 async function render(o, [briefPath]) {
   o._render = true; // --guides is a review overlay for stills; it never reaches a delivered MP4
+  if (o.snapshot) {
+    // Re-render exactly what an earlier render used, even after narration or film changed.
+    if (!isFilm(briefPath)) return fail("--snapshot re-renders an authored film", o.json);
+    const projFile = resolveProject(briefPath),
+      out = path.resolve(o.out ?? path.join(path.dirname(projFile), "out"));
+    let restored, found;
+    try {
+      found = findSnapshot(o.snapshot, out);
+      restored = restoreSnapshot(found);
+    } catch (e) {
+      return fail(e.message, o.json);
+    }
+    if (!o.json)
+      console.error(`restored snapshot ${found.record.id} (${found.record.created}); output goes to ${path.join(out, `snapshot-${found.record.id}`)}`);
+    return render({ ...o, snapshot: undefined, _snapshot: found.record.id, out: path.join(out, `snapshot-${found.record.id}`) }, [restored]);
+  }
+  if (o.release) {
+    if (o["max-size"] || o.target)
+      return fail("--release makes full-quality masters; drop --max-size/--target (render a small README copy separately)", o.json);
+    if (o.quality && o.quality !== "high") return fail("--release always renders at --quality high", o.json);
+    if (o.from !== undefined || o.to !== undefined) return fail("--release renders the whole film; drop --from/--to", o.json);
+  }
   const QUALITY = { draft: "draft", standard: "looks", high: "delivery" };
-  const q = o.quality ?? "standard";
+  const q = o.release ? "high" : (o.quality ?? "standard");
   const quality = Object.hasOwn(QUALITY, q) ? QUALITY[q] : null;
   if (!quality)
     return fail("--quality must be draft, standard or high", o.json);
@@ -640,6 +680,30 @@ async function render(o, [briefPath]) {
         );
     }
   }
+  // Narration check: what speech recognition hears against each script line.
+  let narrationCheck = null;
+  if (!o.range && !o["no-asr"]) {
+    narrationCheck = runNarrationCheck(briefPath, o);
+    const quiet = narrationCheck.skipped && !narrationCheck.lines.length && narrationCheck.skipped.startsWith("no generated");
+    if (!o.json && !quiet) for (const line of describeNarration(narrationCheck)) console.error(`warning: ${line}`);
+    if (o.gate && !narrationCheck.skipped && !narrationCheck.ok)
+      return fail(`narration check flagged ${narrationCheck.lines.filter((l) => l.flagged).length} line(s); listen to them and fix the script or the voice (--gate)`, o.json);
+  }
+  // Snapshot: the exact inputs of this render, so the cut can be rebuilt later.
+  let snapshot = o._snapshot ?? null,
+    filmFile = null;
+  if (isFilm(briefPath) && !o.range) {
+    filmFile = resolveProject(briefPath);
+    if (!snapshot) {
+      const c = checkFilm(briefPath, { ...o });
+      const outDir = path.resolve(o.out ?? path.join(path.dirname(filmFile), "out"));
+      try {
+        snapshot = createSnapshot(c.film, filmFile, outDir, { version: VERSION }).id;
+      } catch (e) {
+        if (!o.json) console.error(`warning: snapshot not saved: ${e.message}`);
+      }
+    }
+  }
   const r = await each(
     briefPath,
     { ...o, requireNarration: list(o.lang) ?? true },
@@ -688,6 +752,15 @@ async function render(o, [briefPath]) {
       );
       const blocked = guardOutput(out, file, o.force);
       if (blocked) return { ok: false, id, error: blocked };
+      // Text check before capture: measured boxes of every drawn string against the frame.
+      let textCheck = null;
+      if (proj.film && !o["no-text-check"]) {
+        textCheck = await probeText(proj.dir, proj.total);
+        if (!o.json) for (const line of describeText(textCheck)) console.error(`warning: ${id}: ${line}`);
+        const off = textCheck.runs?.filter((x) => x.kind === "frame") ?? [];
+        if (o.gate && off.length)
+          return { ok: false, id, error: `text runs off the frame (--gate): ${describeText({ runs: off }).join("; ")}` };
+      }
       const tmp = path.join(proj.dir, "render.mp4");
       fs.rmSync(tmp, { force: true });
       if (!o.json)
@@ -702,6 +775,8 @@ async function render(o, [briefPath]) {
           String(proj.fps),
           "--quality",
           quality,
+          // A release renders near-lossless first; the platform masters are encoded from it.
+          ...(o.release ? ["--crf", "10"] : []),
           "--quiet",
           o.gpu ? "--browser-gpu" : "--no-browser-gpu",
         ].filter(Boolean),
@@ -773,6 +848,17 @@ async function render(o, [briefPath]) {
       verification.independent_reviews = fs.existsSync(reviewDir)
         ? fs.readdirSync(reviewDir).filter((f) => f.endsWith(".md")).map((f) => path.join(reviewDir, f))
         : [];
+      if (textCheck) {
+        verification.text_check = textCheck;
+        for (const line of describeText(textCheck)) verification.warnings.push(line);
+      }
+      if (narrationCheck) {
+        verification.narration_check = narrationCheck.skipped
+          ? { skipped: narrationCheck.skipped }
+          : { ok: !narrationCheck.lines.some((l) => l.lang === proj.lang && l.flagged), model: narrationCheck.model, lines: narrationCheck.lines.filter((l) => l.lang === proj.lang) };
+        for (const line of describeNarration({ lines: verification.narration_check.lines ?? [] })) verification.warnings.push(line);
+      }
+      verification.snapshot = snapshot;
       fs.writeFileSync(
         verification.report,
         JSON.stringify(verification, null, 2) + "\n",
@@ -807,12 +893,23 @@ async function render(o, [briefPath]) {
         console.error(
           `motion-use: cover image skipped: ${guardOutput(out, coverFile, o.force)}`,
         );
+      // Release: platform masters encoded from the near-lossless render, each hashed.
+      let release = null;
+      if (o.release) {
+        try {
+          release = makeRelease({ out, proj, id, file, cover, seconds: verification.observed.seconds, force: o.force, log: o.json ? () => {} : (m) => console.error(m) });
+        } catch (e) {
+          return { ok: false, id, file, error: `release masters: ${e.message}` };
+        }
+      }
       return {
         ok: verification.ok,
         id,
         file,
         cover,
         bytes,
+        ...(release ? { release: release.map((e) => path.join(out, "release", e.file)) } : {}),
+        _release: release,
         refit_crf: fitted?.crf ?? null,
         edge_voiceover: edgeFiles.length,
         seconds: verification.observed.seconds,
@@ -846,14 +943,33 @@ async function render(o, [briefPath]) {
             demo_similarity: verification.motion.demo_similarity?.share,
           },
           independent_reviews: verification.independent_reviews?.length ?? 0,
+          narration_check: verification.narration_check && (verification.narration_check.skipped
+            ? verification.narration_check
+            : { ok: verification.narration_check.ok, flagged: verification.narration_check.lines.filter((l) => l.flagged).map((l) => ({ id: l.id, similarity: l.similarity, heard: l.heard, changes: l.changes.filter((c) => c.flag) })) }),
+          text_check: textCheck && (textCheck.skipped ? textCheck : { runs: textCheck.runs }),
         },
+        snapshot,
       };
     },
   );
+  const entries = (r.results ?? []).flatMap((x) => x._release ?? []);
+  for (const x of r.results ?? []) delete x._release;
+  let releaseManifest = null;
+  if (o.release && entries.length && r.code === 0) {
+    const relDir = path.join(path.resolve(o.out ?? path.join(path.dirname(resolveProject(briefPath)), "out")), "release");
+    releaseManifest = path.join(relDir, "release-manifest.json");
+    writeReleaseManifest(relDir, {
+      entries,
+      snapshot,
+      version: VERSION,
+      film: filmFile ? { file: filmFile, sha256: sha(filmFile) } : null,
+    });
+    if (!o.json) console.log(releaseManifest);
+  }
   if (o.json && r.results)
     console.log(
       JSON.stringify(
-        { ok: r.code === 0, outputs: r.results, warnings: r.warnings },
+        { ok: r.code === 0, outputs: r.results, warnings: r.warnings, snapshot, ...(releaseManifest ? { release_manifest: releaseManifest } : {}) },
         null,
         2,
       ),
@@ -863,6 +979,38 @@ async function render(o, [briefPath]) {
       if (!x.ok)
         console.error(`motion-use: render failed for ${x.id}:\n${x.error}`);
   return r.code;
+}
+
+/**
+ * out/release/<id>.mp4 (x264 veryslow CRF 16), <id>-x.mp4 when a landscape master is above
+ * X's upload limit, and the cover; returns manifest entries.
+ */
+function makeRelease({ out, proj, id, file, cover, seconds, force, log }) {
+  const relDir = path.join(out, "release");
+  fs.mkdirSync(relDir, { recursive: true });
+  const voiceover = proj.narrationTracks.map((t) => ({ id: t.id, sha256: sha(t.file) }));
+  const meta = { lang: proj.lang, format: proj.format, voiceover };
+  const entries = [];
+  const put = (name, make, extra) => {
+    const final = path.join(relDir, name),
+      blocked = guardOutput(out, final, force);
+    if (blocked) throw new Error(blocked);
+    const tmp = path.join(proj.dir, `release-${name}`);
+    make(tmp);
+    commitOutput(out, tmp, final);
+    entries.push(releaseEntry(relDir, name, { ...extra, ...meta }));
+    return entries.at(-1);
+  };
+  log(`encoding release master ${id}.mp4 (x264 veryslow, CRF 16)…`);
+  const master = put(`${id}.mp4`, (tmp) => encodeMaster(file, tmp), { kind: "master" });
+  if (Math.abs(master.duration - seconds) > 0.1)
+    throw new Error(`master is ${master.duration}s but the render is ${seconds}s`);
+  if (proj.format === "landscape" && master.bytes > X_LIMIT) {
+    log(`${id}.mp4 is ${mb(master.bytes)}; encoding ${id}-x.mp4 under ${mb(X_LIMIT)} for X…`);
+    put(`${id}-x.mp4`, (tmp) => encodeUnder(file, tmp, X_LIMIT, seconds, proj.dir), { kind: "x", limit: X_LIMIT });
+  }
+  if (cover) put(`${id}-cover.png`, (tmp) => fs.copyFileSync(cover, tmp), { kind: "cover" });
+  return entries;
 }
 
 const mb = (b) => `${(b / 1e6).toFixed(1)} MB`;
@@ -932,7 +1080,8 @@ function fitSize(file, max, workDir) {
   };
 }
 
-async function voiceover(o, [briefPath]) {
+async function voiceover(o, [briefPath, ...rest]) {
+  if (briefPath === "check") return voiceoverCheck(o, rest);
   if (isFilm(briefPath)) {
     const c = checkFilm(briefPath, { ...o, skipGeneratedVoiceover: true });
     if (!c.ok) {
@@ -1018,6 +1167,35 @@ async function voiceover(o, [briefPath]) {
       );
   }
   return failed.length ? 1 : 0;
+}
+
+/** Narration clips of a project with their scripts, filtered to the languages asked for. */
+function projectNarration(briefPath, o) {
+  if (isFilm(briefPath)) {
+    const c = checkFilm(briefPath, { ...o, skipGeneratedVoiceover: false });
+    return { items: narrationItems(c.film).filter((it) => c.langs.includes(it.lang)), dir: c.film.narrationConfig?.dir };
+  }
+  const { data, dir } = readBrief(resolveProject(briefPath));
+  const checked = validateBrief(data, dir);
+  const langs = list(o.lang) ?? checked.brief.languages ?? [];
+  return { items: narrationItems(checked.brief).filter((it) => langs.includes(it.lang)), dir: checked.brief.voiceover?.dir };
+}
+
+function runNarrationCheck(briefPath, o) {
+  const { items, dir } = projectNarration(briefPath, o);
+  return checkNarration(items, { dir, model: o["asr-model"], log: o.json ? () => {} : (m) => console.error(m) });
+}
+
+async function voiceoverCheck(o, [briefPath]) {
+  const r = runNarrationCheck(briefPath, o);
+  if (o.json) console.log(JSON.stringify(r, null, 2));
+  else if (r.skipped) console.error(`motion-use: narration check skipped: ${r.skipped}`);
+  else {
+    for (const l of r.lines)
+      console.log(`${l.flagged ? "check" : "ok   "} ${l.lang}/${l.id} ${Math.round(l.similarity * 100)}%  heard: ${l.heard}`);
+    for (const line of describeNarration(r)) console.error(line);
+  }
+  return r.skipped ? 0 : r.ok ? 0 : 1;
 }
 
 async function still(o, [briefPath]) {
@@ -1116,7 +1294,13 @@ async function still(o, [briefPath]) {
       ? (commitOutput(out, tmpSheet, sheetFile), sheetFile)
       : null;
     if (!o.json) console.log(sheet ?? `${dir} (contact sheet not created)`);
-    return { ok: true, id, frames: pngs, sheet, at: times, ...(pure === null ? {} : { pure }) };
+    // Text check over the whole film, not only the sampled frames.
+    let text = null;
+    if (proj.film && !o["no-text-check"] && !proj.range) {
+      text = await probeText(proj.dir, proj.total);
+      if (!o.json) for (const line of describeText(text)) console.error(`warning: ${id}: ${line}`);
+    }
+    return { ok: true, id, frames: pngs, sheet, at: times, ...(pure === null ? {} : { pure }), ...(text ? { text_check: text.skipped ? text : { runs: text.runs } } : {}) };
   });
   if (o.json && r.results)
     console.log(
@@ -1141,6 +1325,25 @@ const pixelHash = (file) =>
     .digest("hex");
 
 async function verify(o, [file]) {
+  if (o.manifest) {
+    // Is this exactly a release master listed in the manifest? (publish only what render made)
+    if (!fs.existsSync(o.manifest)) return fail(`no manifest at ${o.manifest}`, o.json);
+    const files = file
+      ? [file]
+      : (JSON.parse(fs.readFileSync(o.manifest, "utf8")).files ?? []).map((e) => path.join(path.dirname(o.manifest), e.file));
+    const results = files.map((f) =>
+      fs.existsSync(f) ? { file: f, ...checkAgainstManifest(o.manifest, f) } : { file: f, ok: false, reason: "file not found" },
+    );
+    if (o.json) console.log(JSON.stringify({ ok: results.every((x) => x.ok), results }, null, 2));
+    else
+      for (const x of results)
+        console.log(
+          x.ok
+            ? `ok  ${x.file}: ${x.entry.file} (${x.entry.kind}, ${x.entry.lang}/${x.entry.format}, ${x.entry.width ? `${x.entry.width}x${x.entry.height}` : `${x.entry.bytes} bytes`}${x.entry.fps ? ` ${x.entry.fps} fps` : ""}, snapshot ${x.snapshot ?? "none"})`
+            : `NO  ${x.file}: ${x.reason}`,
+        );
+    return results.every((x) => x.ok) ? 0 : 1;
+  }
   if (!file) return fail("verify needs a delivered MP4 path", o.json);
   const input = path.resolve(file),
     out = path.resolve(
