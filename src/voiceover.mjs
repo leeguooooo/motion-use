@@ -50,9 +50,56 @@ async function azure(text, voice, rate, out) {
 }
 
 function edge(text, voice, rate, out) {
-  const r = spawnSync("edge-tts", ["--voice", voice, `--rate=${rate}`, "--text", text, "--write-media", out], { encoding: "utf8" });
+  const srt = `${out}.srt`;
+  const r = spawnSync("edge-tts", ["--voice", voice, `--rate=${rate}`, "--text", text, "--write-media", out, "--write-subtitles", srt], { encoding: "utf8" });
   if (r.error?.code === "ENOENT") throw new Error("edge-tts is not installed (pip install edge-tts, or uv tool install edge-tts)");
   if (r.status !== 0) throw new Error(`edge-tts failed: ${(r.stderr || r.stdout).trim().split("\n").pop()}`);
+  // Sentence cues timed by the voice service; subtitles use them instead of an estimate.
+  try {
+    return parseSrt(fs.readFileSync(srt, "utf8"));
+  } catch {
+    return null;
+  } finally {
+    fs.rmSync(srt, { force: true });
+  }
+}
+
+export function parseSrt(text) {
+  const sec = (s) => {
+    const [h, m, rest] = s.trim().split(":");
+    return +h * 3600 + +m * 60 + Number(rest.replace(",", "."));
+  };
+  return String(text)
+    .replace(/\r/g, "")
+    .split(/\n\s*\n/)
+    .map((block) => {
+      const lines = block.trim().split("\n");
+      const i = lines.findIndex((l) => l.includes("-->"));
+      if (i < 0) return null;
+      const [a, b] = lines[i].split("-->");
+      return { text: lines.slice(i + 1).join(" ").trim(), start: +sec(a).toFixed(3), end: +sec(b).toFixed(3) };
+    })
+    .filter((c) => c && c.text && c.end > c.start);
+}
+
+// Without service timing, split narration into sentence-sized cues and share the spoken
+// window by character count. Marked estimated: it is not word-accurate.
+export function estimateCues(text, start, end) {
+  const parts = [];
+  for (const sentence of String(text).match(/[^。！？.!?；;]+[。！？.!?；;]*/g) ?? []) {
+    const cjk = /[\u2e80-\u9fff]/.test(sentence),
+      limit = cjk ? 18 : 42;
+    if (sentence.trim().length <= limit) parts.push(sentence.trim());
+    else for (const piece of sentence.match(/[^，,、：:]+[，,、：:]*/g) ?? [sentence]) if (piece.trim()) parts.push(piece.trim());
+  }
+  const total = parts.reduce((n, x) => n + x.length, 0) || 1;
+  let at = start;
+  return parts.map((text) => {
+    const d = ((end - start) * text.length) / total,
+      cue = { text, start: +at.toFixed(3), end: +(at + d).toFixed(3), estimated: true };
+    at += d;
+    return cue;
+  });
 }
 
 export function readVoManifest(dir) {
@@ -107,10 +154,11 @@ export async function generateVoiceover(brief, { langs = brief.languages, engine
       }
       fs.mkdirSync(path.dirname(out), { recursive: true });
       const tmp = `${out}.partial.mp3`;
+      let cues = null;
       try {
         log(`${lang}/${scene.id}: ${engine} ${voice}`);
         if (engine === "azure") await azure(text, voice, rate, tmp);
-        else edge(text, voice, rate, tmp);
+        else cues = edge(text, voice, rate, tmp);
         if (!fs.existsSync(tmp) || fs.statSync(tmp).size === 0) throw new Error("no audio was written");
         fs.renameSync(tmp, out);
       } catch (e) {
@@ -118,7 +166,7 @@ export async function generateVoiceover(brief, { langs = brief.languages, engine
         rows.push({ ...row, status: "error", error: e.message });
         continue;
       }
-      manifest[rel] = { ...want, sha: sha(fs.readFileSync(out)) };
+      manifest[rel] = { ...want, sha: sha(fs.readFileSync(out)), ...(cues?.length ? { cues } : {}) };
       rows.push({ ...row, status: "generated" });
     }
   }

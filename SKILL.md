@@ -1,78 +1,65 @@
 ---
 name: motion-use
-description: Direct and render local videos with an AI coding agent — launch films, motion graphics, explainers, product demos, Chinese/English and landscape/portrait outputs. Author a shot plan and exact-time drawing code, inspect motion, render MP4s and review the delivered file. Also supports scene templates for quick factual explainers. Use for 宣传片、推广视频、讲解视频、产品视频, launch videos, branded motion and social clips. Does not generate photorealistic footage from text or transcribe raw footage.
+description: Direct and render local videos with an AI coding agent — launch films, motion graphics, data stories, explainers, product walkthroughs, kinetic type, graphics over footage; Chinese/English, landscape/portrait. Writes short exact-time drawing code with a kit of helpers (camera, charts, counters, callouts, captions, handwriting, footage), renders MP4s and checks the delivered file. Also has scene templates for quick factual explainers. Use for 宣传片、推广视频、讲解视频、产品视频、数据动画, launch videos, branded motion and social clips. Does not generate photorealistic footage from text or transcribe raw footage.
 ---
 
 # motion-use
 
-The agent directs and authors the film; motion-use handles local assets, exact-time rendering, fonts, audio and delivery checks. A list of text slides is not the default creative workflow.
+The agent directs the film; motion-use handles assets, exact-time rendering, fonts, narration, music and delivery checks.
 
 ```bash
 motion-use --version || curl -fsSL https://raw.githubusercontent.com/leeguooooo/motion-use/main/install.sh | sh
 motion-use doctor
 ```
 
-## Direct the film
+## 1 · Plan
 
-Use the user's subject, references and existing project. Verify product claims against its source/README or real behavior. Ask only for missing decisions that materially affect the result.
+Use the user's subject, material and existing project; verify product claims against the source or real behavior. An invented UI, cursor walkthrough or process illustration must not pass as a real recording or real terminal output; say it is an illustration. Ask only for decisions that change the result.
 
-Write or update `DIRECTOR.md`: the viewer's takeaway, the visual subject, the beat map, decisive frames and source provenance. A beat describes **what changes on screen**, where the eye moves, what makes the action happen, and how it hands off to the next beat. A heading followed by bullets is not a shot description.
+`motion-use init <dir>` writes `film.json`, `composition/draw.js` and `DIRECTOR.md`. The starter is a study to replace, not a template to re-skin: a film laid out like it is flagged (`demo_similarity`).
 
-Choose motion to fit the story. A UI action can use a cursor and direct manipulation; a process can follow one object; a brand piece can use type, shape, masks and camera motion. Do not force every film into a fixed number of shots, a single style, continuous motion, a particular BPM, or the previous film's sequence. Reading holds and hard cuts are valid when intentional. Record the reason for longer holds.
+- Lock `look`: one style sentence, one palette, the character approach (none, hands, footage, generated frames — not code-drawn mascots).
+- Each shot names an object you could point at, what *it* does, its `camera` move and the ≤ 8 words on screen. Open on a concrete small scene; end on an action on the subject, not a centred card; keep one example through the film.
+- Words go in `copy` per language, numbers and series in `data`, images in `assets`, footage in `videos`. Changing one value then changes one thing.
+- Given a reference video, run `motion-use breakdown ref.mp4` first and learn the mechanism, not the pixels. Pick an explainer look from [references/grammars.md](references/grammars.md) by what the narration explains.
 
-For films, `motion-use init <dir>` writes `film.json`, `composition/draw.js` and `DIRECTOR.md`. Read [references/film.md](references/film.md) before authoring. The scaffold is a drawing study: replace its choreography and appearance, not just its text. An actual example with a different approach is `examples/ocs-film/`.
+## 2 · Write the drawing
 
-## Author and inspect
+Read [references/kit.md](references/kit.md) — one page that covers most films. `M.shoot`, `M.chart`, `M.counter`, `M.callout`, `M.words`, `M.stamp`, `M.cover`/`M.video`, `M.cursor`, `M.spotlight`, `M.signature`, `M.captions` and the timing helpers keep a film to a few kilobytes; write custom drawing where the subject needs it. Move on events: hold → 0.28 s push / 0.30 s pan / 0.17 s slam → hold. Make subjects big and high-contrast. Directing method and failure modes: [references/directing.md](references/directing.md). Full contract: [references/film.md](references/film.md).
 
-Narration is required by default. Write `narration` per shot (text per language), or a whole-film narration script, before fixing the shot windows. Run `motion-use voiceover <project>` to generate/cache the audio and check that each sentence fits; retime the picture or shorten the script if it does not. Never truncate words or disable narration to make a short film fit. Use `voiceover:false` only when the user explicitly wants an unnarrated piece. `render` also generates missing/outdated narration automatically; a TTS error stops delivery rather than falling back to music-only output.
+Narration is required by default: write it per shot (each language), then `motion-use voiceover <dir>`; it must fit its shot window, so shorten the script or retime the shot, never truncate. `M.captions(c, t)` draws subtitles from it. `voiceover:false` only when the user wants a silent film.
 
-Write the drawing as a function of exact time. Fonts and named local images preload; optional local browser bundles and `setupFilm` can prepare complex renderers. Camera movement, shape changes and typography share the film's clock. Put visible localized text in `copy`; frame geometry comes from `view`, so portrait needs its own framing decisions.
-
-Use source images/illustrations from the user, captured evidence, or image-use where appropriate. An invented UI or process illustration must not masquerade as a real recording or real terminal output. For footage-led editing, use a suitable editor or native HyperFrames composition; this drawing API does not automatically understand or cut recordings.
-
-```bash
-motion-use validate <project> --json
-motion-use still <project> --allow-code --lang zh --format vertical
-motion-use still <project> --allow-code --at 2.3,2.4,2.5
-```
-
-Inspect the opening, action, handoff and resolution, including intermediate poses and both sides of hard cuts. Fix clipping, crowded framing, unreadable copy, a subject that disappears during a morph, and motion that merely decorates a static slide. Stills cannot prove timing: review a draft movie too.
-
-`--allow-code` is appropriate for a project you authored in this task or the user explicitly trusts. It is not an automatic flag for third-party projects. Local code runs in the renderer; content checks are not a security sandbox. Template custom HTML keeps its separate `--allow-custom-html` gate.
-
-## Render and review the delivered video
+## 3 · Iterate cheaply
 
 ```bash
-motion-use render <project> --allow-code --quality draft --json
-motion-use render <project> --allow-code --quality high --json
-motion-use verify <delivered.mp4> --json
+motion-use validate <dir>                                   # plan warnings, glyphs, narration fit
+motion-use still <dir> --allow-code --shot <id>             # three frames of one shot
+motion-use render <dir> --allow-code --from 3 --to 7        # silent draft of a range
+motion-use render <dir> --allow-code --quality draft --json # compact summary
 ```
 
-Render returns MP4s, covers and `review/<id>/report.json` plus a contact sheet extracted from the MP4. Delivery checks decode the whole file, compare actual duration/frame rate/dimensions, measure audio and flag dark or still intervals. Audio is normalized in two passes to working targets of -14 LUFS / -1 dBTP; `--no-normalize` keeps authored levels. These are working targets, not universal platform standards.
+Read the numbers first; open an image when they do not settle it. Fix clipping, crowding, unreadable text and decoration that does not explain. Stills cannot prove timing: watch a draft.
 
-The narration check compares a voice-only reference stem with the delivered mix at each spoken window. Music alone, a silent voice track, a missing language, mistimed speech or a voice drowned by the bed fails delivery.
+`--allow-code` is for projects you wrote in this task or the user trusts; code runs in the renderer and lint is not a sandbox.
 
-Read the report and examine the actual movie. Technical success is not visual approval: Canvas text is not covered by DOM layout/contrast audits, and freeze detection is only a review signal. Check the narrative, framing, readable timing, movement and payoff yourself. Report any listening limitation instead of claiming the mix sounds good from measurements. Fix problems and repeat; after three substantial review passes, disclose remaining issues instead of claiming they disappeared.
+## 4 · Deliver
 
-Preserve feedback, changes and remaining issues in `DIRECTOR.md`. Deliver the files and an accurate account of what was measured and what was visually reviewed. Do not upload or publish the video unless requested.
+```bash
+motion-use render <dir> --allow-code --quality high --json
+motion-use verify <file.mp4> --json      # any MP4, without re-rendering
+```
+
+Render writes MP4s, covers and `review/<id>/report.json` measured on the delivered file: decode, duration/fps/size, loudness (-14 LUFS / -1 dBTP), narration present in the mix, and motion lights. For films a red light fails delivery: slideshow pacing, empty mid-film frames, mostly blue-purple. Fix the film; use `--allow-static "reason"` / `--allow-blue-purple "reason"` only when the subject needs it, and tell the user.
+
+A technical pass is not visual approval. Before delivering, have someone who did not make the film review it: spawn a fresh agent with only the MP4, its contact sheet and the intended takeaway; it writes timecoded issues into `<dir>/reviews/<round>.md`. After three substantial passes, disclose what remains. Keep feedback and `## Lessons` (do / evidence / why / when) in DIRECTOR.md. Report exactly what was measured, what was watched and what was not listened to. Do not publish unless asked.
 
 ## Scene templates
 
-For quick information cards, or an existing brief, keep the template workflow:
+For quick information cards or an existing `brief.json`: `motion-use init <dir> --mode template --style explainer`, then `validate`, `still`, `render` on `<dir>/brief.json`. Schema: [references/brief.md](references/brief.md); narratives: [references/stories.md](references/stories.md).
 
-```bash
-motion-use init <dir> --mode template --style explainer
-motion-use validate <dir>/brief.json
-motion-use still <dir>/brief.json
-motion-use render <dir>/brief.json
-```
+## Rules
 
-`--style` or `--story` also selects templates for compatibility. Read [references/brief.md](references/brief.md) for the schema and [references/stories.md](references/stories.md) when choosing a template narrative. Recordings, custom brand fonts, highlight boxes and `voiceover` generation are available here. When a template declares narration, render generates missing speech and requires its presence in delivery too. `voiceover.required:false` is only for deliberately unnarrated template output. Film narration can be generated or imported and uses explicit shot windows, so authored visual timing is never silently stretched.
-
-## Operational rules
-
-- Assets and fonts are local; rendering does not source assets from the web. CLI update checks run at most daily (`MOTION_USE_NO_UPDATE_CHECK=1` disables them).
-- Preserve user files and output ownership checks. Use a fresh output directory for experiments; do not run two jobs on the same project/output combination.
-- If Edge is selected but missing, install the known `edge-tts` tool with `uv tool install edge-tts` (or Python/pip) and retry. Do not disable narration as a workaround.
-- Public voiceover needs suitable authorization; edge-tts is a preview provider, not an established publication license.
-- Install/update through GitHub Releases. `motion-use upgrade` refreshes the CLI and its skill.
+- Rendering is local; narration generation uses the voice service. Update checks run at most daily (`MOTION_USE_NO_UPDATE_CHECK=1` disables them).
+- Preserve user files; motion-use never overwrites outputs it did not write. Do not run two jobs on the same output folder.
+- Missing edge-tts: `uv tool install edge-tts`, then retry. Never disable narration as a workaround. edge-tts is a preview voice; public videos need suitably licensed speech (Azure).
+- Install and update through GitHub Releases; `motion-use upgrade` refreshes the CLI and this skill.

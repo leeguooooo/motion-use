@@ -3,6 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { claimDir } from "./build.mjs";
+import { measureMotion, gradeMotion, demoSimilarity } from "./motion-check.mjs";
+import { fileURLToPath } from "node:url";
+
+const DEMOS = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "assets", "demo-signatures.json");
 
 const run = (bin, args) =>
   execFileSync(bin, args, {
@@ -241,6 +245,8 @@ export function verifyVideo(
     shots = [],
     narrationStem = null,
     narrationTracks = [],
+    // gate: red motion lights fail delivery (authored films); otherwise they are reported only.
+    motionCheck = { gate: false, cuts: [], allowStatic: null, allowBluePurple: null },
   } = {},
 ) {
   file = path.resolve(file);
@@ -435,6 +441,44 @@ export function verifyVideo(
         rms_dbfs: Number.isFinite(Number(value)) ? Number(value) : null,
       });
     }
+  let motion = null;
+  try {
+    const measured = measureMotion(file, { cuts: motionCheck.cuts ?? [] });
+    const graded = gradeMotion(measured, motionCheck);
+    motion = {
+      level: graded.level,
+      gate: Boolean(motionCheck.gate),
+      allowed: {
+        static: motionCheck.allowStatic ?? null,
+        blue_purple: motionCheck.allowBluePurple ?? null,
+      },
+      lights: graded.rows,
+      ...measured,
+    };
+    const red = graded.rows.filter((r) => r.level === "red");
+    const explain = {
+      fast_ratio: `almost no fast movement inside shots (fast_ratio ${measured.fast_ratio}): a slideshow, not a film. Move on events — hold, then a 0.17–0.3 s push, pan or slam, then hold — or pass --allow-static "reason"`,
+      blank_run_s: `mid-film frames with no edges at all (${measured.blank_runs.map((r) => `${r.start}–${r.end}s`).join(", ")}): keep the subject in frame`,
+      blue_purple_share: `blue-purple frames cover ${Math.round(measured.blue_purple_share * 100)}% of the film (${measured.blue_purple_spans.slice(0, 4).map((r) => `${r.start}–${r.end}s`).join(", ")}): the generic AI look. Change the palette, or record why the subject needs it with look.allowBluePurple / --allow-blue-purple "reason"`,
+    };
+    for (const r of red)
+      (motionCheck.gate ? errors : warnings).push(`motion: ${explain[r.metric]}`);
+    for (const r of graded.rows.filter((r) => r.level === "yellow"))
+      warnings.push(
+        `motion: ${r.metric} ${r.value} is in the review zone${r.note ? ` (${r.note})` : ""}`,
+      );
+    // Structural likeness to the starter or a bundled example: a signal, never a gate.
+    if (fs.existsSync(DEMOS)) {
+      const similar = demoSimilarity(file, JSON.parse(fs.readFileSync(DEMOS, "utf8")));
+      motion.demo_similarity = similar;
+      if (similar.share >= 0.3)
+        warnings.push(
+          `motion: ${Math.round(similar.share * 100)}% of frames are laid out like the bundled ${similar.closest} demo; redesign the composition for this subject instead of re-skinning the demo`,
+        );
+    }
+  } catch (e) {
+    warnings.push(`motion measurement failed: ${e.message}`);
+  }
   const report = {
     version: 1,
     ok: errors.length === 0,
@@ -448,12 +492,14 @@ export function verifyVideo(
     warnings,
     black_intervals: black,
     still_intervals: freezes,
+    motion,
     frames,
     sheet,
     visual_review: "pending",
     limitations: [
       "Measurements and sampled frames do not judge design quality, narrative coherence, subtitle readability or listening quality.",
       "Black and still intervals are review signals, not automatic aesthetic failures.",
+      "Motion lights detect slideshow pacing, empty frames and blue-purple palettes; they cannot see page frames, collage styles or an unclear story.",
     ],
   };
   const reportFile = path.join(outDir, "report.json");

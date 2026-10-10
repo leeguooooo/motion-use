@@ -30,7 +30,12 @@ motion-use validate my-film
 motion-use voiceover my-film                 # narration per shot; cached
 motion-use still my-film --allow-code
 motion-use render my-film --allow-code --quality high --json
+motion-use breakdown reference.mp4           # learn from a reference: cuts, beat grid, heatmaps
 ```
+
+**Short code, varied films.** A kit of helpers keeps a film to a few kilobytes of drawing code: a pulse camera, charts and counters that read numbers from `film.json`, callouts, kinetic words, stamps, handwriting, a cursor and spotlight for walkthroughs, footage under graphics (`videos`, frames extracted at build time) and subtitles timed from the narration. The starter film shrank from 7,008 to 3,053 bytes with the same picture. Three examples in three looks show the range: a [data story](examples/data-story/), a [whiteboard](examples/whiteboard/) and [kinetic type](examples/kinetic/). Iterate cheaply with `still --shot <id>` and `render --from 3 --to 7` (a silent draft of a range); a film laid out like the starter is flagged so it gets redesigned, not re-skinned. One-page guide: [references/kit.md](references/kit.md).
+
+**Directing, not decorating.** `film.json` locks one `look` (a style sentence, a palette, the character approach). Each shot names an object, what it does and its camera move, and validation flags slideshow habits: presentation verbs, text-led openings and endings, the same move three times, no fast move at all, blue-purple palettes. The drawing kit gives `draw.js` a pulse camera (hold → 0.28 s push / 0.30 s pan / 0.17 s slam → hold), easings and springs, 12 fps stepping, hand-drawn lines, whiteboard writing, palettes and paper texture. After rendering, motion lights measured on the MP4 fail a film that reads as a slideshow, has empty mid-film frames, or is mostly blue-purple, unless you record why. The method follows [huashu-art-motion](https://github.com/alchaincyf/huashu-art-motion) (MIT); see [references/directing.md](references/directing.md) and the eight explainer looks in [references/grammars.md](references/grammars.md).
 
 The agent writes the choreography; the CLI does not turn every paragraph into a scene. Shots have a purpose and visible action. The drawing is a pure function of time, so a shape can carry between shots, the camera can follow it, and motion can align with the audio beat grid. Narration is required by default: write it per shot, then generate or import the speech. Render automatically generates missing narration; it fails if speech is missing, overlong or absent from the delivered mix. Use `voiceover:false` only for deliberately unnarrated films. Optional subframe sampling adds motion blur. Fonts and named images preload; local browser bundles can prepare more complex renderers.
 
@@ -38,7 +43,7 @@ The starter is an editable drawing study, not a finished ad. Replace its choreog
 
 `--allow-code` is for drawing code you wrote or trust. It executes inside the renderer; static lint is not a security sandbox. Ordinary text remains JSON data. Named files are copied individually, so a composition folder's secrets and unrelated files do not enter the build.
 
-Every render also writes a cover, a contact sheet sampled from the **delivered MP4**, and a technical report: decoding, actual duration/FPS/dimensions, audio presence, loudness/peak, per-shot RMS, dark/still intervals. It never labels an encode as aesthetic approval: `visual_review` remains pending until a person/agent watches and reviews it. Canvas text is not covered by DOM layout audits. Audio uses two-pass normalization to working -14 LUFS / -1 dBTP targets; `--no-normalize` preserves original levels.
+Every render also writes a cover, a contact sheet sampled from the **delivered MP4**, and a technical report: decoding, actual duration/FPS/dimensions, audio presence, loudness/peak, per-shot RMS, dark/still intervals, motion lights. It never labels an encode as aesthetic approval: `visual_review` remains pending until a person/agent watches and reviews it. Canvas text is not covered by DOM layout audits. Audio uses two-pass normalization to working -14 LUFS / -1 dBTP targets; `--no-normalize` preserves original levels.
 
 Full drawing/audio contract: [references/film.md](references/film.md). For an existing MP4, `motion-use verify file.mp4 --json` creates a review report without re-rendering it.
 
@@ -104,7 +109,9 @@ The installer downloads the release archive and its `.sha256` from GitHub, verif
 | `voiceover [brief]` | Speak each scene's `narration`: `--engine azure` (licensed) or `edge` (preview) |
 | `still [brief]` | Keyframes and a contact sheet; `--at 1.5,4` for exact seconds |
 | `render [brief]` | MP4 per language × format, plus a cover PNG; `--quality draft\|standard\|high`, `--target github` / `--max-size 9MB` |
-| `verify <mp4>` | Decode and measure a delivered video; create review frames and a report |
+| `verify <mp4>` | Decode and measure a delivered video: review frames, audio, motion lights; `--gate` fails on red |
+| `breakdown <video>` | Take a reference apart: cuts, beat grid, contact sheets, transition strips, motion heatmaps, palette, motion lights |
+| `compare <a> <b>` | Frames of two videos side by side: `--times 1.5,4` |
 | `doctor` | Check Node, FFmpeg, Chrome, the engine and fonts |
 | `upgrade` | Update the CLI and its skill; `--check` only looks |
 

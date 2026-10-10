@@ -39,6 +39,9 @@ import {
 } from "./film.mjs";
 import { normalizeAudio, verifyVideo, buildNarrationStem } from "./verify.mjs";
 import { generateFilmNarration } from "./film-voiceover.mjs";
+import { breakdownVideo } from "./breakdown.mjs";
+import { compareVideos } from "./compare.mjs";
+import { measureMotion, gradeMotion } from "./motion-check.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const VERSION = JSON.parse(
@@ -53,9 +56,13 @@ Usage: motion-use <command> [options]
                       --mode template keeps the scene-template workflow; --style/--story also select it
   validate [brief]    Check a brief: fields, files, voiceover lengths, characters the fonts cannot draw
   voiceover [brief]   Speak each scene's "narration" into voiceover/<lang>/<scene-id>.mp3 (--engine azure|edge)
-  still [brief]       Render keyframes as PNGs plus a contact sheet (--at 1.5,4 for exact seconds)
+  still [brief]       Render keyframes as PNGs plus a contact sheet (--at 1.5,4 for exact seconds, --shot id)
   render [brief]      Render MP4s for every language and format in the brief
-  verify <mp4>       Decode and measure the delivered video; write frames and a review report
+                      (--from 6 --to 10: a quick silent preview of that range of a film)
+  verify <mp4>       Decode and measure a delivered video: frames, audio, motion lights (--gate fails on red)
+  breakdown <video>   Take a reference video apart: cuts, beat grid, contact sheets, transition strips,
+                      motion heatmaps, palette and motion lights (--out <dir>)
+  compare <a> <b>     Put frames of two videos side by side (--times 1.5,4 --out compare.png)
   doctor              Check Node, ffmpeg, Chrome and the bundled engine (--install-browser fetches Chrome)
   upgrade             Update motion-use and its skill (--check only looks)
 
@@ -70,9 +77,11 @@ Options for still/render:
   --allow-custom-html Render "html" scenes (custom code; only for briefs you trust)
   --allow-code       Render authored film code (only projects you wrote or trust)
   --no-normalize     Keep original audio levels (default: two-pass -14 LUFS / -1 dBTP)
+  --allow-static "why"       Deliver a film that the motion check reads as a slideshow, recording why
+  --allow-blue-purple "why"  Deliver a blue-purple film (e.g. a Starry Night study), recording why
   --gpu               Render on the GPU: faster, but frames may differ by invisible noise between runs
                       (default: software rendering, bit-identical output for the same brief)
-  --json              Machine-readable result on stdout
+  --json              Machine-readable result on stdout (compact; --verbose adds every measurement)
 
 project defaults to ./film.json, otherwise ./brief.json. Docs: references/film.md`;
 
@@ -95,6 +104,8 @@ export async function main(argv) {
     still,
     render,
     verify,
+    breakdown,
+    compare,
     doctor,
     upgrade: upgradeCmd,
   };
@@ -125,6 +136,14 @@ export async function main(argv) {
         "allow-custom-html": { type: "boolean" },
         "allow-code": { type: "boolean" },
         "no-normalize": { type: "boolean" },
+        "allow-static": { type: "string" },
+        "allow-blue-purple": { type: "string" },
+        gate: { type: "boolean" },
+        verbose: { type: "boolean" },
+        times: { type: "string" },
+        shot: { type: "string" },
+        from: { type: "string" },
+        to: { type: "string" },
         gpu: { type: "boolean" },
       },
     });
@@ -430,7 +449,7 @@ async function each(briefPath, o, fn) {
     for (const f of c.formats) {
       const id = `${c.brief.name}-${l}-${f}`;
       const proj = c.film
-        ? await buildFilm(c.film, l, f, path.join(out, ".build", id))
+        ? await buildFilm(c.film, l, f, path.join(out, ".build", id), { range: o.range })
         : await buildProject(c.brief, l, f, path.join(out, ".build", id));
       if (!c.film) {
         proj.narrationTracks = proj.scenes
@@ -508,6 +527,17 @@ async function render(o, [briefPath]) {
   );
   if (maxBytes === undefined)
     return fail("--max-size takes a size like 9MB, 9.5M or 9000000", o.json);
+  if (o.from !== undefined || o.to !== undefined) {
+    // A quick silent preview of part of a film: picture and timing only, no delivery checks.
+    if (!isFilm(briefPath))
+      return fail("--from/--to preview a range of an authored film", o.json);
+    const duration = JSON.parse(fs.readFileSync(resolveProject(briefPath), "utf8")).duration;
+    const from = Number(o.from ?? 0),
+      to = Number(o.to ?? duration);
+    if (!(from >= 0 && to > from && to <= duration && to - from >= 0.5))
+      return fail(`--from/--to: 0 ≤ from < to ≤ ${duration}, at least 0.5 s apart`, o.json);
+    o.range = { from, to };
+  }
   if (isFilm(briefPath)) {
     if (o.engine && !["edge", "azure"].includes(o.engine))
       return fail("--engine must be azure or edge", o.json);
@@ -523,7 +553,7 @@ async function render(o, [briefPath]) {
       else printReport(c.report);
       return 1;
     }
-    const generated = await generateFilmNarration(c.film, {
+    const generated = o.range ? { rows: [] } : await generateFilmNarration(c.film, {
       langs: c.langs,
       engine: o.engine,
       log: o.json ? () => {} : (m) => console.error(m),
@@ -619,6 +649,29 @@ async function render(o, [briefPath]) {
         console.error(
           `motion-use: ${id} uses ${edgeFiles.length} voiceover file(s) made with edge-tts: preview quality, and whether they may be published is not established. For a public video, regenerate with --engine azure.`,
         );
+      if (proj.range) {
+        const { from, to } = proj.range,
+          previewFile = path.join(out, "preview", `${id}-${from}-${to}.mp4`),
+          blockedPreview = guardOutput(out, previewFile, o.force);
+        if (blockedPreview) return { ok: false, id, error: blockedPreview };
+        const tmpPreview = path.join(proj.dir, "preview.mp4");
+        if (!o.json) console.error(`previewing ${id} ${from}–${to}s (silent, no delivery checks)…`);
+        const hf = await runHyperframes(
+          ["render", proj.dir, "--output", tmpPreview, "--fps", String(proj.fps), "--quality", "draft", "--quiet", o.gpu ? "--browser-gpu" : "--no-browser-gpu"],
+          {},
+        );
+        if (hf.code !== 0 || !fs.existsSync(tmpPreview))
+          return { ok: false, id, error: hf.out.trim().split("\n").slice(-15).join("\n") };
+        fs.mkdirSync(path.dirname(previewFile), { recursive: true });
+        commitOutput(out, tmpPreview, previewFile);
+        let motion = null;
+        try {
+          const m = measureMotion(previewFile);
+          motion = { level: gradeMotion(m).level, fast_ratio: m.fast_ratio, blank_run_s: m.blank_run_s, blue_purple_share: m.blue_purple_share };
+        } catch {}
+        if (!o.json) console.log(previewFile);
+        return { ok: true, id, preview: true, file: previewFile, from, to, motion };
+      }
       const file = path.join(
         out,
         `${id}${proj.film && proj.narrationTracks.length ? "-VO" : ""}.mp4`,
@@ -683,6 +736,16 @@ async function render(o, [briefPath]) {
         })),
         narrationStem: proj.narrationStem,
         narrationTracks: proj.narrationTracks,
+        // Authored films are gated on slideshow pacing, empty frames and blue-purple palettes.
+        motionCheck: {
+          gate: Boolean(proj.film),
+          cuts: proj.film
+            ? brief.shots.filter((s) => s.cut).map((s) => s.start)
+            : proj.scenes.slice(1).map((s) => s.start),
+          allowStatic: o["allow-static"] ?? brief.look?.allowStatic ?? null,
+          allowBluePurple:
+            o["allow-blue-purple"] ?? brief.look?.allowBluePurple ?? null,
+        },
       });
       if (!verification.ok)
         return {
@@ -693,6 +756,12 @@ async function render(o, [briefPath]) {
         };
       commitOutput(out, tmp, file);
       verification.file = file;
+      // Independent review: notes by someone who did not make the film, watching only the MP4.
+      // Listed by name only; the report never vouches for what they say.
+      const reviewDir = path.join(path.dirname(resolveProject(briefPath)), "reviews");
+      verification.independent_reviews = fs.existsSync(reviewDir)
+        ? fs.readdirSync(reviewDir).filter((f) => f.endsWith(".md")).map((f) => path.join(reviewDir, f))
+        : [];
       fs.writeFileSync(
         verification.report,
         JSON.stringify(verification, null, 2) + "\n",
@@ -746,7 +815,26 @@ async function render(o, [briefPath]) {
           warnings: verification.warnings,
           errors: verification.errors,
           visual_review: verification.visual_review,
-          narration: verification.narration,
+          // Compact by default: what an agent needs to decide its next step. The report file has the rest.
+          narration:
+            o.verbose || !verification.narration
+              ? verification.narration
+              : {
+                  ok: verification.narration.ok,
+                  segments: verification.narration.segments.length,
+                  failed: verification.narration.segments.filter((x) => !x.ok),
+                },
+          motion: verification.motion && {
+            level: verification.motion.level,
+            ...Object.fromEntries(
+              verification.motion.lights
+                .filter((l) => o.verbose || l.level !== "green")
+                .map((l) => [l.metric, l.value]),
+            ),
+            fast_ratio: verification.motion.fast_ratio,
+            demo_similarity: verification.motion.demo_similarity?.share,
+          },
+          independent_reviews: verification.independent_reviews?.length ?? 0,
         },
       };
     },
@@ -925,10 +1013,24 @@ async function still(o, [briefPath]) {
   const at = list(o.at)?.map(Number);
   if (at?.some((x) => !Number.isFinite(x) || x < 0))
     return fail("--at takes seconds, e.g. --at 1.5,4", o.json);
+  const shotIds = list(o.shot);
   const r = await each(briefPath, o, async (proj, id, out) => {
+    // --shot id[,id]: the shot's first settled frame, its middle and its last frame (both sides of its cuts).
+    let shotTimes = null;
+    if (shotIds) {
+      const picked = proj.scenes.filter((s) => shotIds.includes(s.id));
+      if (picked.length !== shotIds.length)
+        return { ok: false, id, error: `--shot: unknown id; this project has ${proj.scenes.map((s) => s.id).join(", ")}` };
+      shotTimes = picked.flatMap((s) => [
+        s.start + Math.min(0.25, s.duration / 4),
+        s.start + s.duration / 2,
+        Math.max(s.start, s.start + s.duration - 1 / proj.fps),
+      ]);
+    }
     // Default: one frame per scene, once its content has finished arriving.
     const times =
       at ??
+      shotTimes ??
       proj.reviewTimes ??
       proj.scenes.map((s) =>
         Math.min(s.start + s.duration - FADE - 0.1, proj.total - 0.05),
@@ -1002,13 +1104,66 @@ async function verify(o, [file]) {
   const rel = path.relative(out, input);
   if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel)))
     return fail("verification output must not contain the input video", o.json);
-  const r = verifyVideo(input, out);
+  const r = verifyVideo(input, out, {
+    motionCheck: {
+      gate: Boolean(o.gate),
+      allowStatic: o["allow-static"] ?? null,
+      allowBluePurple: o["allow-blue-purple"] ?? null,
+    },
+  });
   if (o.json) console.log(JSON.stringify(r, null, 2));
   else
     console.log(
-      `${r.report}\n${r.sheet}\n${r.ok ? "technical checks passed" : "technical checks failed"}; visual review pending${r.warnings.length ? "\n" + r.warnings.join("\n") : ""}`,
+      `${r.report}\n${r.sheet}\n${r.ok ? "technical checks passed" : "technical checks failed"}; motion ${r.motion?.level ?? "not measured"}; visual review pending${r.warnings.length ? "\n" + r.warnings.join("\n") : ""}`,
     );
   return r.ok ? 0 : 1;
+}
+
+async function breakdown(o, [file]) {
+  if (!file) return fail("breakdown needs a video path", o.json);
+  const input = path.resolve(file);
+  if (!fs.existsSync(input)) return fail(`${file} does not exist`, o.json);
+  const out = path.resolve(
+    o.out ??
+      path.join(
+        path.dirname(input),
+        "breakdown",
+        path.basename(input, path.extname(input)),
+      ),
+  );
+  const r = await breakdownVideo(input, out);
+  // The same motion lights the delivery check uses, so a reference and your film compare directly.
+  const measured = measureMotion(input),
+    motion = { level: gradeMotion(measured).level, ...measured };
+  r.motion = motion;
+  fs.writeFileSync(
+    path.join(out, "breakdown.json"),
+    JSON.stringify(r, null, 2) + "\n",
+  );
+  fs.appendFileSync(
+    path.join(out, "breakdown.md"),
+    `\n## Motion lights\n\n${motion.level}: fast_ratio ${motion.fast_ratio}, worst window ${motion.worst_window_fast_ratio ?? "n/a"}, longest still ${motion.longest_still_s}s, events ${motion.events_per_10s}/10s, blue-purple ${motion.blue_purple_share}. Compare with your own film's review/<id>/report.json.\n`,
+  );
+  if (o.json) console.log(JSON.stringify({ ok: true, out, ...r }, null, 2));
+  else
+    console.log(
+      `${path.join(out, "breakdown.md")}\n${r.transitions.length} transitions, ${r.segments.length} segments${r.beat_grid ? `, beat grid ${r.beat_grid.step_seconds}s (${r.beat_grid.bpm_if_quarter} BPM if quarters)` : ""}; motion ${motion.level}`,
+    );
+  return 0;
+}
+
+async function compare(o, [a, b]) {
+  if (!a || !b) return fail("compare needs two videos: compare <a> <b> --times 1.5,4", o.json);
+  const times = list(o.times ?? o.at)?.map(Number);
+  if (!times?.length || times.some((t) => !Number.isFinite(t)))
+    return fail("--times takes seconds like 1.5,4", o.json);
+  const out = path.resolve(o.out ?? "compare.png");
+  if (fs.existsSync(out) && !o.force)
+    return fail(`${out} exists; pass --force or choose --out`, o.json);
+  const r = compareVideos(path.resolve(a), path.resolve(b), out, { times });
+  if (o.json) console.log(JSON.stringify({ ok: true, ...r }, null, 2));
+  else console.log(r.out);
+  return 0;
 }
 
 function contactSheet(pngs, out, fmt) {

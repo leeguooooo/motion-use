@@ -1,24 +1,33 @@
 # Direct the film
 
-This is an editable motion study. Replace the drawing and shot plan for the subject; changing only the text makes another template video.
+This is an editable motion study of the pulse rhythm. Replace the drawing and shot plan for the subject; changing only the text makes another template video. Method: [directing.md](https://github.com/leeguooooo/motion-use/blob/main/references/directing.md).
 
 Before coding, write:
 
 - The viewer's one takeaway, backed by the product/source.
-- The visual subject that carries it: a real action, object, recording, illustration or diagram.
-- A beat map: time, what changes, where the eye moves, sound, and how the next shot inherits an object or motion.
-- The reference and what you are borrowing (timing, framing, typography), with attribution.
-- The four decisive frames: opening, action, consequence, resolution.
+- The look, locked for the whole film: one style sentence, one palette, the character approach. Put it in `film.json` → `look`.
+- The object that carries the film from the first shot to the last: a real action, object, recording, illustration or diagram.
+- A shot plan: for each shot, the object, what it does, the camera move (`hold`, `push`, `pan`, `slam`…), the few words on screen, and how the next shot inherits an object or motion.
+- The reference and what you are borrowing (timing, framing, typography), with attribution. `motion-use breakdown ref.mp4` measures it.
+- The four decisive frames: opening (a concrete small scene, not a title), action, consequence, resolution (an action on the subject, not a centred card).
 
-The default is an 18-second continuous signal study. There is no required shot count, palette or template. The code is `composition/draw.js`; `film.json` contains copy, output formats, authored shot windows and audio placement.
+The default is an 18-second study: two objects, one message, a reply, a network, a name written onto the receiver. There is no required shot count or palette. The code is `composition/draw.js`; `film.json` contains copy, look, output formats, authored shot windows and audio placement.
+
+## Check against the six failure modes
+
+Slideshow pacing · copied demo · no concrete object · dead background or empty frame · drawing what exists as footage · the generic AI look.
 
 ## Review
 
-- Does something meaningful change while narration plays?
+- Does something meaningful change while narration plays? Does the camera move on events and then hold?
 - Is motion explaining the idea, or decorating a slide?
 - Do objects carry between shots? Does the viewer know where to look?
 - Are short holds deliberate, and text readable at phone size?
 - Is the first second already interesting? Does the last beat pay off the opening?
 - Have source facts and footage provenance been checked?
 
-Run `motion-use still . --allow-code`, examine the frames, then render. Inspect the delivered MP4 and the `out/review/` report. Technical pass is not visual approval. Keep feedback and remaining issues here so another session can continue.
+Run `motion-use still . --allow-code`, examine the frames, then render. Read `out/review/<id>/report.json` (including the motion lights) and watch the MP4. Technical pass is not visual approval. Have someone who did not make the film write notes into `reviews/`. Keep feedback and remaining issues here so another session can continue.
+
+## Lessons
+
+What worked, as do / evidence / why / when; new problems as symptom → cause → fix → verified by.

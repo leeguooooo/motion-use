@@ -1,23 +1,26 @@
 # Authored films
 
-`film.json` fixes output timing and assets; `composition/draw.js` owns the entire picture. `DIRECTOR.md` records the directing choices and review. Rendering preserves exact shot times: there is no implicit title entrance, crossfade, cover hold or narration stretch.
+`film.json` fixes output timing and assets; `composition/draw.js` owns the entire picture. `DIRECTOR.md` records the directing choices and review. How to plan, pace and review a film: [directing.md](directing.md). Explainer looks: [grammars.md](grammars.md). Rendering preserves exact shot times: there is no implicit title entrance, crossfade, cover hold or narration stretch.
 
 ```json
 {
   "version": 1, "kind": "film", "name": "my-film",
-  "duration": 12, "fps": 60, "bpm": 100,
+  "duration": 12, "fps": 60,
   "languages": ["zh", "en"], "formats": ["landscape", "vertical"],
   "composition": "composition/draw.js",
-  "music": "builtin", "motionBlur": {"samples": 4, "shutter": 0.5},
+  "look": {"style": "Warm paper, flat shapes, one line weight", "palette": "paper", "character": "none"},
+  "music": {"builtin": "pulse", "hits": [6.1]}, "motionBlur": {"samples": 4, "shutter": 0.5},
   "copy": {"zh": {"headline": "变化发生。"}, "en": {"headline": "A change happens."}},
   "shots": [
-    {"id": "action", "start": 0, "end": 6, "purpose": "Show the cause", "action": "A small dot grows into a message and travels"},
-    {"id": "result", "start": 6, "end": 12, "purpose": "Show the consequence", "action": "The message opens into a result and resolves into the wordmark"}
+    {"id": "action", "start": 0, "end": 6, "camera": "push", "purpose": "Show the cause", "action": "A small dot swells into a message and flies across the gap"},
+    {"id": "result", "start": 6, "end": 12, "camera": "slam", "purpose": "Show the consequence", "action": "The message hits the receiver, which writes the name onto itself"}
   ]
 }
 ```
 
-Formats: `landscape` 1920×1080, `vertical` 1080×1920, `square` 1440×1440. Frame rates: 24/25/30/60. Duration: 1–180 seconds. Shots cover the whole duration without gaps or overlap. Optional `cut: true` documents a deliberate cut; optional `hold` and `holdReason` document stillness. Shots annotate your code; they do not generate or impose visual scenes.
+Formats: `landscape` 1920×1080, `vertical` 1080×1920, `square` 1440×1440. Frame rates: 24/25/30/60. Duration: 1–180 seconds. Shots cover the whole duration without gaps or overlap. Optional `cut: true` documents a deliberate cut (the motion check treats it as a transition); optional `hold` and `holdReason` document stillness; optional `camera` (`hold`, `push`, `pull`, `pan`, `slam`, `whip`, `follow`, `cut`, `drift`) and `text` (planned on-screen words, a string or language map) let validation check the plan. Shots annotate your code; they do not generate or impose visual scenes.
+
+`look` locks one `style`, a `palette` (a name from the kit or 3–6 hex colors) and the `character` approach. A blue-purple palette color is an error unless `look.allowBluePurple` gives the reason; `look.allowStatic` records why a deliberately still film may pass the motion check. Validation warns about presentation verbs in `action`, text-led opening/closing shots, shots over 8 s without `holdReason`, three identical camera moves in a row and a plan with no fast move; see [directing.md](directing.md).
 
 ## Drawing contract
 
@@ -34,7 +37,38 @@ window.drawFrame = function (ctx, seconds, film, view, motion) {
 
 Paint an opaque background every frame. The caller resets transforms and restores context state. All pose values must derive from the supplied time, not the last rendered frame. The renderer seeks backward and splits capture among workers. Avoid clocks, unseeded random numbers, animation loops and network sourcing.
 
-`film.copy` is already selected for the current language. `view` supplies width, height, format and vertical. `motion` provides `mix`, `clamp`, `ease` (smoothstep), `progress`, `ramp`, analytic `spring`, deterministic `hash`, `beat`, `round`, `line` and font-aware `text`. `text` shrinks a line to an explicit maximum width; it does not wrap paragraphs or enforce platform safe areas. Design the portrait composition rather than cropping landscape.
+`film.copy` is already selected for the current language; `film.look` is passed through. `view` supplies width, height, format and vertical. `motion` provides `mix`, `clamp`, `ease` (smoothstep), `progress`, `ramp`, analytic `spring`, deterministic `hash`, `beat`, `round`, `line` and font-aware `text`. `text` shrinks a line to an explicit maximum width; `paragraph` wraps. Neither enforces platform safe areas. Design the portrait composition rather than cropping landscape.
+
+The drawing kit adds, all pure functions of time or a seed:
+
+| helper | |
+|---|---|
+| `easings.{smooth, sineInOut, cubicIn/Out/InOut, quartOut, quintOut/InOut, expoIn/Out/InOut, backOut(p, s), elasticOut, appleOut, emphasized, k75, easyEase, longTail}`, `bezier(x1, y1, x2, y2)` | easing curves |
+| `tween(t, start, dur, ease)` | eased progress; `ease` is a name or function (default `cubicInOut`) |
+| `springHz(t, start, f, d)`, `settle(t, start, amp, f, d)`, `thereAndBack(p)`, `lagged(i, n, p, r)` | overshoot, decaying wobble, out-and-back, staggered progress |
+| `step(t, fps = 12)` | hold poses for whole steps (pass `t - at`) |
+| `camera(t, events, base)`, `applyCamera(c, cam)`, `toScreen(cam, x, y)`, `zlerp`, `pulse` | pulse camera: `push` (k, x, y), `pan`, `to` (x, y, z), `slam`, `shake`, `cut`; durations default to 0.28 / 0.30 / 0.17 s |
+| `slam(t, at, {dur, from, under})` | element scale 1.55 → 0.94 → 1.0 (0 before `at`) |
+| `count(t, at, dur, from, to, decimals)` | a rolling number string with thousands separators |
+| `rng(seed)`, `noise(x, y)`, `fbm(x, y, octaves)` | seeded randomness and Perlin noise |
+| `pathLength`, `resample`, `drawOn(c, pts, progress, style)` | draw a polyline by arc length; returns the pen tip |
+| `rough(c, pts, {amp, seed, boil, t, progress, color, width, close})` | hand-drawn line; `boil: 12` re-jitters it at 12 fps |
+| `write(c, text, x, y, progress, style)`, `pen(c, x, y, style)` | whiteboard handwriting and the marker |
+| `wrap(c, text, maxWidth)`, `paragraph(c, text, x, y, options)` | CJK-aware wrapping; shrinks to `maxLines` |
+| `palettes`, `palette(nameOrColors?)` | `{bg, surface, ink, sub, accent, accent2}`; defaults to `film.look.palette` |
+| `paper(c, key, {base, amount, grain})`, `texture(key, options)` | a static paper texture painted once and reused |
+
+Composed helpers build on these: `shoot`, `card`, `pill`, `ripple`, `stroke`, `node`, `signature`, `caption`/`captions`, `words`, `counter`, `chart`, `callout`, `stamp`, `spotlight`, `cursor`, `cover`, `video`, `grade`, `grain`, `vignette`, plus `unit`, `lerp2`, `add`, `ring`. Their signatures and a worked example are in [kit.md](kit.md). New helpers never replace an existing `motion` name, so older drawing code renders identically.
+
+## Data, footage and subtitles
+
+`data` holds named values and series (≤ 100 KB) passed to the page as `film.data`; `chart`, `counter` and friends read them by key, and labels may be language maps. Changing a number in `film.json` changes that number in every language and format.
+
+`videos` declares footage: `{"name": {"file": "footage/demo.mp4", "at": 4, "from": 12.5, "rate": 1, "length": 6, "volume": 0}}`. `at` is the film second where the clip starts, `from` the source second, `rate` 0.25–4. The build extracts exactly the frames that window needs (film fps ÷ rate, ≤ 5,400 per film) as JPEGs, and the page loads the frames a seek needs before drawing, so footage stays deterministic and seekable. `motion.video(name, t)` returns the current frame (or `null` outside the clip) for `cover` or `drawImage`. Footage sound plays when `volume > 0`, only at rate 1. Validation rejects clips that run past their source or the film.
+
+`film.captions` is `[{text, start, end, estimated?}]` for the narration placed in the current language: sentence cues timed by edge-tts when the clip still matches its script, otherwise sentences timed by character share and marked `estimated`. `motion.captions(c, t)` draws them in a safe lower slot. Word-level timing is not available; pass explicit `times` to `words` for word-accurate emphasis.
+
+`render --from A --to B` renders a silent draft of that window into `out/preview/` with motion lights but no delivery checks. `still --shot id` captures the first settled frame, the middle and the last frame of a shot.
 
 Declare local PNG/JPG/WebP/SVG images under `assets`, e.g. `{"logo":"images/logo.png"}`. They are decoded before rendering and available as `window.filmAssets.logo`; draw with `ctx.drawImage`. Only named files are copied. Paths must remain inside the project, including symlink targets. Fonts ship as local subset WOFF2s with their licenses; visible copy and drawing-source characters enter the subset. Missing glyphs in `copy` fail validation.
 
@@ -54,7 +88,7 @@ Final delivery verifies that the voice-only reference actually appears in the MP
 
 ## Sound and narration
 
-`music` accepts `"none"`, `"builtin"`, or `{"file":"audio/song.wav","volume":0.6,"bpm":120}`. Root `bpm` wins over music's BPM. Built-in music uses that same tempo, so `motion.beat(seconds)` lines up with it. For imported music, BPM is an authored value; this CLI does not analyze a track's first downbeat. Place a track with an offset through `audio` when needed.
+`music` accepts `"none"`, `"builtin"`, `{"builtin":"pulse","volume":0.6,"hits":[4.6,9.2]}` or `{"file":"audio/song.wav","volume":0.6,"bpm":120}`. Built-in moods: `promo`, `explainer`, `pulse` (plucked strings, soft downbeat), `chiptune`, `pentatonic` (plucked D minor pentatonic) and `ambient`; `hits` adds a thump and a plucked accent at those seconds. Root `bpm` wins over the music's BPM; a built-in mood otherwise sets the tempo. Built-in music uses that same tempo, so `motion.beat(seconds)` lines up with it. For imported music, BPM is an authored value; this CLI does not analyze a track's first downbeat. Place a track with an offset through `audio` when needed.
 
 ```json
 "audio": [
@@ -70,6 +104,8 @@ For bundled licensed sounds, use `{"effect":"click","role":"sfx","start":3.38,"v
 ## Delivery review
 
 `render` writes a technical report and contact sheet from the delivered MP4. It checks full-file decoding, measured dimensions/FPS/duration, audio presence, integrated loudness, true peak and per-shot RMS. Black intervals and freeze starts over 0.8 seconds are signals to inspect. Review times include the opening, shot midpoints, the final frame, and both sides of shot boundaries.
+
+`motion` in the report holds the motion lights measured on the MP4: fast movement inside shots, empty mid-film frames and blue-purple share (thresholds and calibration in [directing.md](directing.md)). For authored films a red light fails delivery and the previous video stays in place; `--allow-static "why"` / `--allow-blue-purple "why"` (or the matching `look` fields) downgrade it to yellow and are recorded under `motion.allowed`. Films shorter than 20 s get yellow instead of red for pacing. `independent_reviews` lists `reviews/*.md` notes written by someone who watched only the MP4. `motion.demo_similarity` is the share of frames that follow the starter or a bundled example: runs of at least three consecutive frames whose layout matches one demo (edges and brightness, polarity ignored, so a re-coloured copy still counts) while advancing through it in order. A single look-alike frame does not count. A warning at 0.3; never a gate. `render --json` prints a compact summary; add `--verbose` for every narration segment and motion light.
 
 `visual_review: "pending"` is intentional: neither a successful encode nor a numeric report proves the film looks good. Canvas typography is invisible to DOM text audits. Read the frames and watch the MP4; record the outcome and remaining concerns in `DIRECTOR.md`. Review files are written only into directories owned by motion-use. Concurrent renders/stills targeting the same output are unsupported.
 

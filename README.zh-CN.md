@@ -30,7 +30,12 @@ motion-use validate my-film
 motion-use voiceover my-film                 # 按镜头生成旁白，有缓存
 motion-use still my-film --allow-code
 motion-use render my-film --allow-code --quality high --json
+motion-use breakdown 参考.mp4                # 拆参考片：切点、节拍网格、运动热力图
 ```
+
+**代码短，片子不雷同。** 绘图工具包把一支片子的绘图代码压到几 KB：脉冲运镜、从 `film.json` 读数字的图表和计数器、标注、逐词动态文字、砸入印章、手写、演示用的光标和聚光，素材视频上叠图形（`videos`，渲染前抽帧），以及按旁白时间自动生成的字幕。起手模板画面不变，代码从 7,008 字节降到 3,053 字节。三个示例三种画风：[数据故事](examples/data-story/)、[白板](examples/whiteboard/)、[动态文字](examples/kinetic/)。迭代成本低：`still --shot <id>` 只看一个镜头，`render --from 3 --to 7` 渲一段无声草稿；构图和起手模板太像的片子会被标出来，提醒重新设计而不是换皮。一页指南：[references/kit.md](references/kit.md)。
+
+**导演，不是堆幻灯片。** `film.json` 先用 `look` 锁定全片画风：一句话的风格、一套色板、角色怎么处理。每个镜头写清画面里的物、它自己在做什么、镜头怎么动。校验会标出幻灯片式的写法：“出现、展示、淡入”这类动词，开头和结尾都是字卡，连续三镜同一个运镜，整片没有一次快动作，以及蓝紫色板。绘图工具包给 `draw.js` 提供脉冲运镜（停住 → 0.28 秒快推 / 0.30 秒横移 / 0.17 秒砸入 → 停住），还有缓动和弹簧、12 fps 步进、手绘线、白板手写、色板和纸张纹理。渲染后，交付检查在成片上测运动：读起来像翻页 PPT、片中出现空画面、大面积蓝紫的影片不予交付，除非写明理由。方法参考了 [huashu-art-motion](https://github.com/alchaincyf/huashu-art-motion)（MIT），详见 [references/directing.md](references/directing.md)，八种解说画风见 [references/grammars.md](references/grammars.md)。
 
 镜头编排由 agent 写，CLI 不会把每段文字自动变成一个场景。每个镜头都有目的和看得见的动作。画面是时间的纯函数，所以同一个物体可以跨镜头延续，镜头可以跟着它走，动作可以对齐音乐的节拍网格。默认必须有旁白：按镜头写好，再生成或导入语音。渲染时会自动生成缺失的旁白；语音缺失、超长或没有混进成片，渲染都会失败。只有刻意不要旁白的片子才用 `voiceover:false`。可选的子帧采样能加运动模糊。字体和指定的图片会预加载；本地浏览器打包文件可以准备更复杂的渲染器，比如上面毛线案例用的 three.js 场景。
 
@@ -38,7 +43,7 @@ motion-use render my-film --allow-code --quality high --json
 
 `--allow-code` 只用于你自己写的或信任的绘制代码。代码在渲染器里执行，静态检查不是安全沙箱。普通文字始终作为 JSON 数据处理。指定的文件逐个复制，所以 composition 目录里的密钥和无关文件不会进入构建。
 
-每次渲染还会输出封面、从**交付的 MP4** 抽帧得到的联系表，以及一份技术报告：能否完整解码，实测时长、帧率、尺寸，有无音频，响度和峰值，每个镜头的 RMS，暗场和静止区间。编码成功不等于审美通过：在人或 agent 看过之前，`visual_review` 一直是 pending。Canvas 上画的文字不在 DOM 布局检查的覆盖范围内。音频按 -14 LUFS / -1 dBTP 的工作目标做两遍归一化；`--no-normalize` 保留原始电平。
+每次渲染还会输出封面、从**交付的 MP4** 抽帧得到的联系表，以及一份技术报告：能否完整解码，实测时长、帧率、尺寸，有无音频，响度和峰值，每个镜头的 RMS，暗场和静止区间，以及运动指标。编码成功不等于审美通过：在人或 agent 看过之前，`visual_review` 一直是 pending。Canvas 上画的文字不在 DOM 布局检查的覆盖范围内。音频按 -14 LUFS / -1 dBTP 的工作目标做两遍归一化；`--no-normalize` 保留原始电平。
 
 完整的绘制和音频约定见 [references/film.md](references/film.md)。已有的 MP4 可以用 `motion-use verify file.mp4 --json` 生成检查报告，不用重新渲染。
 
@@ -104,7 +109,9 @@ motion-use 是一个 Node.js 程序，不是单个原生二进制：渲染要驱
 | `voiceover [brief]` | 按场景的 `narration` 生成语音：`--engine azure`（有授权）或 `edge`（预览） |
 | `still [brief]` | 关键帧和联系表；`--at 1.5,4` 指定秒数 |
 | `render [brief]` | 每种语言 × 画幅一个 MP4，外加封面 PNG；`--quality draft\|standard\|high`、`--target github` / `--max-size 9MB` |
-| `verify <mp4>` | 解码并测量交付的视频；生成检查帧和报告 |
+| `verify <mp4>` | 解码并测量交付的视频：检查帧、音频、运动指标；`--gate` 红灯时失败 |
+| `breakdown <video>` | 拆解参考片：切点、节拍网格、联系表、转场条、运动热力图、色板、运动指标 |
+| `compare <a> <b>` | 两支片子同一时刻并排对比：`--times 1.5,4` |
 | `doctor` | 检查 Node、FFmpeg、Chrome、引擎和字体 |
 | `upgrade` | 更新 CLI 和它的 skill；`--check` 只检查不安装 |
 

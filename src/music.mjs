@@ -9,7 +9,38 @@ const MOODS = {
   promo: { bpm: 100, chords: [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]], drums: true, pluck: 0.06, pad: 0.045 },
   // Calm: Cmaj7-Am7-Fmaj7-G, pad + slow arpeggio, no drums.
   explainer: { bpm: 84, chords: [[48, 52, 55, 59], [45, 48, 52, 55], [41, 45, 48, 52], [43, 47, 50, 53]], drums: false, pluck: 0.045, pad: 0.04 },
+  // Pulse explainer: Dm-Bb-F-C, plucked strings on eighths, a soft kick on the downbeat; leaves room for narration.
+  pulse: { bpm: 96, chords: [[50, 53, 57], [46, 50, 53], [53, 57, 60], [48, 52, 55]], drums: "downbeat", pluck: 0.05, pad: 0.025, voice: "string" },
+  // 8-bit: square-wave arpeggio over a square bass, no pad.
+  chiptune: { bpm: 120, chords: [[57, 60, 64], [53, 57, 60], [55, 59, 62], [52, 55, 59]], drums: true, pluck: 0.035, pad: 0, voice: "square" },
+  // Pentatonic plucked string (guzheng-like), D minor pentatonic, no drums.
+  pentatonic: { bpm: 80, chords: [[50, 53, 57, 60], [48, 50, 55, 57], [45, 50, 53, 57], [48, 53, 55, 60]], drums: false, pluck: 0.06, pad: 0.018, voice: "string" },
+  // Ambient bed: slow pad only, for footage-led or narration-heavy films.
+  ambient: { bpm: 70, chords: [[48, 55, 59, 64], [45, 52, 55, 60], [41, 48, 52, 57], [43, 50, 55, 59]], drums: false, pluck: 0, pad: 0.05 },
 };
+export const MOOD_NAMES = Object.keys(MOODS);
+export const moodBpm = (mood) => MOODS[mood]?.bpm;
+
+// Plucked string after huashu-art-motion's synth (MIT): harmonic k decays faster as k grows,
+// slightly inharmonic partials, a short noisy attack.
+function stringPluck(f, seconds, gain) {
+  const n = Math.floor(seconds * SR),
+    out = new Float32Array(n);
+  const amps = [1, 0.55, 0.32, 0.2, 0.12, 0.07];
+  for (let k = 1; k <= amps.length; k++) {
+    const fk = f * k * Math.sqrt(1 + 0.0004 * k * k);
+    if (fk > 16000) break;
+    const decay = 3 * (1 + 0.6 * (k - 1)),
+      attack = Math.min(0.035, 0.01 * (1 + 0.6 * (k - 1)));
+    for (let i = 0; i < n; i++) {
+      const t = i / SR;
+      out[i] += amps[k - 1] * Math.sin(2 * Math.PI * fk * t) * Math.exp(-t * decay) * Math.min(1, t / attack);
+    }
+  }
+  for (let i = 0; i < n; i++) out[i] *= gain;
+  return out;
+}
+const square = (phase) => (phase % 1 < 0.5 ? 1 : -1);
 
 const hz = (m) => 440 * 2 ** ((m - 69) / 12);
 
@@ -24,7 +55,7 @@ function mulberry32(seed) {
 }
 
 export function synthMusic(mood, seconds, options = {}) {
-  const m = { ...MOODS[mood], ...(options.bpm ? { bpm: options.bpm } : {}) };
+  const m = { ...(MOODS[mood] ?? MOODS.promo), ...(options.bpm ? { bpm: options.bpm } : {}) };
   const N = Math.ceil(seconds * SR);
   const L = new Float32Array(N);
   const R = new Float32Array(N);
@@ -79,23 +110,26 @@ export function synthMusic(mood, seconds, options = {}) {
   }
 
   const pattern = [0, 1, 2, 1, 2, 0, 1, 2];
-  const step = m.drums ? beat / 2 : beat;
-  for (let s = bar, k = 0; s < seconds - 1; s += step, k++) {
+  const step = m.drums || m.voice === "string" ? beat / 2 : beat;
+  for (let s = bar, k = 0; m.pluck && s < seconds - 1; s += step, k++) {
     const chord = m.chords[Math.floor(s / bar) % 4];
     const f = hz(chord[pattern[k % 8] % chord.length] + 12);
     const n = Math.floor(0.6 * SR);
-    const pl = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      const tt = i / SR;
-      pl[i] = (Math.sin(2 * Math.PI * f * tt) + 0.3 * Math.sin(4 * Math.PI * f * tt)) * Math.exp(-tt * (m.drums ? 7 : 4.5)) * m.pluck;
-    }
+    let pl = new Float32Array(n);
+    if (m.voice === "string") pl = stringPluck(f, 0.9, m.pluck);
+    else
+      for (let i = 0; i < n; i++) {
+        const tt = i / SR;
+        const tone = m.voice === "square" ? square(tt * f) * 0.5 : Math.sin(2 * Math.PI * f * tt) + 0.3 * Math.sin(4 * Math.PI * f * tt);
+        pl[i] = tone * Math.exp(-tt * (m.drums ? 7 : 4.5)) * m.pluck;
+      }
     const pan = k % 2 ? 0.35 : -0.35;
     add(L, s, pl, 1 - pan);
     add(R, s, pl, 1 + pan);
   }
 
   if (m.drums) {
-    for (let s = 2 * bar; s < seconds - 1.5; s += beat) {
+    for (let s = 2 * bar; s < seconds - 1.5; s += m.drums === "downbeat" ? bar : beat) {
       const n = Math.floor(0.35 * SR);
       const kick = new Float32Array(n);
       let phase = 0;
@@ -117,6 +151,24 @@ export function synthMusic(mood, seconds, options = {}) {
       add(L, s + beat / 2, hat, 0.8);
       add(R, s + beat / 2, hat);
     }
+  }
+
+  // Accents at authored seconds (camera slams, reveals): a low thump and a bright pluck on the chord.
+  for (const at of options.hits ?? []) {
+    if (!(at >= 0 && at < seconds)) continue;
+    const n = Math.floor(0.5 * SR),
+      hit = new Float32Array(n),
+      chord = m.chords[Math.floor(at / bar) % 4];
+    let phase = 0;
+    for (let i = 0; i < n; i++) {
+      const tt = i / SR;
+      phase += (150 * Math.exp(-tt / 0.025) + 48) / SR;
+      hit[i] = Math.sin(2 * Math.PI * phase) * Math.exp(-tt / 0.18) * 0.3;
+    }
+    const top = stringPluck(hz(chord.at(-1) + 12), 0.5, 0.08);
+    for (let i = 0; i < n; i++) hit[i] += top[i] ?? 0;
+    add(L, at, hit);
+    add(R, at, hit);
   }
 
   // Master: fade in 1.5 s, fade out 2.5 s, soft clip, normalize to -2 dBFS.

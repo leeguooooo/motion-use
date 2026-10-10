@@ -1,7 +1,7 @@
 {
   "name": "motion-use",
-  "version": "0.4.1",
-  "description": "Directed local films with exact-time animation, authored shots and delivered-video verification. Built on HyperFrames.",
+  "version": "0.5.0",
+  "description": "Direct local films with an agent: a drawing kit (camera, charts, captions, footage), exact-time rendering, narration and delivered-video checks. Built on HyperFrames.",
   "author": {
     "name": "leeguooooo"
   },
