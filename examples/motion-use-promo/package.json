@@ -1,0 +1,13 @@
+{
+  "name": "motion-use-promo",
+  "private": true,
+  "description": "motion-use example: the motion-use promo, a narrated three.js film",
+  "scripts": {
+    "build": "node build.mjs",
+    "audio": "python3 audio/score.py"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.0",
+    "three": "0.170.0"
+  }
+}
