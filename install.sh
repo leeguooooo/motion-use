@@ -54,7 +54,9 @@ else
   command -v curl >/dev/null 2>&1 || die "curl is required"
   version="${MOTION_USE_VERSION:-}"
   if [ -z "$version" ]; then
-    version=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1)
+    version=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name": *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1)
+    # The anonymous API is rate-limited per IP; the releases page redirects to the tag without that limit.
+    [ -n "$version" ] || version=$(curl -fsSI "https://github.com/$REPO/releases/latest" 2>/dev/null | tr -d '\r' | sed -n 's#^[Ll]ocation: .*/tag/v\{0,1\}\([0-9][0-9.]*\)$#\1#p' | head -1)
     [ -n "$version" ] || die "could not find the latest release of $REPO"
   fi
   version=${version#v}

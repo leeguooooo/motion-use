@@ -21,9 +21,16 @@ export async function latestRelease(timeoutMs = 2000) {
   const headers = { Accept: "application/vnd.github+json", "User-Agent": "motion-use" };
   if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
   const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers, signal: AbortSignal.timeout(timeoutMs) });
-  if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
-  const { tag_name } = await res.json();
-  return String(tag_name).replace(/^v/, "");
+  if (res.ok) {
+    const { tag_name } = await res.json();
+    return String(tag_name).replace(/^v/, "");
+  }
+  // The anonymous API is rate-limited per IP (403/429 on shared networks). The releases page
+  // redirects to the latest tag without that limit.
+  const page = await fetch(`https://github.com/${REPO}/releases/latest`, { method: "HEAD", redirect: "manual", headers: { "User-Agent": "motion-use" }, signal: AbortSignal.timeout(timeoutMs) });
+  const tag = (page.headers.get("location") ?? "").match(/\/tag\/v?([0-9]+\.[0-9]+\.[0-9]+)$/)?.[1];
+  if (!tag) throw new Error(`GitHub API returned ${res.status} and the releases page gave no tag`);
+  return tag;
 }
 
 /** Print one line to stderr when a newer release exists; at most one network check per day; silent on any failure. */
