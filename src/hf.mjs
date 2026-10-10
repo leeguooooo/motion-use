@@ -21,7 +21,10 @@ export const HF_ENV = { HYPERFRAMES_NO_TELEMETRY: "1", DO_NOT_TRACK: "1", HYPERF
 export function runHyperframes(args, { cwd, echo = false } = {}) {
   const { bin } = hyperframesBin();
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [bin, ...args], { cwd, env: { ...process.env, ...HF_ENV, FORCE_COLOR: "0", NO_COLOR: "1" } });
+    // Multi-worker capture otherwise stores every frame on disk (≈1.7 GB for a 55 s 1080p film)
+    // and refuses to start when space is short; streaming encodes as it captures.
+    const stream = { HF_CAPTURE_PARALLEL_STREAM: process.env.HF_CAPTURE_PARALLEL_STREAM ?? "true" };
+    const child = spawn(process.execPath, [bin, ...args], { cwd, env: { ...process.env, ...HF_ENV, ...stream, FORCE_COLOR: "0", NO_COLOR: "1" } });
     let out = "";
     const take = (d) => {
       out += d;
