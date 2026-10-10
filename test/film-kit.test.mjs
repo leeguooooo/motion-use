@@ -172,3 +172,8 @@ test("a long portrait subtitle wraps into three lines rather than shrinking", ()
   assert.equal(rows.length, 3, JSON.stringify(rows.map((r) => r[1])));
   assert.equal(rows.map((r) => r[1]).join(" "), text);
 });
+
+test("renders stream frames to the encoder unless the user chose otherwise", () => {
+  const src = fs.readFileSync(new URL("../src/hf.mjs", import.meta.url), "utf8");
+  assert.match(src, /HF_CAPTURE_PARALLEL_STREAM: process\.env\.HF_CAPTURE_PARALLEL_STREAM \?\? "true"/);
+});
