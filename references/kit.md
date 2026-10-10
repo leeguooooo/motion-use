@@ -23,8 +23,8 @@ Every time-based helper is `(c, t, …positional, options)`; points are `[x, y]`
 | helper | does |
 |---|---|
 | `shoot(c, t, events, drawWorld, base)` | camera: `[at, "push", [x,y]?, k]` · `[at, "pan", [x,y]]` · `[at, "to", [x,y], z]` · `[at, "slam"]` · `[at, "shake", amp]` · `[at, "cut", [x,y], z]`; `base` = `{x, y, z}` at start |
-| `captions(c, t)` | narration subtitles from the voice track (sentence cues; estimated when the service gave none) |
-| `captions(c, t, [[text, start, end], …])`, `caption(c, t, text, start, end, {x, y, align, size, plate})` | beat titles in a masked slot: rise 0.35 s, hold, leave 0.18 s |
+| `captions(c, t)` | narration subtitles from the voice track (sentence cues; estimated when the service gave none); long lines wrap into two balanced lines |
+| `captions(c, t, [[text, start, end], …])`, `caption(c, t, text, start, end, {x, y, align, size, plate, lines})` | beat titles in a masked slot: rise 0.35 s, hold, leave 0.18 s |
 | `words(c, t, text, [x,y], {at, stagger, times, style: rise\|slam\|pop\|type, emphasis: [words], until})` | kinetic words entering in turn |
 | `stamp(c, t, text, [x,y], {at, until, box, rotate})` | a word slammed in, 1.55 → 0.94 → 1 |
 | `counter(c, t, [x,y], {value, from, at, dur, prefix, suffix, decimals})` | number rolling to `value` (a `data` key or a number) |

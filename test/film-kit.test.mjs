@@ -143,3 +143,18 @@ test("portrait subtitles default to the bottom of the platform-safe area", () =>
   assert.match(runtime, /view\.safe = view\.vertical/);
   assert.match(fs.readFileSync(new URL("../src/cli.mjs", import.meta.url), "utf8"), /o\._render = true/);
 });
+
+test("long subtitles wrap into two balanced lines instead of shrinking", () => {
+  const ctx = { window: {} };
+  vm.runInNewContext(fs.readFileSync(new URL("../src/film-kit.js", import.meta.url), "utf8"), ctx);
+  const view = { width: 1080, height: 1920, vertical: true, safe: { x: 64.8, y: 192, w: 864, h: 1267.2 } };
+  const text = "People can take over from a browser: click the live picture to open Date and Time, then go back.";
+  const k = ctx.window.__filmKit(view, { captions: [{ text, start: 0, end: 3 }] });
+  const c = stubCanvas();
+  k.captions(c, 1);
+  const rows = c.calls.filter((x) => x[0] === "fillText");
+  assert.equal(rows.length, 2, JSON.stringify(rows.map((r) => r[1])));
+  assert.equal(rows.map((r) => r[1]).join(" "), text);
+  assert.ok(rows[1][3] > rows[0][3], "second line below the first");
+  assert.ok(rows.every((r) => r[3] < 192 + 1267.2), "both lines inside the safe area");
+});

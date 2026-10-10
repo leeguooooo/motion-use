@@ -494,23 +494,37 @@ window.__filmKit = function (view, film) {
   }
 
   // One line in a masked slot: rises in (0.35 s), holds, leaves fast (0.18 s).
-  function caption(c, t, text, start, end, { y = view.vertical ? 0.16 : 0.15, x = 0.5, align = "center", size = (view.vertical ? 70 : 88) * unit, color = ink().ink, weight = 800, maxWidth = view.width - (view.vertical ? 140 : 220) * unit, plate = null } = {}) {
+  function caption(c, t, text, start, end, { y = view.vertical ? 0.16 : 0.15, x = 0.5, align = "center", size = (view.vertical ? 70 : 88) * unit, color = ink().ink, weight = 800, maxWidth = view.width - (view.vertical ? 140 : 220) * unit, plate = null, lines: maxLines = 1 } = {}) {
     const enter = easings.expoOut((t - start) / 0.35),
       exit = easings.expoIn((t - end + 0.18) / 0.18);
     if (enter <= 0 || exit >= 1 || !text) return;
-    const cy = y * view.height,
+    c.font = fontOf(weight, size, false);
+    // With lines > 1, a line that does not fit wraps (balanced) instead of shrinking; only a
+    // text that still overflows after wrapping is scaled down.
+    let rows = [text];
+    if (maxLines > 1 && c.measureText(text).width > maxWidth) {
+      const all = wrap(c, text, maxWidth);
+      if (all.length <= maxLines) {
+        const target = c.measureText(text).width / all.length;
+        rows = wrap(c, text, Math.min(maxWidth, target * 1.08 + size));
+        if (rows.length > maxLines) rows = all;
+      }
+    }
+    const lh = size * 1.25,
+      block = lh * rows.length;
+    const cy = y * view.height - (block - lh),
       cx = x * view.width;
     c.save();
     c.beginPath();
-    c.rect(0, cy - size, view.width, size * 2);
+    c.rect(0, cy - size, view.width, block + size);
     c.clip();
     const yy = cy + (1 - enter) * size * 1.2 - exit * size * 1.2;
     if (plate) {
-      c.font = fontOf(weight, size, false);
-      const w = Math.min(maxWidth, c.measureText(text).width) + size;
-      rounded(c, cx - w / 2, yy - size * 0.72, w, size * 1.44, size * 0.3, plate);
+      const w = Math.min(maxWidth, Math.max(...rows.map((r) => c.measureText(r).width))) + size,
+        left = align === "left" ? cx - size / 2 : align === "right" ? cx - w + size / 2 : cx - w / 2;
+      rounded(c, left, yy - size * 0.72, w, block - lh + size * 1.44, size * 0.3, plate);
     }
-    label(c, text, cx, yy, { size, color, weight, maxWidth, align });
+    rows.forEach((row, i) => label(c, row, cx, yy + i * lh, { size, color, weight, maxWidth, align }));
     c.restore();
   }
   // A list of [text, start, end] beat titles; with no list, the film's narration subtitles
@@ -524,7 +538,7 @@ window.__filmKit = function (view, film) {
     // author row and like/comment bar, not at the very bottom of the frame.
     const safe = view.safe ?? { x: view.width * 0.05, y: view.height * 0.06, w: view.width * 0.9, h: view.height * 0.88 };
     // Centred on the safe area, so a long line never reaches the right-hand action column.
-    const sub = { x: view.vertical ? (safe.x + safe.w / 2) / view.width : 0.5, y: view.vertical ? (safe.y + safe.h) / view.height - 0.03 : 0.885, size: (view.vertical ? 50 : 50) * unit, weight: 700, color: "#ffffff", plate: "rgba(0,0,0,.55)", maxWidth: view.vertical ? safe.w : view.width * 0.86, ...options };
+    const sub = { lines: 2, x: view.vertical ? (safe.x + safe.w / 2) / view.width : 0.5, y: view.vertical ? (safe.y + safe.h) / view.height - 0.03 : 0.885, size: (view.vertical ? 50 : 50) * unit, weight: 700, color: "#ffffff", plate: "rgba(0,0,0,.55)", maxWidth: view.vertical ? safe.w : view.width * 0.86, ...options };
     for (const cue of film.captions ?? []) caption(c, t, cue.text, cue.start, cue.end, sub);
   }
   // Kinetic words: each word enters at its own time (at + i * stagger, or times[i]).
