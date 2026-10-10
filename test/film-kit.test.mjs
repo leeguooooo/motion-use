@@ -163,7 +163,8 @@ test("a long portrait subtitle wraps into three lines rather than shrinking", ()
   const ctx = { window: {} };
   vm.runInNewContext(fs.readFileSync(new URL("../src/film-kit.js", import.meta.url), "utf8"), ctx);
   const view = { width: 1080, height: 1920, vertical: true, safe: { x: 64.8, y: 192, w: 864, h: 1267.2 } };
-  const text = "People can take over from a browser: click the live picture to open Date and Time, then go back. Agents and people share one phone.";
+  // The stub measures 10 px per character, so this needs more than two 864 px lines.
+  const text = "People can take over from a browser: click the live picture to open Date and Time, then go back. Agents and people share one phone without stepping on each other, and either can hand it back.";
   const k = ctx.window.__filmKit(view, { captions: [{ text, start: 0, end: 3 }] });
   const c = stubCanvas();
   k.captions(c, 1);
