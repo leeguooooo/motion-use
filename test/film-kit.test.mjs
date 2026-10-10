@@ -177,3 +177,21 @@ test("renders stream frames to the encoder unless the user chose otherwise", () 
   const src = fs.readFileSync(new URL("../src/hf.mjs", import.meta.url), "utf8");
   assert.match(src, /HF_CAPTURE_PARALLEL_STREAM: process\.env\.HF_CAPTURE_PARALLEL_STREAM \?\? "true"/);
 });
+
+test("a subtitle too long for three lines shrinks to fit three, not one", () => {
+  const ctx = { window: {} };
+  vm.runInNewContext(fs.readFileSync(new URL("../src/film-kit.js", import.meta.url), "utf8"), ctx);
+  const view = { width: 1080, height: 1920, vertical: true, safe: { x: 64.8, y: 192, w: 864, h: 1267.2 } };
+  // A canvas whose text width scales with the font size (≈0.5 em per character).
+  const calls = [];
+  let px = 50;
+  const c = new Proxy(
+    { calls, measureText: (s) => ({ width: String(s).length * px * 0.5 }), set font(f) { px = parseFloat(String(f).split(" ")[1]); }, get font() { return ""; } },
+    { get: (o, k) => (k in o ? o[k] : (...a) => calls.push([k, ...a])), set: (o, k, v) => ((k === "font" ? (px = parseFloat(String(v).split(" ")[1])) : (o[k] = v)), true) },
+  );
+  const text = "Remote control, too: click the live picture in a browser, even from outside your network, or pair the iPhone app and drive several phones from one place.";
+  ctx.window.__filmKit(view, { captions: [{ text, start: 0, end: 3 }] }).captions(c, 1);
+  const rows = calls.filter((x) => x[0] === "fillText");
+  assert.equal(rows.length, 3, JSON.stringify(rows.map((r) => r[1])));
+  assert.equal(rows.map((r) => r[1]).join(" "), text);
+});
