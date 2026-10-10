@@ -9,8 +9,9 @@ window.drawFrame = function (c, t, film, view, M) {
   M.paper(c);
 
   // World layout: portrait stacks the two objects, landscape spreads them.
-  const gap = (V ? 620 : 820) * u,
-    C = [W / 2, H * 0.55],
+  // Portrait keeps everything inside view.safe: platform UI covers the top, bottom and right.
+  const gap = (V ? 500 : 820) * u,
+    C = [W / 2, H * (V ? 0.44 : 0.55)],
     A = V ? [C[0], C[1] - gap / 2] : [C[0] - gap / 2, C[1]],
     B = V ? [C[0], C[1] + gap / 2] : [C[0] + gap / 2, C[1]],
     mid = M.lerp2(A, B, 0.5);
@@ -19,13 +20,13 @@ window.drawFrame = function (c, t, film, view, M) {
 
   // Camera events: [time, move, target, amount]. Each is short and decisive, then holds.
   const camera = [
-    [1.4, "push", A, 0.28],
+    [1.4, "push", V ? mid : A, V ? 0.12 : 0.28],
     [3.45, "pan", mid],
     [4.5, "pan", B],
     [4.62, "slam"],
     [7.6, "push", mid, 0.2],
     [10, "to", C, 0.92],
-    [14.2, "to", B, 1.35],
+    [14.2, "to", V ? M.add(B, [0, -60 * u]) : B, V ? 1.05 : 1.35],
     [14.52, "slam"],
   ];
   M.shoot(c, t, camera, () => {
@@ -45,7 +46,7 @@ window.drawFrame = function (c, t, film, view, M) {
       label: stamp > 0 ? "" : p.b,
       fill: stamp > 0 ? k.surface : k.accent2,
       icon: stamp > 0 ? null : "dot",
-      scale: (1 + M.settle(t, 4.62, 0.18, 3, 6)) * (1 + 0.5 * stamp),
+      scale: (1 + M.settle(t, 4.62, 0.18, 3, 6)) * (1 + (V ? 0.3 : 0.5) * stamp),
     });
     M.pill(c, t, M.lerp2(A, B, fly), p.message, { from: 2.6, to: 4.4, rotate: -0.08 * Math.sin(fly * Math.PI) });
     M.ripple(c, t, B, { at: 4.62 });
@@ -53,7 +54,7 @@ window.drawFrame = function (c, t, film, view, M) {
     const below = V ? [320 * u, 0] : [0, 245 * u];
     M.stroke(c, t, [M.add(B, below), M.add(A, below)], { at: 6.2, until: 9.6, pen: true, width: 12 * u });
     // The ending is an action on B: the name is written onto the object itself.
-    if (stamp > 0) M.signature(c, t, p.brand, B, { at: 15.5, underline: 16.8, size: (V ? 110 : 120) * u, maxWidth: 690 * u });
+    if (stamp > 0) M.signature(c, t, p.brand, B, { at: 15.5, underline: 16.8, size: (V ? 96 : 120) * u, maxWidth: (V ? 600 : 690) * u });
   });
 
   // Beat titles enter in a masked slot and leave fast; no page chrome.
@@ -63,5 +64,5 @@ window.drawFrame = function (c, t, film, view, M) {
     [p.result, 6.1, 10],
     [p.network, 10.1, 14],
   ]);
-  M.caption(c, t, p.promise, 16.9, Infinity, { y: V ? 0.84 : 0.88, size: 40 * u, color: k.accent2 });
+  M.caption(c, t, p.promise, 16.9, Infinity, { y: V ? 0.7 : 0.88, size: 40 * u, color: k.accent2 });
 };

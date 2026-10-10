@@ -666,7 +666,7 @@ export function filmCaptions(film, lang, voiceTracks) {
   return out.sort((a, b) => a.start - b.start);
 }
 
-export async function buildFilm(film, lang, format, outDir, { range = null } = {}) {
+export async function buildFilm(film, lang, format, outDir, { range = null, guides = false } = {}) {
   claimDir(outDir);
   const [w, h] = FILM_FORMATS[format],
     fmt = { w, h, vertical: h > w, name: format };
@@ -805,6 +805,7 @@ export async function buildFilm(film, lang, format, outDir, { range = null } = {
     look: film.look ?? null,
     data: film.data ?? {},
     offset: range ? range.from : 0,
+    guides,
     videos,
     assets,
   };

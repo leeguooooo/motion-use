@@ -127,3 +127,17 @@ test("following a demo in order is flagged even re-coloured; a static look-alike
   assert.equal(demoSimilarity(make("inverted.mp4", "testsrc2=s=640x360:r=30,scroll=h=0.02,negate"), demos).share, 1, "a re-skin with inverted brightness is still the same layout");
   assert.equal(demoSimilarity(make("still.mp4", "testsrc2=s=640x360:r=30,trim=end_frame=1,loop=-1:1,setpts=N/30/TB"), demos).share, 0, "one frame repeated never advances through the demo");
 });
+
+test("portrait subtitles default to the bottom of the platform-safe area", () => {
+  const ctx = { window: {} };
+  vm.runInNewContext(fs.readFileSync(new URL("../src/film-kit.js", import.meta.url), "utf8"), ctx);
+  const view = { width: 1080, height: 1920, vertical: true, safe: { x: 64.8, y: 192, w: 864, h: 1267.2 } };
+  const k = ctx.window.__filmKit(view, { captions: [{ text: "字幕", start: 0, end: 2 }] });
+  const c = stubCanvas();
+  k.captions(c, 1);
+  const ys = c.calls.filter((x) => x[0] === "fillText").map((x) => x[3]);
+  assert.ok(ys.length && ys.every((y) => y > 192 && y < 192 + 1267.2), `subtitle y ${ys} inside the safe area`);
+  const runtime = fs.readFileSync(new URL("../src/film-runtime.js", import.meta.url), "utf8");
+  assert.match(runtime, /view\.safe = view\.vertical/);
+  assert.match(fs.readFileSync(new URL("../src/cli.mjs", import.meta.url), "utf8"), /o\._render = true/);
+});

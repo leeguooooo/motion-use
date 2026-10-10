@@ -25,7 +25,7 @@ Use the user's subject, material and existing project; verify product claims aga
 
 ## 2 · Write the drawing
 
-Read [references/kit.md](references/kit.md) — one page that covers most films. `M.shoot`, `M.chart`, `M.counter`, `M.callout`, `M.words`, `M.stamp`, `M.cover`/`M.video`, `M.cursor`, `M.spotlight`, `M.signature`, `M.captions` and the timing helpers keep a film to a few kilobytes; write custom drawing where the subject needs it. Move on events: hold → 0.28 s push / 0.30 s pan / 0.17 s slam → hold. Make subjects big and high-contrast. Directing method and failure modes: [references/directing.md](references/directing.md). Full contract: [references/film.md](references/film.md).
+Read [references/kit.md](references/kit.md) — one page that covers most films. `M.shoot`, `M.chart`, `M.counter`, `M.callout`, `M.words`, `M.stamp`, `M.cover`/`M.video`, `M.cursor`, `M.spotlight`, `M.signature`, `M.captions` and the timing helpers keep a film to a few kilobytes; write custom drawing where the subject needs it. Move on events: hold → 0.28 s push / 0.30 s pan / 0.17 s slam → hold. In portrait, keep text and the key action inside `view.safe` (platform UI covers the top, bottom and right) and check with `still --guides`. Make subjects big and high-contrast. Directing method and failure modes: [references/directing.md](references/directing.md). Full contract: [references/film.md](references/film.md).
 
 Narration is required by default: write it per shot (each language), then `motion-use voiceover <dir>`; it must fit its shot window, so shorten the script or retime the shot, never truncate. `M.captions(c, t)` draws subtitles from it. `voiceover:false` only when the user wants a silent film.
 

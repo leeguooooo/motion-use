@@ -9,6 +9,12 @@
     vertical: canvas.height > canvas.width,
     format: film.format,
   };
+  // Where platform UI does not cover the picture. Portrait feeds (Douyin, TikTok, Xiaohongshu,
+  // Reels, Shorts) put navigation on top, the author row, caption and like/comment bar at the
+  // bottom and an action column on the right; keep text and key action inside this box.
+  view.safe = view.vertical
+    ? { x: canvas.width * 0.06, y: canvas.height * 0.1, w: canvas.width * 0.8, h: canvas.height * 0.66 }
+    : { x: canvas.width * 0.05, y: canvas.height * 0.06, w: canvas.width * 0.9, h: canvas.height * 0.88 };
   const clamp = (x) => Math.max(0, Math.min(1, x));
   const ease = (x) => {
     const t = clamp(x);
@@ -119,6 +125,23 @@
         if (frameCache.size > 24) frameCache.delete(frameCache.keys().next().value);
       }),
     );
+  // still --guides: tint what platform UI would cover, so overlaps are visible in review frames.
+  function drawGuides(c) {
+    const { x, y, w, h } = view.safe,
+      W = canvas.width,
+      H = canvas.height;
+    c.save();
+    c.fillStyle = "rgba(255,40,40,0.28)";
+    c.beginPath();
+    c.rect(0, 0, W, H);
+    c.rect(x, y, w, h);
+    c.fill("evenodd");
+    c.strokeStyle = "rgba(255,60,60,0.9)";
+    c.lineWidth = Math.max(2, W / 640);
+    c.setLineDash([12, 8]);
+    c.strokeRect(x, y, w, h);
+    c.restore();
+  }
   const layer = document.createElement("canvas");
   layer.width = canvas.width;
   layer.height = canvas.height;
@@ -145,6 +168,7 @@
       scratch.save();
       window.drawFrame(scratch, at, film, view, motion);
       scratch.restore();
+      if (film.guides) drawGuides(scratch);
       // Running average in premultiplied alpha; every drawFrame must paint an opaque background.
       ctx.globalAlpha = 1 / (i + 1);
       ctx.drawImage(layer, 0, 0);

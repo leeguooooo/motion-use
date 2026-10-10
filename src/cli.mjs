@@ -56,7 +56,8 @@ Usage: motion-use <command> [options]
                       --mode template keeps the scene-template workflow; --style/--story also select it
   validate [brief]    Check a brief: fields, files, voiceover lengths, characters the fonts cannot draw
   voiceover [brief]   Speak each scene's "narration" into voiceover/<lang>/<scene-id>.mp3 (--engine azure|edge)
-  still [brief]       Render keyframes as PNGs plus a contact sheet (--at 1.5,4 for exact seconds, --shot id)
+  still [brief]       Render keyframes as PNGs plus a contact sheet (--at 1.5,4 for exact seconds, --shot id,
+                      --guides tints what platform UI covers in portrait feeds)
   render [brief]      Render MP4s for every language and format in the brief
                       (--from 6 --to 10: a quick silent preview of that range of a film)
   verify <mp4>       Decode and measure a delivered video: frames, audio, motion lights (--gate fails on red)
@@ -142,6 +143,7 @@ export async function main(argv) {
         verbose: { type: "boolean" },
         times: { type: "string" },
         shot: { type: "string" },
+        guides: { type: "boolean" },
         from: { type: "string" },
         to: { type: "string" },
         gpu: { type: "boolean" },
@@ -449,7 +451,7 @@ async function each(briefPath, o, fn) {
     for (const f of c.formats) {
       const id = `${c.brief.name}-${l}-${f}`;
       const proj = c.film
-        ? await buildFilm(c.film, l, f, path.join(out, ".build", id), { range: o.range })
+        ? await buildFilm(c.film, l, f, path.join(out, ".build", id), { range: o.range, guides: Boolean(o.guides) && !o._render })
         : await buildProject(c.brief, l, f, path.join(out, ".build", id));
       if (!c.film) {
         proj.narrationTracks = proj.scenes
@@ -511,6 +513,7 @@ function commitOutput(out, tmp, file) {
 }
 
 async function render(o, [briefPath]) {
+  o._render = true; // --guides is a review overlay for stills; it never reaches a delivered MP4
   const QUALITY = { draft: "draft", standard: "looks", high: "delivery" };
   const q = o.quality ?? "standard";
   const quality = Object.hasOwn(QUALITY, q) ? QUALITY[q] : null;
