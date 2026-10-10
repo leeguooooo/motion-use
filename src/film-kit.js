@@ -538,7 +538,8 @@ window.__filmKit = function (view, film) {
     // author row and like/comment bar, not at the very bottom of the frame.
     const safe = view.safe ?? { x: view.width * 0.05, y: view.height * 0.06, w: view.width * 0.9, h: view.height * 0.88 };
     // Centred on the safe area, so a long line never reaches the right-hand action column.
-    const sub = { lines: 2, x: view.vertical ? (safe.x + safe.w / 2) / view.width : 0.5, y: view.vertical ? (safe.y + safe.h) / view.height - 0.03 : 0.885, size: (view.vertical ? 50 : 50) * unit, weight: 700, color: "#ffffff", plate: "rgba(0,0,0,.55)", maxWidth: view.vertical ? safe.w : view.width * 0.86, ...options };
+    // Portrait is narrow: a sentence may need three lines; landscape keeps two.
+    const sub = { lines: view.vertical ? 3 : 2, x: view.vertical ? (safe.x + safe.w / 2) / view.width : 0.5, y: view.vertical ? (safe.y + safe.h) / view.height - 0.03 : 0.885, size: (view.vertical ? 50 : 50) * unit, weight: 700, color: "#ffffff", plate: "rgba(0,0,0,.55)", maxWidth: view.vertical ? safe.w : view.width * 0.86, ...options };
     for (const cue of film.captions ?? []) caption(c, t, cue.text, cue.start, cue.end, sub);
   }
   // Kinetic words: each word enters at its own time (at + i * stagger, or times[i]).

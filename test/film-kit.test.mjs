@@ -158,3 +158,16 @@ test("long subtitles wrap into two balanced lines instead of shrinking", () => {
   assert.ok(rows[1][3] > rows[0][3], "second line below the first");
   assert.ok(rows.every((r) => r[3] < 192 + 1267.2), "both lines inside the safe area");
 });
+
+test("a long portrait subtitle wraps into three lines rather than shrinking", () => {
+  const ctx = { window: {} };
+  vm.runInNewContext(fs.readFileSync(new URL("../src/film-kit.js", import.meta.url), "utf8"), ctx);
+  const view = { width: 1080, height: 1920, vertical: true, safe: { x: 64.8, y: 192, w: 864, h: 1267.2 } };
+  const text = "People can take over from a browser: click the live picture to open Date and Time, then go back. Agents and people share one phone.";
+  const k = ctx.window.__filmKit(view, { captions: [{ text, start: 0, end: 3 }] });
+  const c = stubCanvas();
+  k.captions(c, 1);
+  const rows = c.calls.filter((x) => x[0] === "fillText");
+  assert.equal(rows.length, 3, JSON.stringify(rows.map((r) => r[1])));
+  assert.equal(rows.map((r) => r[1]).join(" "), text);
+});
