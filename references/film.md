@@ -18,7 +18,7 @@
 }
 ```
 
-Formats: `landscape` 1920×1080, `vertical` 1080×1920, `square` 1440×1440. Frame rates: 24/25/30/60. Duration: 1–180 seconds. Shots cover the whole duration without gaps or overlap. Optional `cut: true` documents a deliberate cut (the motion check treats it as a transition); optional `hold` and `holdReason` document stillness; optional `camera` (`hold`, `push`, `pull`, `pan`, `slam`, `whip`, `follow`, `cut`, `drift`) and `text` (planned on-screen words, a string or language map) let validation check the plan. Shots annotate your code; they do not generate or impose visual scenes.
+Formats: `landscape` 1920×1080, `vertical` 1080×1920, `square` 1440×1440. Frame rates: 24/25/30/60. Duration: 1–180 seconds. Shots cover the whole duration without gaps or overlap. Optional `cut: true` documents a deliberate cut (the motion check treats it as a transition); optional `hold` and `holdReason` document stillness; optional `camera` (`hold`, `push`, `pull`, `pan`, `slam`, `whip`, `follow`, `cut`, `drift`) and `text` (planned on-screen words, a string or language map) let validation check the plan. Shots annotate your code; they do not generate or impose visual scenes. Optional `loop: true` marks a film that repeats: `render` (and `verify --loop`) compares the last frame with the first and warns when the seam jumps further than an ordinary frame step.
 
 `look` locks one `style`, a `palette` (a name from the kit or 3–6 hex colors) and the `character` approach. A blue-purple palette color is an error unless `look.allowBluePurple` gives the reason; `look.allowStatic` records why a deliberately still film may pass the motion check. Validation warns about presentation verbs in `action`, text-led opening/closing shots, shots over 8 s without `holdReason`, three identical camera moves in a row and a plan with no fast move; see [directing.md](directing.md).
 
@@ -35,7 +35,7 @@ window.drawFrame = function (ctx, seconds, film, view, motion) {
 };
 ```
 
-Paint an opaque background every frame. The caller resets transforms and restores context state. All pose values must derive from the supplied time, not the last rendered frame. The renderer seeks backward and splits capture among workers. Avoid clocks, unseeded random numbers, animation loops and network sourcing.
+Paint an opaque background every frame. The caller resets transforms and restores context state. All pose values must derive from the supplied time, not the last rendered frame. The renderer seeks backward and splits capture among workers; `still` redraws its first frame after the others and warns (`pure: false`) when the picture changed. Avoid clocks, unseeded random numbers, animation loops and network sourcing.
 
 `film.copy` is already selected for the current language; `film.look` is passed through. `view` supplies width, height, format, vertical and `safe`: the box platform UI leaves visible (portrait 6–86 % × 10–76 %, otherwise 5 % margins). Keep text, subtitles and the key action inside it; `still --guides` tints the rest. `motion` provides `mix`, `clamp`, `ease` (smoothstep), `progress`, `ramp`, analytic `spring`, deterministic `hash`, `beat`, `round`, `line` and font-aware `text`. `text` shrinks a line to an explicit maximum width; `paragraph` wraps. Neither enforces platform safe areas. Design the portrait composition rather than cropping landscape.
 
@@ -46,6 +46,7 @@ The drawing kit adds, all pure functions of time or a seed:
 | `easings.{smooth, sineInOut, cubicIn/Out/InOut, quartOut, quintOut/InOut, expoIn/Out/InOut, backOut(p, s), elasticOut, appleOut, emphasized, k75, easyEase, longTail}`, `bezier(x1, y1, x2, y2)` | easing curves |
 | `tween(t, start, dur, ease)` | eased progress; `ease` is a name or function (default `cubicInOut`) |
 | `springHz(t, start, f, d)`, `settle(t, start, amp, f, d)`, `thereAndBack(p)`, `lagged(i, n, p, r)` | overshoot, decaying wobble, out-and-back, staggered progress |
+| `follow(t, [[at, value], …], {f, d})` | a value (number or array) that changes target many times: one closed-form spring step per change, summed, so it stays a pure function of `t`; two edges on different `f` stretch a moving shape |
 | `step(t, fps = 12)` | hold poses for whole steps (pass `t - at`) |
 | `camera(t, events, base)`, `applyCamera(c, cam)`, `toScreen(cam, x, y)`, `zlerp`, `pulse` | pulse camera: `push` (k, x, y), `pan`, `to` (x, y, z), `slam`, `shake`, `cut`; durations default to 0.28 / 0.30 / 0.17 s |
 | `slam(t, at, {dur, from, under})` | element scale 1.55 → 0.94 → 1.0 (0 before `at`) |
@@ -88,7 +89,7 @@ Final delivery verifies that the voice-only reference actually appears in the MP
 
 ## Sound and narration
 
-`music` accepts `"none"`, `"builtin"`, `{"builtin":"pulse","volume":0.6,"hits":[4.6,9.2]}` or `{"file":"audio/song.wav","volume":0.6,"bpm":120}`. Built-in moods: `promo`, `explainer`, `pulse` (plucked strings, soft downbeat), `chiptune`, `pentatonic` (plucked D minor pentatonic) and `ambient`; `hits` adds a thump and a plucked accent at those seconds. Root `bpm` wins over the music's BPM; a built-in mood otherwise sets the tempo. Built-in music uses that same tempo, so `motion.beat(seconds)` lines up with it. For imported music, BPM is an authored value; this CLI does not analyze a track's first downbeat. Place a track with an offset through `audio` when needed.
+`music` accepts `"none"`, `"builtin"`, `{"builtin":"pulse","volume":0.6,"hits":[4.6,9.2]}` or `{"file":"audio/song.wav","volume":0.6,"bpm":120,"from":1.3}`. Built-in moods: `promo`, `explainer`, `pulse` (plucked strings, soft downbeat), `chiptune`, `pentatonic` (plucked D minor pentatonic) and `ambient`; `hits` adds a thump and a plucked accent at those seconds. Root `bpm` wins over the music's BPM; a built-in mood otherwise sets the tempo. Built-in music uses that same tempo, so `motion.beat(seconds)` lines up with it. For imported music, `motion-use beats song.wav` measures the tempo, the first downbeat, per-bar loudness and the drop (4/4 assumed) and prints `{"file", "bpm", "from"}`: `from` is the song second that plays at film second 0, so starting on the downbeat makes `motion.beat(t)` count the song's beats. `still --beats 1` (or `4` for one per bar) renders a frame on every beat of the grid.
 
 ```json
 "audio": [
@@ -99,7 +100,7 @@ Final delivery verifies that the voice-only reference actually appears in the MP
 
 Times refer to the output timeline. Omitted `length` uses the remaining source duration. Validation rejects a source overrun or a clip running past the film; trim it explicitly or extend the authored picture. Voiceover windows duck the music with short ramps. HyperFrames owns media playback and the final mix; the drawing code does not play audio. `render` normalizes the final track without re-encoding the video. Imported audio must already have suitable authorization.
 
-For bundled licensed sounds, use `{"effect":"click","role":"sfx","start":3.38,"volume":0.6}` instead of a file. Effects: `click`, `switch`, `whoosh`, `ding`; sources/licenses are in ASSETS.md. `start` is the beginning of the file, not its loudest transient: measure that offset when aligning the hit to an action.
+For bundled licensed sounds, use `{"effect":"click","role":"sfx","start":3.38,"volume":0.6}` instead of a file. Effects: `click`, `switch`, `whoosh`, `ding`; sources/licenses are in ASSETS.md. `start` is the beginning of the file, not its loudest transient. Add `"align": "peak"` to any clip and validation measures where it peaks and moves it so that moment lands on `start` (trimming the head when the clip would begin before 0).
 
 ## Delivery review
 

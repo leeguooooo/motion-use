@@ -7,6 +7,7 @@ import { claimDir, audioSeconds, mediaInfo } from "./build.mjs";
 import { execFileSync } from "node:child_process";
 import { writeSubsets, missingGlyphs } from "./fonts.mjs";
 import { writeMusic, MOOD_NAMES, moodBpm } from "./music.mjs";
+import { peakTime } from "./beats.mjs";
 import { esc } from "./html.mjs";
 import { BriefError } from "./brief.mjs";
 import { resolveNarration } from "./film-voiceover.mjs";
@@ -228,7 +229,7 @@ export function validateFilm(
     if (!music || typeof music !== "object" || Array.isArray(music))
       error(
         "$.music",
-        '"builtin", "none", {builtin: mood, volume, hits} or {file, volume, bpm}',
+        '"builtin", "none", {builtin: mood, volume, hits} or {file, volume, bpm, from}',
       );
     else if (music.builtin !== undefined) {
       if (music.file !== undefined)
@@ -248,6 +249,19 @@ export function validateFilm(
       musicFile = local(music.file, "$.music.file");
       if (music.volume !== undefined && !finite(music.volume, 0, 1))
         error("$.music.volume", "0–1");
+      // from: the song second that plays at film second 0 (`motion-use beats` prints its first downbeat).
+      if (music.from !== undefined && !finite(music.from, 0, 86400))
+        error("$.music.from", "seconds into the song where the film starts");
+      else if (musicFile && music.from)
+        try {
+          const songSeconds = probe(musicFile);
+          if (music.from >= songSeconds)
+            error("$.music.from", `the song is ${songSeconds.toFixed(2)} s long; from must start inside it`);
+          else if (music.from + data.duration > songSeconds + 0.05)
+            warnings.push({ path: "$.music.from", message: `the song ends ${(music.from + data.duration - songSeconds).toFixed(2)} s before the film` });
+        } catch (e) {
+          error("$.music.file", e.message);
+        }
     }
   }
   const bpm =
@@ -256,6 +270,8 @@ export function validateFilm(
     100;
   if (!finite(bpm, 40, 240))
     error("$.bpm", "40–240; built-in music and the beat grid use the same BPM");
+  if (data.loop !== undefined && typeof data.loop !== "boolean")
+    error("$.loop", "true when the film repeats: render checks the last frame leads into the first");
   const tracks = [];
   if (data.audio !== undefined && !Array.isArray(data.audio))
     error("$.audio", "an array of local audio clips");
@@ -272,15 +288,18 @@ export function validateFilm(
       error(`${p}.effect`, "click, switch, whoosh or ding");
     const file = ["click", "switch", "whoosh", "ding"].includes(a.effect)
         ? path.join(ROOT, "assets", "sfx", `${a.effect}.wav`)
-        : local(a.file, `${p}.file`),
-      start = a.start ?? 0,
-      offset = a.offset ?? 0;
+        : local(a.file, `${p}.file`);
+    let start = a.start ?? 0,
+      offset = a.offset ?? 0,
+      peak;
     if (!finite(start, 0, data.duration) || !finite(offset, 0, 86400))
       error(p, "non-negative start and offset");
     if (a.volume !== undefined && !finite(a.volume, 0, 2))
       error(`${p}.volume`, "0–2");
     if (a.role !== undefined && !["voiceover", "music", "sfx"].includes(a.role))
       error(`${p}.role`, "voiceover, music or sfx");
+    if (a.align !== undefined && !["start", "peak"].includes(a.align))
+      error(`${p}.align`, '"start" (default: the file starts at start) or "peak" (its loudest moment lands at start)');
     if (
       a.lang !== undefined &&
       (!Array.isArray(data.languages) || !data.languages.includes(a.lang))
@@ -288,8 +307,19 @@ export function validateFilm(
       error(`${p}.lang`, "a language in this film");
     if (file)
       try {
-        const sourceSeconds = probe(file),
-          length = a.length ?? sourceSeconds - offset;
+        const sourceSeconds = probe(file);
+        let trimmed = 0;
+        // align "peak": measure where the clip actually hits and move it so that moment lands on start.
+        if (a.align === "peak" && Number.isFinite(start) && Number.isFinite(offset)) {
+          peak = peakTime(file, { offset, length: a.length });
+          start -= peak;
+          if (start < 0) {
+            trimmed = -start;
+            offset += trimmed;
+            start = 0;
+          }
+        }
+        const length = a.length !== undefined ? a.length - trimmed : sourceSeconds - offset;
         if (
           !finite(length, 0.01, 180) ||
           offset + length > sourceSeconds + 0.05 ||
@@ -306,6 +336,7 @@ export function validateFilm(
           offset,
           length,
           volume: a.volume ?? 1,
+          ...(peak !== undefined ? { peak: Math.round(peak * 1000) / 1000 } : {}),
         });
       } catch (e) {
         error(p, e.message);
@@ -765,7 +796,7 @@ export async function buildFilm(film, lang, format, outDir, { range = null, guid
       ? ` data-automation="${esc(JSON.stringify({ version: 1, lanes: [{ target: "volume", points: unique }] }))}"`
       : "";
     audio.push(
-      `<audio id="film-music" src="${rel}" data-start="0" data-duration="${film.duration}" data-volume="${volume}" data-fade-out="0.3" data-track-index="10"${automation}></audio>`,
+      `<audio id="film-music" src="${rel}" data-start="0"${film.music.from ? ` data-media-start="${film.music.from}"` : ""} data-duration="${film.duration}" data-volume="${volume}" data-fade-out="0.3" data-track-index="10"${automation}></audio>`,
     );
   }
   selectedTracks.forEach((a, i) => {
@@ -826,6 +857,7 @@ export async function buildFilm(film, lang, format, outDir, { range = null, guid
     fmt,
     total: range ? range.to - range.from : film.duration,
     fps: film.fps,
+    bpm: film.bpm,
     dir: outDir,
     fontSizes,
     lang,

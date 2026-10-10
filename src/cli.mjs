@@ -40,6 +40,7 @@ import {
 import { normalizeAudio, verifyVideo, buildNarrationStem } from "./verify.mjs";
 import { generateFilmNarration } from "./film-voiceover.mjs";
 import { breakdownVideo } from "./breakdown.mjs";
+import { analyzeBeats, decodeMono } from "./beats.mjs";
 import { compareVideos } from "./compare.mjs";
 import { measureMotion, gradeMotion } from "./motion-check.mjs";
 
@@ -57,12 +58,15 @@ Usage: motion-use <command> [options]
   validate [brief]    Check a brief: fields, files, voiceover lengths, characters the fonts cannot draw
   voiceover [brief]   Speak each scene's "narration" into voiceover/<lang>/<scene-id>.mp3 (--engine azure|edge)
   still [brief]       Render keyframes as PNGs plus a contact sheet (--at 1.5,4 for exact seconds, --shot id,
-                      --guides tints what platform UI covers in portrait feeds)
+                      --beats 1 one frame per beat (4: per bar), --guides tints what platform UI covers in portrait feeds)
   render [brief]      Render MP4s for every language and format in the brief
                       (--from 6 --to 10: a quick silent preview of that range of a film)
-  verify <mp4>       Decode and measure a delivered video: frames, audio, motion lights (--gate fails on red)
+  verify <mp4>       Decode and measure a delivered video: frames, audio, motion lights (--gate fails on red,
+                      --loop checks the last frame leads into the first)
   breakdown <video>   Take a reference video apart: cuts, beat grid, contact sheets, transition strips,
                       motion heatmaps, palette and motion lights (--out <dir>)
+  beats <audio>       Find a song's tempo, first downbeat, bar loudness and drop; prints the film.json
+                      music line that puts film second 0 on a downbeat (--from/--to: analyse a range)
   compare <a> <b>     Put frames of two videos side by side (--times 1.5,4 --out compare.png)
   doctor              Check Node, ffmpeg, Chrome and the bundled engine (--install-browser fetches Chrome)
   upgrade             Update motion-use and its skill (--check only looks)
@@ -106,6 +110,7 @@ export async function main(argv) {
     render,
     verify,
     breakdown,
+    beats,
     compare,
     doctor,
     upgrade: upgradeCmd,
@@ -147,6 +152,8 @@ export async function main(argv) {
         from: { type: "string" },
         to: { type: "string" },
         gpu: { type: "boolean" },
+        loop: { type: "boolean" },
+        beats: { type: "string" },
       },
     });
   } catch (e) {
@@ -739,6 +746,7 @@ async function render(o, [briefPath]) {
         })),
         narrationStem: proj.narrationStem,
         narrationTracks: proj.narrationTracks,
+        loop: Boolean(proj.film && brief.loop),
         // Authored films are gated on slideshow pacing, empty frames and blue-purple palettes.
         motionCheck: {
           gate: Boolean(proj.film),
@@ -1017,7 +1025,20 @@ async function still(o, [briefPath]) {
   if (at?.some((x) => !Number.isFinite(x) || x < 0))
     return fail("--at takes seconds, e.g. --at 1.5,4", o.json);
   const shotIds = list(o.shot);
+  const everyBeats = o.beats === undefined ? null : Number(o.beats);
+  if (everyBeats !== null && !(Number.isInteger(everyBeats) && everyBeats >= 1 && everyBeats <= 64))
+    return fail("--beats takes a whole number of beats between frames: 1 every beat, 4 every bar", o.json);
   const r = await each(briefPath, o, async (proj, id, out) => {
+    // --beats n: a frame on every n-th beat of the film's grid, the hits a cut or a UI change should land on.
+    let beatTimes = null;
+    if (everyBeats) {
+      if (!proj.bpm) return { ok: false, id, error: "--beats needs a film with a beat grid (bpm or music)" };
+      const step = (60 / proj.bpm) * everyBeats;
+      beatTimes = [];
+      for (let t = 0; t < proj.total - 1e-6; t += step) beatTimes.push(t);
+      if (beatTimes.length > 64)
+        return { ok: false, id, error: `--beats ${everyBeats} gives ${beatTimes.length} frames; use a larger step (at most 64 frames)` };
+    }
     // --shot id[,id]: the shot's first settled frame, its middle and its last frame (both sides of its cuts).
     let shotTimes = null;
     if (shotIds) {
@@ -1033,6 +1054,7 @@ async function still(o, [briefPath]) {
     // Default: one frame per scene, once its content has finished arriving.
     const times =
       at ??
+      beatTimes ??
       shotTimes ??
       proj.reviewTimes ??
       proj.scenes.map((s) =>
@@ -1042,12 +1064,20 @@ async function still(o, [briefPath]) {
       return { ok: false, id, error: "--at must be within the film duration" };
     const dir = path.join(out, "stills", id);
     claimDir(dir);
+    // Authored films: draw the first time again at the end, after the page has drawn the others.
+    // The renderer seeks backward and splits frames among workers, so a picture that depends on
+    // what was drawn before flickers in the MP4.
+    const probe = proj.film
+      ? times.length > 1
+        ? [times[0]]
+        : [Math.min(proj.total - 0.05, times[0] + 1), times[0]]
+      : [];
     const hf = await runHyperframes(
       [
         "snapshot",
         proj.dir,
         "--at",
-        times.map((t) => t.toFixed(3)).join(","),
+        [...times, ...probe].map((t) => t.toFixed(3)).join(","),
         "--no-end",
         "--output",
         dir,
@@ -1068,6 +1098,16 @@ async function still(o, [briefPath]) {
         id,
         error: hf.out.trim().split("\n").slice(-15).join("\n"),
       };
+    let pure = null;
+    if (probe.length && pngs.length === times.length + probe.length) {
+      const extra = pngs.splice(times.length);
+      pure = pixelHash(pngs[0]) === pixelHash(extra.at(-1));
+      for (const f of extra) fs.rmSync(f);
+      if (!pure && !o.json)
+        console.error(
+          `warning: ${id}: drawFrame drew ${times[0].toFixed(2)}s differently the second time; it carries state between frames (a counter, a mutated array, a cached result). Compute every value from t, or the MP4 flickers.`,
+        );
+    }
     const sheetFile = path.join(out, "stills", `${id}-sheet.png`);
     const blocked = guardOutput(out, sheetFile, o.force);
     if (blocked) return { ok: false, id, error: blocked };
@@ -1076,7 +1116,7 @@ async function still(o, [briefPath]) {
       ? (commitOutput(out, tmpSheet, sheetFile), sheetFile)
       : null;
     if (!o.json) console.log(sheet ?? `${dir} (contact sheet not created)`);
-    return { ok: true, id, frames: pngs, sheet, at: times };
+    return { ok: true, id, frames: pngs, sheet, at: times, ...(pure === null ? {} : { pure }) };
   });
   if (o.json && r.results)
     console.log(
@@ -1093,6 +1133,13 @@ async function still(o, [briefPath]) {
   return r.code;
 }
 
+// Decoded pixels, so PNG metadata cannot make two identical frames look different.
+const pixelHash = (file) =>
+  crypto
+    .createHash("sha256")
+    .update(execFileSync("ffmpeg", ["-v", "error", "-i", file, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], { maxBuffer: 256 * 1024 * 1024 }))
+    .digest("hex");
+
 async function verify(o, [file]) {
   if (!file) return fail("verify needs a delivered MP4 path", o.json);
   const input = path.resolve(file),
@@ -1108,6 +1155,7 @@ async function verify(o, [file]) {
   if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel)))
     return fail("verification output must not contain the input video", o.json);
   const r = verifyVideo(input, out, {
+    loop: Boolean(o.loop),
     motionCheck: {
       gate: Boolean(o.gate),
       allowStatic: o["allow-static"] ?? null,
@@ -1117,7 +1165,7 @@ async function verify(o, [file]) {
   if (o.json) console.log(JSON.stringify(r, null, 2));
   else
     console.log(
-      `${r.report}\n${r.sheet}\n${r.ok ? "technical checks passed" : "technical checks failed"}; motion ${r.motion?.level ?? "not measured"}; visual review pending${r.warnings.length ? "\n" + r.warnings.join("\n") : ""}`,
+      `${r.report}\n${r.sheet}\n${r.ok ? "technical checks passed" : "technical checks failed"}; motion ${r.motion?.level ?? "not measured"}${r.loop ? `; loop seam ${r.loop.ok ? "clean" : "visible"} (${r.loop.seam_diff} vs step ${r.loop.step_diff})` : ""}; visual review pending${r.warnings.length ? "\n" + r.warnings.join("\n") : ""}`,
     );
   return r.ok ? 0 : 1;
 }
@@ -1152,6 +1200,50 @@ async function breakdown(o, [file]) {
     console.log(
       `${path.join(out, "breakdown.md")}\n${r.transitions.length} transitions, ${r.segments.length} segments${r.beat_grid ? `, beat grid ${r.beat_grid.step_seconds}s (${r.beat_grid.bpm_if_quarter} BPM if quarters)` : ""}; motion ${motion.level}`,
     );
+  return 0;
+}
+
+async function beats(o, [file]) {
+  if (!file) return fail("beats needs an audio file: beats song.mp3", o.json);
+  const input = path.resolve(file);
+  if (!fs.existsSync(input)) return fail(`${file} does not exist`, o.json);
+  const from = o.from === undefined ? 0 : Number(o.from),
+    to = o.to === undefined ? undefined : Number(o.to);
+  if (!Number.isFinite(from) || from < 0 || (to !== undefined && !(to > from)))
+    return fail("--from/--to take seconds into the song, with --to after --from", o.json);
+  const r = analyzeBeats(decodeMono(input, { from, length: to === undefined ? undefined : to - from }));
+  // Report song time, not range time.
+  const sh = (x) => Math.round((x + from) * 1000) / 1000;
+  const res = {
+    ...r,
+    first_beat: sh(r.first_beat),
+    downbeat: sh(r.downbeat),
+    beats: r.beats.map(sh),
+    bars: r.bars.map((b) => ({ ...b, start: sh(b.start) })),
+    drop: r.drop && { ...r.drop, start: sh(r.drop.start) },
+  };
+  const warnings = [];
+  if (res.confidence < 2) warnings.push("no clear beat: the grid is a guess; confirm it by ear before cutting to it");
+  if (res.downbeat_confidence < 1.2) warnings.push("the bar start is a guess: no beat carries clearly more kick; check which beat is one");
+  const music = { file, bpm: res.bpm, from: res.downbeat };
+  if (o.json) {
+    const { beats: grid, ...rest } = res;
+    console.log(JSON.stringify({ ok: true, ...rest, ...(o.verbose ? { beats: grid } : {}), music, warnings }, null, 2));
+  } else {
+    console.log(
+      [
+        `${res.bpm} BPM (beat ${res.beat_seconds}s, confidence ${res.confidence}); first beat ${res.first_beat}s, first downbeat ${res.downbeat}s (4/4 assumed, confidence ${res.downbeat_confidence})`,
+        res.drop
+          ? `drop: bar ${res.drop.bar} at ${res.drop.start}s in the song, +${res.drop.lift_db} dB over the bars before (film second ${Math.round((res.drop.start - res.downbeat) * 1000) / 1000} with the line below)`
+          : "no drop: no bar rises 3 dB over the four before it",
+        `bars (dB): ${res.bars.slice(0, 32).map((b) => b.db).join(" ")}${res.bars.length > 32 ? " …" : ""}`,
+        "",
+        `"music": ${JSON.stringify(music)}`,
+        "film second 0 then sits on a downbeat, so M.beat(t) counts the song's beats and `still --beats 1` shows every hit.",
+        ...warnings.map((w) => `warning: ${w}`),
+      ].join("\n"),
+    );
+  }
   return 0;
 }
 

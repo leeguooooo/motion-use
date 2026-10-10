@@ -31,6 +31,7 @@ motion-use voiceover my-film                 # narration per shot; cached
 motion-use still my-film --allow-code
 motion-use render my-film --allow-code --quality high --json
 motion-use breakdown reference.mp4           # learn from a reference: cuts, beat grid, heatmaps
+motion-use beats song.wav                    # cut to a song: tempo, first downbeat, the drop
 ```
 
 **Short code, varied films.** A kit of helpers keeps a film to a few kilobytes of drawing code: a pulse camera, charts and counters that read numbers from `film.json`, callouts, kinetic words, stamps, handwriting, a cursor and spotlight for walkthroughs, footage under graphics (`videos`, frames extracted at build time) and subtitles timed from the narration. The starter film shrank from 7,008 to 3,053 bytes with the same picture. Three examples in three looks show the range: a [data story](examples/data-story/), a [whiteboard](examples/whiteboard/) and [kinetic type](examples/kinetic/). Iterate cheaply with `still --shot <id>` and `render --from 3 --to 7` (a silent draft of a range); a film laid out like the starter is flagged so it gets redesigned, not re-skinned. One-page guide: [references/kit.md](references/kit.md).
@@ -107,10 +108,11 @@ The installer downloads the release archive and its `.sha256` from GitHub, verif
 | `init [dir]` | Directed film by default; `--mode template` selects a starter brief: `--style`, `--name`, `--lang zh,en`, `--format landscape,vertical` |
 | `validate [brief]` | Check the brief, files, voiceover lengths and glyph coverage; print timelines |
 | `voiceover [brief]` | Speak each scene's `narration`: `--engine azure` (licensed) or `edge` (preview) |
-| `still [brief]` | Keyframes and a contact sheet; `--at 1.5,4` for exact seconds |
+| `still [brief]` | Keyframes and a contact sheet; `--at 1.5,4` for exact seconds, `--beats 4` one frame per bar; warns when film drawing keeps state between frames |
 | `render [brief]` | MP4 per language × format, plus a cover PNG; `--quality draft\|standard\|high`, `--target github` / `--max-size 9MB` |
-| `verify <mp4>` | Decode and measure a delivered video: review frames, audio, motion lights; `--gate` fails on red |
+| `verify <mp4>` | Decode and measure a delivered video: review frames, audio, motion lights; `--gate` fails on red, `--loop` checks the loop seam |
 | `breakdown <video>` | Take a reference apart: cuts, beat grid, contact sheets, transition strips, motion heatmaps, palette, motion lights |
+| `beats <audio>` | Measure a song: tempo, first downbeat, bar loudness, the drop; prints the `music` line that starts the film on a downbeat |
 | `compare <a> <b>` | Frames of two videos side by side: `--times 1.5,4` |
 | `doctor` | Check Node, FFmpeg, Chrome, the engine and fonts |
 | `upgrade` | Update the CLI and its skill; `--check` only looks |
