@@ -4,6 +4,10 @@ Direct a film with your coding agent: plan the action, author exact-time animati
 
 A directed example: [OCS — a message crosses the gap](examples/ocs-film/film.json), with its [drawing code](examples/ocs-film/composition/draw.js) and [director notes](examples/ocs-film/DIRECTOR.md).
 
+**Showcase: yarn relay (three.js).** Six felt monsters relay a ball of white yarn; the thread it pays out draws the OpenAI blossom, puffs into plush rope and stands up; the lights go out, six coloured lights run along the yarn and sum to white; a flash takes the group photo. 40 s at 60 fps, with the score and sound effects synthesised in code. [Source and director notes](examples/openai-yarn-film/).
+
+<video src="media/openai-yarn-film.mp4" controls muted playsinline width="100%"></video>
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/leeguooooo/motion-use/main/install.sh | sh
 motion-use doctor
@@ -109,6 +113,8 @@ motion-use is MIT. The engine, HyperFrames, is Apache-2.0. Fonts are SIL OFL; so
 ## 中文说明
 
 [OCS 新示例](examples/ocs-film/film.json)：消息从一个 agent 出发，抵达另一个 agent 后展开为唤醒画面，再收回协作网络和片尾。镜头和画面由 agent 编写，所有姿态按时间计算。
+
+**案例：毛线接力（three.js）**。六只毛毡小怪物接力推一个白毛线球，放下的线织成 OpenAI 的标志，再膨胀成毛绒管、立起来；熄灯后六色光沿线跑、合成白光，最后闪光灯合影。40 秒、60fps，配乐和音效都用代码生成。成片见上方视频，[源码和导演记录](examples/openai-yarn-film/)。非官方作品，与 OpenAI 无关联。
 
 motion-use 默认让 agent 先写镜头计划，再写逐帧动画代码。镜头之间可以保留同一个对象，跟随动作移动视角，按音乐节拍安排变化。在本地渲染中英双语、横竖版和方形视频。原有 JSON 场景模板仍可通过 `--mode template` 使用。
 

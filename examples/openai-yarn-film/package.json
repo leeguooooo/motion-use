@@ -1,0 +1,13 @@
+{
+  "name": "openai-yarn-film",
+  "private": true,
+  "description": "motion-use example: a three.js scene rendered at exact times",
+  "scripts": {
+    "build": "node build.mjs",
+    "audio": "python3 audio/score.py"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.0",
+    "three": "0.170.0"
+  }
+}

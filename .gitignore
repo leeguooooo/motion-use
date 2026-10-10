@@ -7,3 +7,6 @@ out/
 examples/*/voiceover/*/*.mp3
 examples/*/voiceover/.motion-use-voiceover.json
 .env.*
+# three.js example: build output and generated score
+examples/*/vendor/
+examples/*/audio/*.wav
