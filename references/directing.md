@@ -125,3 +125,10 @@ If the same class of issue survives three rounds and two fixes, go back to the a
 ## Lessons travel with the project
 
 Keep a `## Lessons` section in DIRECTOR.md. Record what worked as **do / evidence / why / when**, and each new problem as **symptom → cause → fix → verified by**. The next session, another style or another model can then continue from evidence instead of taste.
+
+Lessons from the iphone-use promo (2026-10), now checked by `render`:
+
+- **Listen with a second pair of ears.** symptom: "AI" spoken "A-A-I", 重试 spoken zhòng shì; six visual review rounds missed both → cause: nobody listens to every TTS take → fix: speech recognition against the script (`narration_check`, `voiceover check`) → verified by: both misreads flagged on the real clips, the corrected lines pass.
+- **Measure text against the frame.** symptom: a callout's second line ran 100 px off the right edge for five seconds in one cut → cause: layout changed late, only one format reviewed at full size → fix: `text_check` measures every drawn string → verified by: the reconstructed cut reports 43.1–48.2 s, the reviewer's own 43.2–48.2 s.
+- **Publish only release masters.** symptom: a README-sized cut, then a cut from before the last review fix, went to five platforms and had to be re-posted → cause: files copied by hand from `out/` while the film was still changing → fix: `render --release` + `verify --manifest` before each upload.
+- **Keep what you published reproducible.** symptom: the published cut could not be re-rendered at higher quality because its narration had been regenerated in place → fix: every render's inputs are a snapshot; `render --snapshot <id>`.

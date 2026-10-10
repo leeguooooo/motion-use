@@ -30,6 +30,7 @@ motion-use validate my-film
 motion-use voiceover my-film                 # 按镜头生成旁白，有缓存
 motion-use still my-film --allow-code
 motion-use render my-film --allow-code --quality high --json
+motion-use render my-film --allow-code --release  # 平台用的高画质母版和清单，在 out/release/
 motion-use breakdown 参考.mp4                # 拆参考片：切点、节拍网格、运动热力图
 motion-use beats 歌曲.wav                    # 卡歌曲节拍：速度、第一个强拍、高潮
 ```
@@ -45,6 +46,8 @@ motion-use beats 歌曲.wav                    # 卡歌曲节拍：速度、第�
 `--allow-code` 只用于你自己写的或信任的绘制代码。代码在渲染器里执行，静态检查不是安全沙箱。普通文字始终作为 JSON 数据处理。指定的文件逐个复制，所以 composition 目录里的密钥和无关文件不会进入构建。
 
 每次渲染还会输出封面、从**交付的 MP4** 抽帧得到的联系表，以及一份技术报告：能否完整解码，实测时长、帧率、尺寸，有无音频，响度和峰值，每个镜头的 RMS，暗场和静止区间，以及运动指标。编码成功不等于审美通过：在人或 agent 看过之前，`visual_review` 一直是 pending。Canvas 上画的文字不在 DOM 布局检查的覆盖范围内。音频按 -14 LUFS / -1 dBTP 的工作目标做两遍归一化；`--no-normalize` 保留原始电平。
+
+**眼睛看不出的问题，交给检查。** 渲染时会用 whisper 把每段旁白转成文字，和脚本逐句对照，标出读错的地方，比如把“AI”读成“A-A-I”、把“重试”读成“重视”（单独跑用 `voiceover check`）。它还会测量画面里每一段文字，超出画面或竖版安全区的会报出来，带上时间。每次渲染都会把当时的输入存成快照，配音改了以后也能用 `render --snapshot <id>` 原样重渲染。`render --release` 生成发各平台用的文件：x264 veryslow CRF 16 母版、需要时给 X 的 45 MB 以内版本、封面，再写一份带哈希的 `release-manifest.json`；上传前用 `verify --manifest` 确认手里的就是当前母版。
 
 完整的绘制和音频约定见 [references/film.md](references/film.md)。已有的 MP4 可以用 `motion-use verify file.mp4 --json` 生成检查报告，不用重新渲染。
 
@@ -107,10 +110,10 @@ motion-use 是一个 Node.js 程序，不是单个原生二进制：渲染要驱
 |---|---|
 | `init [dir]` | 默认创建导演模式项目；`--mode template` 选择模板 brief：`--style`、`--name`、`--lang zh,en`、`--format landscape,vertical` |
 | `validate [brief]` | 检查 brief、文件、旁白长度和字形覆盖；打印时间线 |
-| `voiceover [brief]` | 按场景的 `narration` 生成语音：`--engine azure`（有授权）或 `edge`（预览） |
+| `voiceover [brief]` | 按场景的 `narration` 生成语音：`--engine azure`（有授权）或 `edge`（预览）；`voiceover check` 把旁白转成文字，标出读错的地方 |
 | `still [brief]` | 关键帧和联系表；`--at 1.5,4` 指定秒数，`--beats 4` 每小节一帧；绘制代码在帧之间留了状态时会警告 |
-| `render [brief]` | 每种语言 × 画幅一个 MP4，外加封面 PNG；`--quality draft\|standard\|high`、`--target github` / `--max-size 9MB` |
-| `verify <mp4>` | 解码并测量交付的视频：检查帧、音频、运动指标；`--gate` 红灯时失败，`--loop` 检查循环接缝 |
+| `render [brief]` | 每种语言 × 画幅一个 MP4，外加封面 PNG；`--quality draft\|standard\|high`、`--target github` / `--max-size 9MB`；`--release` 出平台母版和清单，`--snapshot <id>` 原样重渲染之前的版本，`--gate` 旁白被标出或文字出画时失败 |
+| `verify <mp4>` | 解码并测量交付的视频：检查帧、音频、运动指标；`--gate` 红灯时失败，`--loop` 检查循环接缝，`--manifest` 确认文件就是当前发布母版 |
 | `breakdown <video>` | 拆解参考片：切点、节拍网格、联系表、转场条、运动热力图、色板、运动指标 |
 | `beats <audio>` | 测一首歌：速度、第一个强拍、每小节响度、高潮；打印让片子从强拍开始的 `music` 配置 |
 | `compare <a> <b>` | 两支片子同一时刻并排对比：`--times 1.5,4` |

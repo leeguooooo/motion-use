@@ -494,7 +494,10 @@ window.__filmKit = function (view, film) {
   }
 
   // One line in a masked slot: rises in (0.35 s), holds, leaves fast (0.18 s).
-  function caption(c, t, text, start, end, { y = view.vertical ? 0.16 : 0.15, x = 0.5, align = "center", size = (view.vertical ? 70 : 88) * unit, color = ink().ink, weight = 800, maxWidth = view.width - (view.vertical ? 140 : 220) * unit, plate = null, lines: maxLines = 1 } = {}) {
+  // Portrait titles default to the platform-safe column (the text check flagged the starter's
+  // beat titles reaching under the right-hand action buttons); landscape keeps the full width.
+  const portraitSafe = view.vertical && view.safe;
+  function caption(c, t, text, start, end, { y = view.vertical ? 0.16 : 0.15, x = portraitSafe ? (view.safe.x + view.safe.w / 2) / view.width : 0.5, align = "center", size = (view.vertical ? 70 : 88) * unit, color = ink().ink, weight = 800, maxWidth = portraitSafe ? view.safe.w : view.width - (view.vertical ? 140 : 220) * unit, plate = null, lines: maxLines = 1 } = {}) {
     const enter = easings.expoOut((t - start) / 0.35),
       exit = easings.expoIn((t - end + 0.18) / 0.18);
     if (enter <= 0 || exit >= 1 || !text) return;
