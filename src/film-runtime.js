@@ -199,8 +199,27 @@
     probe.width = canvas.width;
     probe.height = canvas.height;
     const pc = probe.getContext("2d");
-    let boxes = [];
-    const record = (draw) =>
+    let boxes = [],
+      plates = [],
+      order = 0,
+      path = null;
+    // Effective opacity of a draw: globalAlpha times the alpha of a colour style (gradients and
+    // patterns count as opaque). The canvas normalises colours to #rrggbb or rgba(…).
+    const styleAlpha = (style) => {
+      if (typeof style !== "string") return 1;
+      const m = /^rgba\(.*,\s*([\d.]+)\)$/.exec(style);
+      return m ? +m[1] : 1;
+    };
+    const toBox = (T, pts) => {
+      const xs = [],
+        ys = [];
+      for (const [px, py] of pts) {
+        xs.push(T.a * px + T.c * py + T.e);
+        ys.push(T.b * px + T.d * py + T.f);
+      }
+      return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+    };
+    const record = (draw, styleKey) =>
       function (text, x, y, maxWidth) {
         try {
           const s = String(text);
@@ -214,33 +233,70 @@
               r = x + (r - x) * k;
             }
             const top = y - m.actualBoundingBoxAscent,
-              bottom = y + m.actualBoundingBoxDescent,
-              T = this.getTransform();
-            const xs = [],
-              ys = [];
-            for (const [px, py] of [[l, top], [r, top], [l, bottom], [r, bottom]]) {
-              xs.push(T.a * px + T.c * py + T.e);
-              ys.push(T.b * px + T.d * py + T.f);
-            }
-            boxes.push({ text: s, x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) });
+              bottom = y + m.actualBoundingBoxDescent;
+            boxes.push({
+              text: s,
+              ...toBox(this.getTransform(), [[l, top], [r, top], [l, bottom], [r, bottom]]),
+              alpha: +(this.globalAlpha * styleAlpha(this[styleKey])).toFixed(3),
+              order: order++,
+            });
           }
         } catch {}
         return draw.apply(this, arguments);
       };
-    pc.fillText = record(CanvasRenderingContext2D.prototype.fillText);
-    pc.strokeText = record(CanvasRenderingContext2D.prototype.strokeText);
+    pc.fillText = record(CanvasRenderingContext2D.prototype.fillText, "fillStyle");
+    pc.strokeText = record(CanvasRenderingContext2D.prototype.strokeText, "strokeStyle");
+    // Opaque fills drawn between two strings hide one from the other (a subtitle plate over the
+    // picture), so record the bounds of filled rectangles and paths as occluders.
+    const P = CanvasRenderingContext2D.prototype;
+    const extend = (pts) => {
+      const b = toBox(pc.getTransform(), pts);
+      path = path ? { x0: Math.min(path.x0, b.x0), y0: Math.min(path.y0, b.y0), x1: Math.max(path.x1, b.x1), y1: Math.max(path.y1, b.y1) } : b;
+    };
+    pc.beginPath = function () {
+      path = null;
+      return P.beginPath.apply(this, arguments);
+    };
+    for (const name of ["moveTo", "lineTo"])
+      pc[name] = function (x, y) {
+        extend([[x, y]]);
+        return P[name].apply(this, arguments);
+      };
+    for (const name of ["rect", "roundRect"])
+      pc[name] = function (x, y, w, h) {
+        extend([[x, y], [x + w, y], [x, y + h], [x + w, y + h]]);
+        return P[name].apply(this, arguments);
+      };
+    pc.arc = function (x, y, r) {
+      extend([[x - r, y - r], [x + r, y + r]]);
+      return P.arc.apply(this, arguments);
+    };
+    const plate = (b, ctx) => {
+      const a = ctx.globalAlpha * styleAlpha(ctx.fillStyle);
+      if (b && a >= 0.85) plates.push({ ...b, order: order++ });
+    };
+    pc.fill = function () {
+      plate(path, this);
+      return P.fill.apply(this, arguments);
+    };
+    pc.fillRect = function (x, y, w, h) {
+      plate(toBox(this.getTransform(), [[x, y], [x + w, y], [x, y + h], [x + w, y + h]]), this);
+      return P.fillRect.apply(this, arguments);
+    };
     const out = [];
     for (const t of times) {
       await loadFrames(missingFrames(t - (film.offset || 0)));
       boxes = [];
+      plates = [];
+      order = 0;
       pc.resetTransform();
       pc.clearRect(0, 0, probe.width, probe.height);
       pc.save();
       window.drawFrame(pc, t, film, view, motion);
       pc.restore();
-      out.push({ t, boxes });
+      out.push({ t, boxes, plates });
     }
-    return { width: canvas.width, height: canvas.height, safe: view.safe, vertical: view.vertical, samples: out };
+    return { width: canvas.width, height: canvas.height, safe: view.safe, vertical: view.vertical, fps: film.fps || 30, samples: out };
   };
   window.__hf = window.__hf || {};
   window.__hf.buildReady = window.__hf.buildReady || {};

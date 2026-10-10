@@ -2,6 +2,8 @@
 // area) for long enough to be read as clipped. The iphone-use promo shipped a landscape cut whose
 // "Scan to connect" callout lost the end of its second line for five seconds (2026-10); only a
 // reviewer looking at full-size frames saw it. This measures every fillText/strokeText instead.
+// The same probe finds two strings drawn over each other: the same promo cross-faded
+// "任何 App，不需要 API" into "一步写入 278 字" in one spot for 0.08 s and shipped to nine platforms.
 import fs from "node:fs";
 import http from "node:http";
 import { createRequire } from "node:module";
@@ -84,6 +86,74 @@ export function overflowRuns(samples, { width, height, safe = null, vertical = f
   return runs.sort((a, b) => a.from - b.from);
 }
 
+const area = (b) => Math.max(0, b.x1 - b.x0) * Math.max(0, b.y1 - b.y0);
+const meet = (a, b) => ({ x0: Math.max(a.x0, b.x0), y0: Math.max(a.y0, b.y0), x1: Math.min(a.x1, b.x1), y1: Math.min(a.y1, b.y1) });
+const covers = (p, b) => p.x0 <= b.x0 + 1 && p.y0 <= b.y0 + 1 && p.x1 >= b.x1 - 1 && p.y1 >= b.y1 - 1;
+
+/**
+ * Pairs of different strings drawn over each other, both clearly visible, for at least `minDur`
+ * seconds. Overlap counts when the shared area is at least `ratio` of the smaller box (stacked
+ * lines of one paragraph touch at most). A string under an opaque fill drawn between the two (a
+ * subtitle plate) is hidden, so that pair does not count; nor does text dimmed below `alpha`.
+ * samples: [{ t, boxes: [{ text, x0, y0, x1, y1, alpha, order }], plates: [{ x0…, order }] }].
+ */
+export function collisionRuns(samples, { alpha = 0.25, ratio = 0.2, minDur = 0.05, gap = 0.15 } = {}) {
+  const open = new Map(),
+    runs = [];
+  const close = (key) => {
+    const r = open.get(key);
+    open.delete(key);
+    if (r.to - r.from + r.dt >= minDur - 1e-6)
+      runs.push({ kind: "collision", text: r.a, other: r.b, from: +r.from.toFixed(3), to: +r.to.toFixed(3), overlap: +r.overlap.toFixed(2) });
+  };
+  for (let i = 0; i < samples.length; i++) {
+    const s = samples[i],
+      dt = i + 1 < samples.length ? samples[i + 1].t - s.t : 0;
+    const vis = s.boxes.filter((b) => (b.alpha ?? 1) >= alpha && area(b) > 0);
+    const seen = new Set();
+    for (let x = 0; x < vis.length; x++)
+      for (let y = x + 1; y < vis.length; y++) {
+        const [a, b] = vis[x].order <= vis[y].order ? [vis[x], vis[y]] : [vis[y], vis[x]];
+        if (a.text === b.text) continue;
+        const m = meet(a, b),
+          shared = area(m);
+        if (m.x1 <= m.x0 || m.y1 <= m.y0) continue;
+        const k = shared / Math.min(area(a), area(b));
+        if (k < ratio) continue;
+        if ((s.plates ?? []).some((p) => p.order > (a.order ?? -1) && p.order < (b.order ?? Infinity) && covers(p, m))) continue;
+        const key = [a.text, b.text].sort().join("\u0000");
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const r = open.get(key);
+        if (r && s.t - r.to <= gap) {
+          r.to = s.t;
+          r.dt = dt;
+          r.overlap = Math.max(r.overlap, k);
+        } else {
+          if (r) close(key);
+          open.set(key, { a: a.text, b: b.text, from: s.t, to: s.t, dt, overlap: k });
+        }
+      }
+    for (const key of [...open.keys()]) if (!seen.has(key)) close(key);
+  }
+  for (const key of [...open.keys()]) close(key);
+  return runs.sort((a, b) => a.from - b.from);
+}
+
+/** Times to re-sample at frame resolution: every interval where the set of visible strings changed. */
+export function transitionTimes(samples, fps, { alpha = 0.25, cap = 4000 } = {}) {
+  const names = (s) => new Set(s.boxes.filter((b) => (b.alpha ?? 1) >= alpha).map((b) => b.text));
+  const out = [];
+  for (let i = 0; i + 1 < samples.length && out.length < cap; i++) {
+    const a = names(samples[i]),
+      b = names(samples[i + 1]);
+    const changed = a.size !== b.size || [...a].some((x) => !b.has(x));
+    if (!changed) continue;
+    for (let t = samples[i].t + 1 / fps; t < samples[i + 1].t - 1e-6; t += 1 / fps) out.push(+t.toFixed(4));
+  }
+  return out;
+}
+
 function serve(dir) {
   const root = path.resolve(dir);
   const server = http.createServer((req, res) => {
@@ -134,10 +204,16 @@ export async function probeText(projDir, duration, { step = 0.1, minRun = 0.3 } 
       all.push(...r.samples);
     }
     if (!meta) return { runs: [], samples: 0 };
+    const runs = overflowRuns(all, { width: meta.width, height: meta.height, safe: meta.safe, vertical: meta.vertical, step, minRun });
+    // Cross-fades are shorter than the sampling step: re-draw every frame where text changes.
+    const fine = transitionTimes(all, meta.fps || 30);
+    const dense = [...all];
+    for (let i = 0; i < fine.length; i += 100) dense.push(...(await page.evaluate((ts) => window.__motionUseTextProbe(ts), fine.slice(i, i + 100))).samples);
+    dense.sort((a, b) => a.t - b.t);
     return {
-      samples: all.length,
+      samples: dense.length,
       step,
-      runs: overflowRuns(all, { width: meta.width, height: meta.height, safe: meta.safe, vertical: meta.vertical, step, minRun }),
+      runs: [...runs, ...collisionRuns(dense, { minDur: Math.max(0.05, 2 / (meta.fps || 30)) })].sort((a, b) => a.from - b.from),
       page_errors: errors.slice(0, 5),
     };
   } catch (e) {
@@ -152,8 +228,10 @@ export async function probeText(projDir, duration, { step = 0.1, minRun = 0.3 } 
 export function describeText(check) {
   if (!check) return [];
   if (check.skipped) return [check.skipped];
-  return check.runs.map(
-    (r) =>
-      `text ${r.kind === "frame" ? "runs off the frame" : "leaves the portrait safe area"} (${r.sides.join("/")}, ${r.overflow_px}px) ${r.from}–${r.to}s: "${r.text.length > 60 ? r.text.slice(0, 57) + "…" : r.text}"`,
+  const q = (s) => `"${s.length > 60 ? s.slice(0, 57) + "…" : s}"`;
+  return check.runs.map((r) =>
+    r.kind === "collision"
+      ? `text drawn over other text ${r.from}–${r.to}s (${Math.round(r.overlap * 100)}% of the smaller box): ${q(r.text)} × ${q(r.other)}`
+      : `text ${r.kind === "frame" ? "runs off the frame" : "leaves the portrait safe area"} (${r.sides.join("/")}, ${r.overflow_px}px) ${r.from}–${r.to}s: ${q(r.text)}`,
   );
 }
