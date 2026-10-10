@@ -2,7 +2,9 @@
 
 六只毛毡小怪物接力推一个白毛线球，放下的线织成 OpenAI 的标志；毛线膨胀成毛绒管、标志立起；熄灯后六色光沿线跑、合成白光；最后闪光灯合影。40 秒，60fps，配乐和音效全部由代码合成。
 
-成片：[../../media/openai-yarn-film.mp4](../../media/openai-yarn-film.mp4) · 导演记录：[DIRECTOR.md](DIRECTOR.md)
+成片：https://github.com/user-attachments/assets/5bf4053f-9243-48cc-b8f2-ecd2dccc7e79
+
+ · 导演记录：[DIRECTOR.md](DIRECTOR.md)
 
 这个示例展示 motion-use 加载本地浏览器打包（`film.json` 的 `libraries`）：`src/scene.js` 是一个 three.js 场景（毛毡 sheen 材质加半透明绒毛壳层、镜面地板、按 shader 控制铺设/膨胀/发光的毛线管、Bloom），每一帧都是时间的纯函数；`composition/draw.js` 把 WebGL 画面合成进 canvas，并画闪光和宝丽来。
 

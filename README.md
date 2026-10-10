@@ -6,7 +6,7 @@ A directed example: [OCS — a message crosses the gap](examples/ocs-film/film.j
 
 **Showcase: yarn relay (three.js).** Six felt monsters relay a ball of white yarn; the thread it pays out draws the OpenAI blossom, puffs into plush rope and stands up; the lights go out, six coloured lights run along the yarn and sum to white; a flash takes the group photo. 40 s at 60 fps, with the score and sound effects synthesised in code. [Source and director notes](examples/openai-yarn-film/).
 
-<video src="media/openai-yarn-film.mp4" controls muted playsinline width="100%"></video>
+https://github.com/user-attachments/assets/5bf4053f-9243-48cc-b8f2-ecd2dccc7e79
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/leeguooooo/motion-use/main/install.sh | sh
