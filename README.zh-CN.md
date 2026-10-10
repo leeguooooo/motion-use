@@ -6,7 +6,7 @@
 
 下面这支推广片就是用 motion-use 自己导演和渲染的：three.js 场景，中文旁白和烧录字幕，配乐用代码合成，102 秒、60fps。[源码和导演记录](examples/motion-use-promo/)。
 
-https://github.com/user-attachments/assets/c133e8a4-83e1-4dd6-b4d8-f2ee1517fc23
+https://github.com/user-attachments/assets/2878c92d-10d5-4577-8cd7-ad5d0d8bd2b5
 
 导演模式示例：[OCS：一条消息跨过间隔](examples/ocs-film/film.json)，附[绘制代码](examples/ocs-film/composition/draw.js)和[导演记录](examples/ocs-film/DIRECTOR.md)。
 

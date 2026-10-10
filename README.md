@@ -6,7 +6,7 @@ Direct a film with your coding agent: plan the action, author exact-time animati
 
 The promo below was directed and rendered with motion-use itself: a three.js scene, Chinese narration with burned-in subtitles, and a score synthesised in code (102 s, 60 fps). [Source and director notes](examples/motion-use-promo/).
 
-https://github.com/user-attachments/assets/c133e8a4-83e1-4dd6-b4d8-f2ee1517fc23
+https://github.com/user-attachments/assets/2878c92d-10d5-4577-8cd7-ad5d0d8bd2b5
 
 A directed example: [OCS — a message crosses the gap](examples/ocs-film/film.json), with its [drawing code](examples/ocs-film/composition/draw.js) and [director notes](examples/ocs-film/DIRECTOR.md).
 
