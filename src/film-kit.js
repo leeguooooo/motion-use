@@ -522,8 +522,9 @@ window.__filmKit = function (view, film) {
     }
     // Subtitles sit at the bottom of the safe area: in portrait that is above the platform's
     // author row and like/comment bar, not at the very bottom of the frame.
-    const safe = view.safe ?? { y: view.height * 0.06, h: view.height * 0.88 };
-    const sub = { y: view.vertical ? (safe.y + safe.h) / view.height - 0.03 : 0.885, size: (view.vertical ? 50 : 50) * unit, weight: 700, color: "#ffffff", plate: "rgba(0,0,0,.55)", maxWidth: view.vertical ? safe.w : view.width * 0.86, ...options };
+    const safe = view.safe ?? { x: view.width * 0.05, y: view.height * 0.06, w: view.width * 0.9, h: view.height * 0.88 };
+    // Centred on the safe area, so a long line never reaches the right-hand action column.
+    const sub = { x: view.vertical ? (safe.x + safe.w / 2) / view.width : 0.5, y: view.vertical ? (safe.y + safe.h) / view.height - 0.03 : 0.885, size: (view.vertical ? 50 : 50) * unit, weight: 700, color: "#ffffff", plate: "rgba(0,0,0,.55)", maxWidth: view.vertical ? safe.w : view.width * 0.86, ...options };
     for (const cue of film.captions ?? []) caption(c, t, cue.text, cue.start, cue.end, sub);
   }
   // Kinetic words: each word enters at its own time (at + i * stagger, or times[i]).
