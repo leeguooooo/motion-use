@@ -4,6 +4,10 @@
 
 让 coding agent 当导演：先规划镜头里的动作，再写按时间精确计算的动画，在本地渲染，最后检查交付的 MP4。支持中英文，横版、竖版和方形，字体和素材都在本地。需要快速出讲解视频时，场景模板仍然可用。
 
+下面这支推广片就是用 motion-use 自己导演和渲染的：three.js 场景，中文旁白和烧录字幕，配乐用代码合成，102 秒、60fps。[源码和导演记录](examples/motion-use-promo/)。
+
+https://github.com/user-attachments/assets/c133e8a4-83e1-4dd6-b4d8-f2ee1517fc23
+
 导演模式示例：[OCS：一条消息跨过间隔](examples/ocs-film/film.json)，附[绘制代码](examples/ocs-film/composition/draw.js)和[导演记录](examples/ocs-film/DIRECTOR.md)。
 
 **案例：毛线接力（three.js）**。六只毛毡小怪物接力推一个白毛线球，放下的线织成 OpenAI 的标志，再膨胀成毛绒管、立起来；熄灯后六色光沿线跑、合成白光，最后闪光灯合影。40 秒、60fps，配乐和音效都用代码合成。[源码和导演记录](examples/openai-yarn-film/)。非官方作品，与 OpenAI 无关联。
