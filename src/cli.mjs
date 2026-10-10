@@ -757,9 +757,9 @@ async function render(o, [briefPath]) {
       if (proj.film && !o["no-text-check"]) {
         textCheck = await probeText(proj.dir, proj.total);
         if (!o.json) for (const line of describeText(textCheck)) console.error(`warning: ${id}: ${line}`);
-        const off = textCheck.runs?.filter((x) => x.kind === "frame") ?? [];
+        const off = textCheck.runs?.filter((x) => x.kind === "frame" || x.kind === "collision") ?? [];
         if (o.gate && off.length)
-          return { ok: false, id, error: `text runs off the frame (--gate): ${describeText({ runs: off }).join("; ")}` };
+          return { ok: false, id, error: `text runs off the frame or over other text (--gate): ${describeText({ runs: off }).join("; ")}` };
       }
       const tmp = path.join(proj.dir, "render.mp4");
       fs.rmSync(tmp, { force: true });
