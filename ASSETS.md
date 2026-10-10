@@ -14,6 +14,12 @@ motion-use's own code is MIT (see `LICENSE`). Everything else it ships or instal
 | `assets/sfx/switch.wav` | "UI Audio - Switch 35" by [kenney.nl](https://kenney.nl), via [@remotion/sfx](https://www.remotion.dev/docs/sfx/ui-switch) | CC0 |
 | `examples/chrome-use/images/browser.svg` | Drawn for this repository | MIT (this repository) |
 
+## Ported methods
+
+`src/film-kit.js` (easing constants, the pulse camera and slam curve, the eight palettes, the whiteboard writing reveal), `src/motion-check.mjs` (motion, blank-frame and blue-purple measurements and their thresholds), `src/breakdown.mjs` (reference breakdown and beat-grid fit), the plucked-string voice in `src/music.mjs`, the shot-plan checks in `src/film.mjs` and the guidance in `references/directing.md` and `references/grammars.md` are adapted from [alchaincyf/huashu-art-motion](https://github.com/alchaincyf/huashu-art-motion) (commit `d861767`), MIT License, Copyright (c) 2026 alchaincyf (花叔 · 花生). The code was rewritten for this project; no files were copied.
+
+`assets/demo-signatures.json` holds 12×8 frame descriptors of the starter and OCS example renders (made by `scripts/demo-signatures.mjs` from this repository's own output, MIT), used only to flag films laid out like the demos.
+
 Background music is not a file: `src/music.mjs` synthesizes an original track to the exact length of each video.
 
 ## In rendered projects and videos

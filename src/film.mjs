@@ -3,13 +3,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { FORMATS, FPS_VALUES, lintCustomHtml } from "./brief.mjs";
-import { claimDir, audioSeconds } from "./build.mjs";
+import { claimDir, audioSeconds, mediaInfo } from "./build.mjs";
+import { execFileSync } from "node:child_process";
 import { writeSubsets, missingGlyphs } from "./fonts.mjs";
-import { writeMusic } from "./music.mjs";
+import { writeMusic, MOOD_NAMES, moodBpm } from "./music.mjs";
 import { esc } from "./html.mjs";
 import { BriefError } from "./brief.mjs";
 import { resolveNarration } from "./film-voiceover.mjs";
 import { buildNarrationStem } from "./verify.mjs";
+import { readVoManifest, estimateCues } from "./voiceover.mjs";
+import crypto from "node:crypto";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const FILM_FORMATS = { ...FORMATS, square: [1440, 1440] };
@@ -159,6 +162,14 @@ export function validateFilm(
         "define window.drawFrame(ctx, time, film, view, motion)",
       );
   }
+  // Editable numbers and series for charts and counters: change one value, the rest stays.
+  if (
+    data.data !== undefined &&
+    (!data.data || typeof data.data !== "object" || Array.isArray(data.data))
+  )
+    error("$.data", "an object of named values and series");
+  else if (data.data !== undefined && JSON.stringify(data.data).length > 100000)
+    error("$.data", "keep data below 100 KB; load larger sets from a file asset");
   if (!data.copy || typeof data.copy !== "object" || Array.isArray(data.copy))
     error("$.copy", "visible text keyed by language, used for font subsetting");
   for (const lang of Array.isArray(data.languages) ? data.languages : []) {
@@ -208,19 +219,41 @@ export function validateFilm(
   });
   if (Math.abs(end - data.duration) > 0.001)
     error("$.shots", "last shot must end at duration");
+  directingChecks(data, shots, error, (p, message) =>
+    warnings.push({ path: p, message }),
+  );
   const music = data.music ?? "none";
   let musicFile = null;
   if (!["builtin", "none"].includes(music)) {
     if (!music || typeof music !== "object" || Array.isArray(music))
-      error("$.music", '"builtin", "none", or {file, volume, bpm}');
-    else {
+      error(
+        "$.music",
+        '"builtin", "none", {builtin: mood, volume, hits} or {file, volume, bpm}',
+      );
+    else if (music.builtin !== undefined) {
+      if (music.file !== undefined)
+        error("$.music", "choose a built-in mood or a file, not both");
+      if (!MOOD_NAMES.includes(music.builtin))
+        error("$.music.builtin", MOOD_NAMES.join(", "));
+      if (music.volume !== undefined && !finite(music.volume, 0, 1))
+        error("$.music.volume", "0–1");
+      if (
+        music.hits !== undefined &&
+        (!Array.isArray(music.hits) ||
+          music.hits.length > 200 ||
+          music.hits.some((x) => !finite(x, 0, data.duration)))
+      )
+        error("$.music.hits", "accent times in seconds within the film");
+    } else {
       musicFile = local(music.file, "$.music.file");
       if (music.volume !== undefined && !finite(music.volume, 0, 1))
         error("$.music.volume", "0–1");
     }
   }
   const bpm =
-    data.bpm ?? (typeof music === "object" ? music?.bpm : undefined) ?? 100;
+    data.bpm ??
+    (typeof music === "object" ? (music?.bpm ?? moodBpm(music?.builtin)) : undefined) ??
+    100;
   if (!finite(bpm, 40, 240))
     error("$.bpm", "40–240; built-in music and the beat grid use the same BPM");
   const tracks = [];
@@ -302,7 +335,49 @@ export function validateFilm(
     const f = local(v, `$.assets.${k}`);
     if (f) fileAssets[k] = f;
   }
-  const glyphs = missingGlyphs(JSON.stringify(data.copy ?? {}));
+  // Footage: frames are extracted at build time for the declared film window, so every
+  // film time maps to one source frame and the page stays a pure function of time.
+  const videos = {};
+  if (
+    data.videos !== undefined &&
+    (!data.videos || typeof data.videos !== "object" || Array.isArray(data.videos))
+  )
+    error("$.videos", "named footage clips: {name: {file, at, from, rate, length, volume}}");
+  let videoFrames = 0;
+  for (const [k, v] of Object.entries(data.videos ?? {})) {
+    const p = `$.videos.${k}`;
+    if (!/^[a-z][a-z0-9-]{0,39}$/i.test(k) || !v || typeof v !== "object")
+      { error(p, "a named clip object"); continue; }
+    if (!/\.(mp4|mov|m4v|webm)$/i.test(v.file ?? "")) error(`${p}.file`, "an MP4, MOV, M4V or WebM file");
+    const f = local(v.file, `${p}.file`);
+    const at = v.at ?? 0,
+      from = v.from ?? 0,
+      rate = v.rate ?? 1;
+    if (!finite(at, 0, data.duration)) error(`${p}.at`, "the film second where the clip starts");
+    if (!finite(from, 0, 86400)) error(`${p}.from`, "seconds into the source");
+    if (!finite(rate, 0.25, 4)) error(`${p}.rate`, "playback speed 0.25–4");
+    if (v.volume !== undefined && !finite(v.volume, 0, 2)) error(`${p}.volume`, "0–2 (default 0: muted)");
+    if (v.volume > 0 && rate !== 1) error(`${p}.volume`, "footage sound plays only at rate 1");
+    if (!f) continue;
+    try {
+      const info = mediaInfo(f),
+        room = Math.max(0, ((info.duration ?? 0) - from) / rate),
+        length = v.length ?? Math.min(room, data.duration - at);
+      if (!finite(length, 0.04, 180) || length > room + 0.05 || at + length > data.duration + 0.05)
+        error(p, "the clip runs past its source or the film; set length or from");
+      else {
+        videoFrames += Math.ceil(length * data.fps);
+        videos[k] = { file: f, at, from, rate, length, volume: v.volume ?? 0, width: info.w, height: info.h, audio: info.audio };
+      }
+    } catch (e) {
+      error(`${p}.file`, e.message);
+    }
+  }
+  if (videoFrames > 5400)
+    error("$.videos", `${videoFrames} footage frames; keep footage under 5400 frames (90 s at 60 fps) per film`);
+  else if (videoFrames > 1800)
+    warnings.push({ path: "$.videos", message: `${videoFrames} footage frames are extracted per language and format (~${Math.round(videoFrames * 0.12)} MB of JPEG in the build folder)` });
+  const glyphs = missingGlyphs(JSON.stringify([data.copy ?? {}, data.data ?? {}]));
   if (glyphs.length)
     error("$.copy", `missing font glyphs: ${glyphs.join(" ")}`);
   const narration = resolveNarration(
@@ -327,6 +402,7 @@ export function validateFilm(
       bpm,
       tracks,
       fileAssets,
+      videos,
       libraries,
       dir,
       fonts: {},
@@ -336,6 +412,139 @@ export function validateFilm(
     },
     shots,
   };
+}
+
+// Shot-plan checks ported from huashu-art-motion's storyboard lint (MIT), mapped onto film.json.
+export const PALETTES = [
+  "paper",
+  "poster",
+  "ink",
+  "navy",
+  "bauhaus",
+  "snow",
+  "wood",
+  "chalk",
+  "whiteboard",
+];
+export const CAMERA_MOVES = [
+  "hold",
+  "push",
+  "pull",
+  "pan",
+  "slam",
+  "whip",
+  "follow",
+  "cut",
+  "drift",
+];
+const FAST_MOVES = new Set(["push", "pull", "pan", "slam", "whip"]);
+const WEAK_ACTION =
+  /(出现|显示|展示|呈现|淡入|淡出|弹出|停留|介绍|逐条|依次)|\b(appears?|shows?|displays?|is shown|fades? (in|out)|pops? up|introduces?|one by one)\b/i;
+const HEX = /^#[0-9a-f]{6}$/i;
+// Hue 225–300°, saturation ≥ .30: the blue-purple band the motion check also measures.
+export function bluePurpleHex(hex) {
+  const n = parseInt(hex.slice(1), 16),
+    r = ((n >> 16) & 255) / 255,
+    g = ((n >> 8) & 255) / 255,
+    b = (n & 255) / 255;
+  const mx = Math.max(r, g, b),
+    d = mx - Math.min(r, g, b);
+  if (!d || d / mx < 0.3 || mx < 0.06 || mx > 0.9) return false;
+  const h =
+    60 *
+    (mx === r ? (((g - b) / d) % 6 + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4);
+  return h >= 225 && h <= 300;
+}
+// One CJK character is one unit; a run of Latin letters or digits is one unit.
+export const textUnits = (s) =>
+  (String(s).match(/[\u2e80-\u9fff\uf900-\ufaff]|[A-Za-z0-9][A-Za-z0-9.%°']*/g) ?? []).length;
+
+function directingChecks(data, shots, error, warn) {
+  const look = data.look;
+  if (look === undefined)
+    warn(
+      "$.look",
+      'lock one style and palette for the whole film: {"style": "...", "palette": "paper"}',
+    );
+  else if (!look || typeof look !== "object" || Array.isArray(look))
+    error("$.look", "{style, palette, character?, allowBluePurple?, allowStatic?}");
+  else {
+    if (typeof look.style !== "string" || !look.style.trim())
+      error("$.look.style", "one sentence naming the single style of the whole film");
+    const pal = look.palette;
+    if (typeof pal === "string") {
+      if (!PALETTES.includes(pal))
+        error("$.look.palette", `a palette name (${PALETTES.join(", ")}) or 3–6 hex colors`);
+    } else if (
+      !Array.isArray(pal) ||
+      pal.length < 3 ||
+      pal.some((c) => typeof c !== "string" || !HEX.test(c))
+    )
+      error("$.look.palette", `a palette name (${PALETTES.join(", ")}) or 3–6 hex colors`);
+    else {
+      if (pal.length > 6)
+        warn("$.look.palette", "more than 6 colors: one accent points at one thing per shot");
+      const bp = pal.filter(bluePurpleHex);
+      if (bp.length && !look.allowBluePurple)
+        error(
+          "$.look.palette",
+          `blue-purple ${bp.join(" ")} reads as the generic AI look; choose another color, or set look.allowBluePurple to the reason the subject needs it`,
+        );
+    }
+    for (const k of ["character", "allowBluePurple", "allowStatic"])
+      if (look[k] !== undefined && (typeof look[k] !== "string" || !look[k].trim()))
+        error(`$.look.${k}`, "non-empty text");
+    if (/(q版|chibi|stick ?figure|火柴人|小人|机器人|robot)/i.test(look.character ?? "") && !/(frames?|帧库|\.png|\/)/i.test(look.character))
+      warn(
+        "$.look.character",
+        "code-drawn mascots and robots read as generic; use generated character frames, hands and silhouettes, or real footage",
+      );
+  }
+  const langs = Array.isArray(data.languages) ? data.languages : [];
+  const textOf = (s) =>
+    s.text === undefined
+      ? []
+      : typeof s.text === "string"
+        ? [s.text]
+        : langs.map((l) => s.text?.[l]).filter((x) => typeof x === "string");
+  const valid = shots.filter((s) => s && typeof s === "object");
+  let textLed = 0;
+  valid.forEach((s, i) => {
+    const p = `$.shots[${i}]`,
+      seconds = s.end - s.start;
+    if (s.camera !== undefined && !CAMERA_MOVES.includes(s.camera))
+      error(`${p}.camera`, CAMERA_MOVES.join(", "));
+    if (s.camera === "drift")
+      warn(`${p}.camera`, "a uniform slow drift reads as a slideshow; hold, then move on an event");
+    if (
+      s.text !== undefined &&
+      typeof s.text !== "string" &&
+      (!s.text || typeof s.text !== "object" || Array.isArray(s.text))
+    )
+      error(`${p}.text`, "on-screen text: a string or a language map");
+    const units = Math.max(0, ...textOf(s).map(textUnits));
+    if (units > 8)
+      warn(`${p}.text`, `${units} units on screen; keep shot text to 8 or fewer and leave the sentence to narration`);
+    const led = units >= 7 || /^(title|text|headline|quote|标题|文字|大字|金句|字卡)/i.test(String(s.action ?? "").trim());
+    if (led) textLed++;
+    if (led && (i === 0 || (i === valid.length - 1 && valid.length > 1)))
+      warn(p, `${i === 0 ? "opening" : "closing"} shot is led by text; ${i === 0 ? "open on an object doing something related to the subject" : "end on the subject doing something, with any words written on objects in the scene"}`);
+    if (typeof s.action === "string" && WEAK_ACTION.test(s.action))
+      warn(`${p}.action`, "presentation verbs (appear, show, fade in, 出现, 展示…) describe slides; say what the object itself does");
+    if (Number.isFinite(seconds) && valid.length > 1) {
+      if (seconds > 8 && !s.holdReason)
+        warn(p, `${+seconds.toFixed(2)}s shot: split it, or record why it holds in holdReason`);
+      else if (seconds < 1)
+        warn(p, `${+seconds.toFixed(2)}s shot: too short to read unless it is a deliberate flash`);
+    }
+    if (i >= 2 && s.camera && s.camera === valid[i - 1].camera && s.camera === valid[i - 2].camera && s.camera !== "cut")
+      warn(`${p}.camera`, `three "${s.camera}" shots in a row; vary the framing or camera move`);
+  });
+  if (valid.length >= 4 && textLed / valid.length > 0.3)
+    warn("$.shots", `${textLed} of ${valid.length} shots are led by text; keep it to 30% or less`);
+  const cams = valid.map((s) => s.camera).filter(Boolean);
+  if (cams.length === valid.length && valid.length >= 3 && !cams.some((c) => FAST_MOVES.has(c)))
+    warn("$.shots", "no push, pan, slam or whip anywhere: move on events instead of drifting");
 }
 
 export function checkFilm(input, o = {}) {
@@ -434,7 +643,30 @@ export function initFilm(o, dir) {
   return { ok: true, film: target, composition: draw, director, mode: "film" };
 }
 
-export async function buildFilm(film, lang, format, outDir) {
+// Subtitles for the narration actually placed in this language: cues timed by the voice
+// service when the clip still matches its manifest entry, otherwise estimated per sentence.
+export function filmCaptions(film, lang, voiceTracks) {
+  const dir = film.narrationConfig?.dir,
+    manifest = dir ? readVoManifest(dir) : {},
+    out = [];
+  for (const track of voiceTracks) {
+    const plan = (film.narrationPlans ?? []).find((p) => p.id === track.id),
+      text = plan?.narration?.[lang];
+    if (!text) continue; // an imported recording without a script has no subtitles
+    const rec = dir ? manifest[path.relative(dir, track.file)] : null,
+      current =
+        rec?.cues &&
+        rec.text === text &&
+        rec.sha === crypto.createHash("sha256").update(fs.readFileSync(track.file)).digest("hex");
+    if (current)
+      for (const c of rec.cues)
+        out.push({ text: c.text, start: +(track.start + c.start).toFixed(3), end: +(track.start + Math.min(c.end, track.length)).toFixed(3) });
+    else out.push(...estimateCues(text, track.start, track.start + track.length));
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
+export async function buildFilm(film, lang, format, outDir, { range = null } = {}) {
   claimDir(outDir);
   const [w, h] = FILM_FORMATS[format],
     fmt = { w, h, vertical: h > w, name: format };
@@ -455,9 +687,31 @@ export async function buildFilm(film, lang, format, outDir) {
     fs.copyFileSync(file, path.join(outDir, rel));
     assets[key] = rel;
   }
+  const videos = {};
+  for (const [key, v] of Object.entries(film.videos ?? {})) {
+    if (range && (v.at >= range.to || v.at + v.length <= range.from)) continue;
+    const dir = path.join(outDir, "assets", "video", key);
+    fs.mkdirSync(dir, { recursive: true });
+    // Output frame k (film time at + k/fps) shows source time from + k·rate/fps.
+    const scale = Math.min(1, Math.max(w, h) / Math.max(v.width, v.height));
+    execFileSync(
+      "ffmpeg",
+      ["-v", "error", "-y", "-ss", String(v.from), "-t", String(v.length * v.rate), "-i", v.file,
+        "-vf", `fps=${film.fps / v.rate},scale=${Math.round((v.width * scale) / 2) * 2}:-2`, "-q:v", "3", "-start_number", "0",
+        path.join(dir, "%05d.jpg")],
+      { stdio: ["ignore", "ignore", "pipe"] },
+    );
+    const frames = fs.readdirSync(dir).filter((f) => f.endsWith(".jpg")).length;
+    if (!frames) throw new Error(`no frames could be read from ${v.file}`);
+    videos[key] = { dir: `assets/video/${key}`, at: v.at, length: v.length, frames, fps: film.fps };
+  }
   const fontDir = path.join(outDir, "assets", "fonts");
   const fontSizes = await writeSubsets(
-    JSON.stringify(film.copy) + fs.readFileSync(film.source, "utf8"),
+    // The kit draws characters of its own (e.g. "−" and "," in count()).
+    JSON.stringify(film.copy) +
+      JSON.stringify(film.data ?? {}) +
+      fs.readFileSync(film.source, "utf8") +
+      fs.readFileSync(path.join(ROOT, "src", "film-kit.js"), "utf8"),
     fontDir,
   );
   for (const f of fs
@@ -467,14 +721,18 @@ export async function buildFilm(film, lang, format, outDir) {
       path.join(ROOT, "assets", "fonts", f),
       path.join(fontDir, f),
     );
+  // A range preview is silent: it checks picture and timing, not the mix.
   const audio = [],
-    selectedTracks = film.tracks.filter((a) => !a.lang || a.lang === lang);
-  if (film.music !== "none" && film.music !== undefined) {
+    selectedTracks = range ? [] : film.tracks.filter((a) => !a.lang || a.lang === lang);
+  if (!range && film.music !== "none" && film.music !== undefined) {
     let rel = "assets/audio/music.wav";
-    if (film.music === "builtin")
-      writeMusic(path.join(outDir, rel), "promo", film.duration, {
-        bpm: film.bpm,
-      });
+    if (film.music === "builtin" || film.music.builtin)
+      writeMusic(
+        path.join(outDir, rel),
+        film.music.builtin ?? "promo",
+        film.duration,
+        { bpm: film.bpm, hits: film.music.hits ?? [] },
+      );
     else {
       rel = `assets/audio/music${path.extname(film.musicFile)}`;
       fs.copyFileSync(film.musicFile, path.join(outDir, rel));
@@ -517,6 +775,16 @@ export async function buildFilm(film, lang, format, outDir) {
       `<audio id="film-audio-${i}" src="${rel}" data-start="${a.start}" data-media-start="${a.offset}" data-duration="${a.length}" data-volume="${a.volume}" data-fade-in="0.015" data-fade-out="0.03" data-track-index="${11 + i}"></audio>`,
     );
   });
+  // Footage sound, when asked for, is extracted once and placed like any other clip.
+  if (!range)
+    for (const [key, v] of Object.entries(film.videos ?? {})) {
+      if (!(v.volume > 0) || !v.audio) continue;
+      const rel = `assets/audio/video-${key}.wav`;
+      execFileSync("ffmpeg", ["-v", "error", "-y", "-ss", String(v.from), "-t", String(v.length), "-i", v.file, "-vn", "-ac", "2", "-ar", "48000", path.join(outDir, rel)], { stdio: ["ignore", "ignore", "pipe"] });
+      audio.push(
+        `<audio id="film-video-${esc(key)}" src="${rel}" data-start="${v.at}" data-duration="${v.length}" data-volume="${v.volume}" data-fade-in="0.015" data-fade-out="0.05" data-track-index="${60 + Object.keys(film.videos).indexOf(key)}"></audio>`,
+      );
+    }
   const voiceTracks = selectedTracks.filter((a) => a.role === "voiceover");
   const narrationStem = voiceTracks.length
     ? path.join(outDir, "assets", "audio", "narration-stem.wav")
@@ -524,6 +792,7 @@ export async function buildFilm(film, lang, format, outDir) {
   if (narrationStem)
     buildNarrationStem(voiceTracks, film.duration, narrationStem);
   const config = {
+    captions: filmCaptions(film, lang, voiceTracks),
     name: film.name,
     duration: film.duration,
     fps: film.fps,
@@ -533,19 +802,28 @@ export async function buildFilm(film, lang, format, outDir) {
     copy: film.copy[lang],
     shots: film.shots,
     motionBlur: film.motionBlur ?? { samples: 1, shutter: 0 },
+    look: film.look ?? null,
+    data: film.data ?? {},
+    offset: range ? range.from : 0,
+    videos,
     assets,
   };
   fs.writeFileSync(
     path.join(outDir, "runtime.js"),
     fs.readFileSync(path.join(ROOT, "src", "film-runtime.js")),
   );
+  fs.copyFileSync(
+    path.join(ROOT, "src", "film-kit.js"),
+    path.join(outDir, "kit.js"),
+  );
   fs.writeFileSync(
     path.join(outDir, "index.html"),
-    `<!doctype html><html lang="${esc(lang)}"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'"><title>${esc(film.name)}</title><style>@font-face{font-family:Film Sans;src:url(assets/fonts/sans.woff2);font-weight:100 900}@font-face{font-family:Film Mono;src:url(assets/fonts/mono.woff2);font-weight:100 800}html,body{margin:0;background:#151515}#root{width:100%;height:100%;overflow:hidden}canvas{display:block;width:100%;height:100%}</style></head><body><div id="root" data-composition-id="main" data-no-timeline data-width="${w}" data-height="${h}" data-duration="${film.duration}"><canvas id="film-canvas" width="${w}" height="${h}"></canvas>${audio.join("")}</div><script id="film-config" type="application/json">${JSON.stringify(config).replace(/</g, "\\u003c")}</script>${scripts}<script src="composition/draw.js"></script><script src="runtime.js"></script></body></html>`,
+    `<!doctype html><html lang="${esc(lang)}"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'"><title>${esc(film.name)}</title><style>@font-face{font-family:Film Sans;src:url(assets/fonts/sans.woff2);font-weight:100 900}@font-face{font-family:Film Mono;src:url(assets/fonts/mono.woff2);font-weight:100 800}html,body{margin:0;background:#151515}#root{width:100%;height:100%;overflow:hidden}canvas{display:block;width:100%;height:100%}</style></head><body><div id="root" data-composition-id="main" data-no-timeline data-width="${w}" data-height="${h}" data-duration="${range ? range.to - range.from : film.duration}"><canvas id="film-canvas" width="${w}" height="${h}"></canvas>${audio.join("")}</div><script id="film-config" type="application/json">${JSON.stringify(config).replace(/</g, "\\u003c")}</script>${scripts}<script src="kit.js"></script><script src="composition/draw.js"></script><script src="runtime.js"></script></body></html>`,
   );
   return {
+    range,
     fmt,
-    total: film.duration,
+    total: range ? range.to - range.from : film.duration,
     fps: film.fps,
     dir: outDir,
     fontSizes,

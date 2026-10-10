@@ -4,7 +4,6 @@
   "name": "my-film",
   "duration": 18,
   "fps": 60,
-  "bpm": 100,
   "languages": [
     "zh",
     "en"
@@ -14,43 +13,45 @@
     "vertical"
   ],
   "composition": "composition/draw.js",
-  "music": "builtin",
+  "look": {
+    "style": "Warm paper, flat shapes, one hand-drawn line weight",
+    "palette": "paper",
+    "character": "none"
+  },
+  "music": {
+    "builtin": "pulse",
+    "hits": [
+      4.62,
+      10,
+      14.52
+    ]
+  },
   "motionBlur": {
     "samples": 4,
     "shutter": 0.5
   },
   "copy": {
     "zh": {
-      "problem": "从问题开始。",
-      "problemNote": "用一个看得见的动作，讲清楚它。",
-      "send": "行动发生。",
+      "problem": "两个东西，中间隔着一道缝。",
+      "send": "一个动作，跨过去。",
       "message": "一个信号",
-      "result": "结果出现。",
-      "network": "让变化继续。",
+      "result": "对面有了回应。",
+      "network": "然后，更多的连接。",
       "brand": "YOUR FILM",
-      "promise": "为这个故事设计运动。",
-      "cta": "替换这份示范，写你自己的镜头。",
+      "promise": "把这份示范换成你自己的镜头。",
       "a": "输入",
-      "b": "结果",
-      "c": "变化",
-      "d": "下一步",
-      "note": "自由创作起点 · 请改写镜头和文案"
+      "b": "结果"
     },
     "en": {
-      "problem": "Start with a problem.",
-      "problemNote": "Show it through an action.",
-      "send": "Make it happen.",
+      "problem": "Two things, one gap.",
+      "send": "One action crosses it.",
       "message": "A signal",
-      "result": "Show the result.",
-      "network": "Keep it moving.",
+      "result": "The other side answers.",
+      "network": "Then more connections.",
       "brand": "YOUR FILM",
-      "promise": "Motion made for this story.",
-      "cta": "Replace this study with your own film.",
+      "promise": "Replace this study with your own shots.",
       "a": "INPUT",
-      "b": "RESULT",
-      "c": "CHANGE",
-      "d": "NEXT",
-      "note": "A drawing study, not a finished product ad"
+      "b": "RESULT"
     }
   },
   "shots": [
@@ -59,55 +60,60 @@
       "start": 0,
       "end": 3,
       "purpose": "Show the initial tension",
-      "action": "Two separate objects drift toward each other but cannot connect",
+      "action": "The sender strains toward a receiver across a dashed gap; the camera pushes in on it",
       "narration": {
-        "zh": "先看清问题。",
-        "en": "Start with a problem."
-      }
+        "zh": "两个东西，隔着一道缝。",
+        "en": "Two things, and a gap between them."
+      },
+      "camera": "push"
     },
     {
       "id": "signal",
       "start": 3,
       "end": 6,
       "purpose": "Introduce an action that changes the situation",
-      "action": "The left object expands into a message and travels across the gap",
+      "action": "The sender throws a message pill; the camera pans with it across the gap",
       "narration": {
-        "zh": "一个动作，让变化发生。",
-        "en": "Let an action change it."
-      }
+        "zh": "一个动作，跨过去。",
+        "en": "One action crosses it."
+      },
+      "camera": "pan"
     },
     {
       "id": "response",
       "start": 6,
       "end": 10,
       "purpose": "Show the visible consequence",
-      "action": "The message lands; a response radiates from the receiving object",
+      "action": "The pill hits the receiver, which recoils; a reply line is drawn back by a pen",
       "narration": {
-        "zh": "结果，比解释更直观。",
-        "en": "Show the result."
-      }
+        "zh": "对面有了回应。",
+        "en": "The other side answers."
+      },
+      "camera": "slam"
     },
     {
       "id": "expand",
       "start": 10,
       "end": 14,
       "purpose": "Reveal the wider system",
-      "action": "The camera pulls back while the same objects form a working network",
+      "action": "The camera pulls back as five neighbours draw their links to the receiver",
       "narration": {
-        "zh": "让画面跟着故事走。",
-        "en": "Follow the story with motion."
-      }
+        "zh": "然后，连接越来越多。",
+        "en": "Then the connections multiply."
+      },
+      "camera": "pull"
     },
     {
       "id": "brand",
       "start": 14,
       "end": 18,
       "purpose": "Resolve the motif into the identity",
-      "action": "The network contracts into a mark; the wordmark takes over the frame",
+      "action": "The network folds into the receiver; a pen writes the name onto it and underlines it",
       "narration": {
-        "zh": "这是你自己的影片。",
-        "en": "Make the film your own."
-      }
+        "zh": "最后，写上你自己的名字。",
+        "en": "Then write your own name on it."
+      },
+      "camera": "slam"
     }
   ],
   "voiceover": {

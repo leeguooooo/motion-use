@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "kind": "film",
+  "name": "data-story",
+  "duration": 14,
+  "fps": 30,
+  "languages": [
+    "en",
+    "zh"
+  ],
+  "formats": [
+    "landscape",
+    "vertical"
+  ],
+  "composition": "composition/draw.js",
+  "look": {
+    "style": "Economist-style chart on cool paper: one red rule, one highlighted series, everything else grey",
+    "palette": [
+      "#E9EEF0",
+      "#1F2A30",
+      "#E3120B",
+      "#006BA2",
+      "#5E6B72",
+      "#FFFFFF"
+    ],
+    "character": "none"
+  },
+  "music": {
+    "builtin": "pulse",
+    "volume": 0.5,
+    "hits": [
+      7.2,
+      10.6
+    ]
+  },
+  "data": {
+    "bytes": [
+      {
+        "label": {
+          "en": "OCS film",
+          "zh": "OCS 短片"
+        },
+        "value": 7911
+      },
+      {
+        "label": {
+          "en": "Starter",
+          "zh": "起手模板"
+        },
+        "value": 7008
+      },
+      {
+        "label": {
+          "en": "Starter, with the kit",
+          "zh": "起手模板（工具包）"
+        },
+        "value": 3053
+      }
+    ]
+  },
+  "copy": {
+    "en": {
+      "title": "The same film, 56% less code",
+      "unit": "Bytes of drawing code (draw.js)",
+      "source": "Measured in this repository, 2026-10-10",
+      "hand": "written by hand",
+      "kit": "with the drawing kit",
+      "same": "Same picture. Same green light."
+    },
+    "zh": {
+      "title": "同一支片子，代码少了 56%",
+      "unit": "绘图代码字节数（draw.js）",
+      "source": "本仓库实测，2026-10-10",
+      "hand": "全部手写",
+      "kit": "用上绘图工具包",
+      "same": "画面不变，门禁照样绿灯。"
+    }
+  },
+  "shots": [
+    {
+      "id": "bars",
+      "start": 0,
+      "end": 3.5,
+      "camera": "hold",
+      "text": {
+        "en": "Bytes of code",
+        "zh": "代码字节数"
+      },
+      "purpose": "Show what a film costs to write",
+      "action": "Three bars grow from the baseline, one after another",
+      "narration": {
+        "en": "What does a film cost to write?",
+        "zh": "写一支片子，要多少代码？"
+      }
+    },
+    {
+      "id": "hand",
+      "start": 3.5,
+      "end": 7,
+      "camera": "push",
+      "text": {
+        "en": "7,008",
+        "zh": "7,008"
+      },
+      "purpose": "Point at the hand-written starter",
+      "action": "The camera pushes in on the starter bar; a callout pins its size",
+      "narration": {
+        "en": "The starter took seven thousand bytes.",
+        "zh": "起手模板，七千字节。"
+      }
+    },
+    {
+      "id": "shrink",
+      "start": 7,
+      "end": 10.5,
+      "camera": "slam",
+      "text": {
+        "en": "3,053",
+        "zh": "3,053"
+      },
+      "purpose": "Show the change",
+      "action": "The starter bar drops to the kit version while its number rolls down",
+      "narration": {
+        "en": "With the kit, three thousand.",
+        "zh": "用上工具包，三千。"
+      }
+    },
+    {
+      "id": "result",
+      "start": 10.5,
+      "end": 14,
+      "camera": "pull",
+      "text": {
+        "en": "−56%",
+        "zh": "−56%"
+      },
+      "purpose": "Land the result",
+      "action": "The camera pulls back; minus fifty-six percent stamps beside the shrunken bar",
+      "narration": {
+        "en": "Same picture, less to write.",
+        "zh": "画面不变，少写一半。"
+      }
+    }
+  ],
+  "voiceover": {
+    "dir": "voiceover"
+  }
+}

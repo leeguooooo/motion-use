@@ -75,6 +75,50 @@
       c.stroke();
     },
   };
+  // The drawing kit only adds names; the original helpers above keep their exact behavior.
+  if (typeof window.__filmKit === "function")
+    for (const [key, value] of Object.entries(window.__filmKit(view, film)))
+      if (!Object.hasOwn(motion, key)) motion[key] = value;
+  // Footage frames were extracted at build time; each sample time maps to one JPEG.
+  const frameCache = new Map();
+  const frameSrc = (v, time) => {
+    const k = Math.floor((time - v.at) * v.fps + 1e-6);
+    if (k < 0 || time >= v.at + v.length) return null;
+    return `${v.dir}/${String(Math.min(k, v.frames - 1)).padStart(5, "0")}.jpg`;
+  };
+  motion.video = (name, time) => {
+    const v = film.videos?.[name];
+    if (!v) throw new Error(`video "${name}" is not declared under film.json videos`);
+    const src = frameSrc(v, time);
+    return src ? (frameCache.get(src) ?? null) : null;
+  };
+  const sampleTimes = (time) => {
+    const { samples, shutter } = film.motionBlur;
+    return Array.from({ length: samples }, (_, i) =>
+      Math.max(0, time - (((samples - i - 0.5) / samples) * shutter) / film.fps),
+    );
+  };
+  const missingFrames = (time) => {
+    const at = Math.max(0, Math.min(film.duration, (Number(time) || 0) + (film.offset || 0)));
+    const srcs = new Set();
+    for (const v of Object.values(film.videos ?? {}))
+      for (const s of sampleTimes(at)) {
+        const src = frameSrc(v, s);
+        if (src && !frameCache.has(src)) srcs.add(src);
+      }
+    return [...srcs];
+  };
+  const loadFrames = (srcs) =>
+    Promise.all(
+      srcs.map(async (src) => {
+        const image = new Image();
+        image.src = src;
+        await image.decode();
+        frameCache.set(src, image);
+        // Keep a small window: workers seek forward, and blur needs only neighbours.
+        if (frameCache.size > 24) frameCache.delete(frameCache.keys().next().value);
+      }),
+    );
   const layer = document.createElement("canvas");
   layer.width = canvas.width;
   layer.height = canvas.height;
@@ -82,7 +126,11 @@
   let ready = false,
     requested = 0;
   function renderAt(time) {
-    requested = Math.max(0, Math.min(film.duration, Number(time) || 0));
+    // A range preview renders a window of the film: page time 0 is film time `offset`.
+    requested = Math.max(
+      0,
+      Math.min(film.duration, (Number(time) || 0) + (film.offset || 0)),
+    );
     if (!ready) return;
     const { samples, shutter } = film.motionBlur;
     ctx.resetTransform();
@@ -104,6 +152,12 @@
     ctx.globalAlpha = 1;
   }
   window.addEventListener("hf-seek", (event) => {
+    const need = ready ? missingFrames(event.detail.time) : [];
+    if (need.length) {
+      const done = loadFrames(need).then(() => renderAt(event.detail.time));
+      if (event.detail.waitUntil) event.detail.waitUntil(done);
+      return;
+    }
     try {
       renderAt(event.detail.time);
     } catch (error) {
@@ -137,6 +191,7 @@
     if (typeof window.setupFilm === "function")
       await window.setupFilm(film, view, motion);
     ready = true;
-    renderAt(requested);
+    await loadFrames(missingFrames(requested - (film.offset || 0)));
+    renderAt(requested - (film.offset || 0));
   })();
 })();

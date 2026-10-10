@@ -1,0 +1,129 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import vm from "node:vm";
+import { test } from "node:test";
+import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
+import { parseSrt, estimateCues } from "../src/voiceover.mjs";
+import { initFilm, validateFilm, filmCaptions } from "../src/film.mjs";
+import { demoSimilarity } from "../src/motion-check.mjs";
+
+// A canvas stand-in that accepts every call; enough to run helpers headless.
+const stubCanvas = () => {
+  const calls = [];
+  const ctx = new Proxy(
+    { calls, measureText: (s) => ({ width: String(s).length * 10 }), createPattern: () => ({}), createRadialGradient: () => ({ addColorStop() {} }) },
+    { get: (o, k) => (k in o ? o[k] : (...a) => calls.push([k, ...a])), set: (o, k, v) => ((o[k] = v), true) },
+  );
+  return ctx;
+};
+const kit = (film = {}) => {
+  const ctx = { window: {} };
+  vm.runInNewContext(fs.readFileSync(new URL("../src/film-kit.js", import.meta.url), "utf8"), ctx);
+  return ctx.window.__filmKit({ width: 1920, height: 1080 }, film);
+};
+
+test("subtitle cues come from the voice service's SRT, or are estimated per sentence", () => {
+  const cues = parseSrt("1\n00:00:00,050 --> 00:00:02,175\nTwo things.\n\n2\n00:00:02,175 --> 00:00:03,662\nOne action.\n");
+  assert.deepEqual(cues, [
+    { text: "Two things.", start: 0.05, end: 2.175 },
+    { text: "One action.", start: 2.175, end: 3.662 },
+  ]);
+  const est = estimateCues("两个东西，隔着一道缝。一个动作，跨过去。", 1, 5);
+  assert.equal(est.length, 2);
+  assert.equal(est[0].start, 1);
+  assert.equal(est.at(-1).end, 5);
+  assert.ok(est.every((c) => c.estimated));
+  // Long sentences break at commas so a subtitle stays readable.
+  assert.ok(estimateCues("This is a deliberately long sentence, with a clause, and another clause after it.", 0, 4).length > 1);
+});
+
+test("film captions use stored cues only while the clip still matches its script", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mu-cap-"));
+  const vo = path.join(dir, "voiceover"),
+    file = path.join(vo, "en", "a.mp3");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, "audio");
+  const film = { narrationConfig: { dir: vo }, narrationPlans: [{ id: "a", narration: { en: "Hello there. Bye." } }] };
+  const track = { id: "a", file, start: 2, length: 3 };
+  const write = (text) =>
+    fs.writeFileSync(path.join(vo, ".motion-use-voiceover.json"), JSON.stringify({ [path.join("en", "a.mp3")]: { text, sha: crypto.createHash("sha256").update("audio").digest("hex"), cues: [{ text: "Hello there. Bye.", start: 0.1, end: 2.5 }] } }));
+  write("Hello there. Bye.");
+  assert.deepEqual(filmCaptions(film, "en", [track]), [{ text: "Hello there. Bye.", start: 2.1, end: 4.5 }]);
+  write("An older script.");
+  const est = filmCaptions(film, "en", [track]);
+  assert.ok(est.length === 2 && est.every((c) => c.estimated) && est[0].start === 2 && est[1].end === 5);
+});
+
+test("footage clips are validated against their source and the film", () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "mu-video-"));
+  initFilm({ lang: "en", format: "landscape" }, d);
+  const data = JSON.parse(fs.readFileSync(path.join(d, "film.json"), "utf8"));
+  data.voiceover = false;
+  execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=320x180:r=30:d=4", "-pix_fmt", "yuv420p", path.join(d, "clip.mp4")]);
+  data.videos = { clip: { file: "clip.mp4", at: 2, from: 1, rate: 1.5 } };
+  const ok = validateFilm(data, d);
+  assert.deepEqual(ok.errors, []);
+  assert.equal(+ok.film.videos.clip.length.toFixed(3), 2, "(4 − 1) s of source at 1.5× is 2 film seconds");
+  data.videos.clip.volume = 0.5;
+  assert.ok(validateFilm(data, d).errors.some((e) => /rate 1/.test(e.message)));
+  data.videos = { clip: { file: "clip.mp4", at: 17, length: 3 } };
+  assert.ok(validateFilm(data, d).errors.some((e) => e.path === "$.videos.clip"));
+  data.videos = { clip: { file: "missing.mp4" } };
+  assert.ok(validateFilm(data, d).errors.some((e) => e.path === "$.videos.clip.file"));
+});
+
+test("composed helpers accept compact camera tuples and read numbers from film.data", () => {
+  const k = kit({ data: { riders: 4200 }, look: { palette: "ink" } });
+  const c = stubCanvas();
+  const cam = k.shoot(c, 5, [[1, "push", [400, 300], 0.25], [2, "slam"]], () => {});
+  assert.ok(Math.abs(cam.z - 1.25) < 1e-9 && cam.x === 400);
+  assert.deepEqual(c.calls.map((x) => x[0]).slice(0, 2), ["save", "translate"]);
+  const c2 = stubCanvas();
+  k.counter(c2, 9, [960, 540], { value: "riders", at: 1 });
+  assert.ok(c2.calls.some((x) => x[0] === "fillText" && x[1] === "4,200"));
+  const c3 = stubCanvas();
+  k.counter(c3, 0.5, [960, 540], { value: "riders", at: 1 });
+  assert.equal(c3.calls.length, 0, "nothing before its time");
+  for (const draw of [
+    (c) => k.chart(c, 2, { data: [{ label: "A", value: 3 }, { label: "B", value: 5 }], highlight: "B" }),
+    (c) => k.callout(c, 2, [100, 100], "Peak", { at: 1, sub: "Thu" }),
+    (c) => k.words(c, 2, "Change one number", [960, 540], { at: 1, emphasis: ["number"] }),
+    (c) => k.stamp(c, 2, "LIVE", [960, 540], { at: 1.9 }),
+    (c) => k.spotlight(c, 2, [10, 10, 100, 100], { at: 1 }),
+    (c) => k.cursor(c, 2, [[0, 0, 0], [3, 100, 100]], { clicks: [1.95] }),
+    (c) => k.captions(c, 2, [["Title", 1, 3]]),
+    (c) => k.vignette(c),
+  ]) {
+    const s = stubCanvas();
+    assert.doesNotThrow(() => draw(s));
+    assert.ok(s.calls.length > 0);
+  }
+  assert.throws(() => k.cover(stubCanvas(), "nope"), /declare it under film.json assets/);
+});
+
+test("a film that is not the demo does not match the demo signatures", () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "mu-sim-"));
+  const file = path.join(d, "bars.mp4");
+  execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "smptebars=s=640x360:r=30:d=3", "-pix_fmt", "yuv420p", file]);
+  const demos = JSON.parse(fs.readFileSync(new URL("../assets/demo-signatures.json", import.meta.url), "utf8"));
+  assert.ok(demos.some((x) => x.name === "starter" && x.orientation === "landscape"));
+  assert.equal(demoSimilarity(file, demos).share, 0);
+});
+
+test("following a demo in order is flagged even re-coloured; a static look-alike is not", async () => {
+  const { frameSignatures } = await import("../src/motion-check.mjs");
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "mu-sim2-"));
+  const make = (name, filter) => {
+    const f = path.join(d, name);
+    execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", filter, "-t", "8", "-pix_fmt", "yuv420p", f]);
+    return f;
+  };
+  const demo = make("demo.mp4", "testsrc2=s=640x360:r=30,scroll=h=0.02");
+  const demos = [{ name: "demo", ...frameSignatures(demo) }];
+  assert.equal(demoSimilarity(demo, demos).share, 1);
+  assert.equal(demoSimilarity(make("inverted.mp4", "testsrc2=s=640x360:r=30,scroll=h=0.02,negate"), demos).share, 1, "a re-skin with inverted brightness is still the same layout");
+  assert.equal(demoSimilarity(make("still.mp4", "testsrc2=s=640x360:r=30,trim=end_frame=1,loop=-1:1,setpts=N/30/TB"), demos).share, 0, "one frame repeated never advances through the demo");
+});

@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "kind": "film",
+  "name": "kinetic",
+  "duration": 12,
+  "fps": 30,
+  "languages": [
+    "en",
+    "zh"
+  ],
+  "formats": [
+    "landscape",
+    "vertical"
+  ],
+  "composition": "composition/draw.js",
+  "look": {
+    "style": "Kinetic type poster: one heavy word at a time, flat yellow and navy chapters, nothing moves after it lands",
+    "palette": "poster",
+    "character": "none"
+  },
+  "music": {
+    "builtin": "chiptune",
+    "volume": 0.45,
+    "hits": [
+      0.4,
+      3.0,
+      5.6,
+      10.9
+    ]
+  },
+  "copy": {
+    "en": {
+      "hold": "HOLD",
+      "push": "PUSH",
+      "slam": "SLAM",
+      "holdSub": "a still frame is fine",
+      "pushSub": "0.28 seconds closer",
+      "slamSub": "0.17 seconds",
+      "not": "Not a",
+      "slideshow": "slideshow"
+    },
+    "zh": {
+      "hold": "停",
+      "push": "推",
+      "slam": "砸",
+      "holdSub": "停住也可以",
+      "pushSub": "0.28 秒推近",
+      "slamSub": "0.17 秒砸入",
+      "not": "不是",
+      "slideshow": "幻灯片"
+    }
+  },
+  "shots": [
+    {
+      "id": "hold",
+      "start": 0,
+      "end": 2.6,
+      "camera": "hold",
+      "text": {
+        "en": "HOLD",
+        "zh": "停"
+      },
+      "purpose": "Name the first beat",
+      "action": "HOLD slams onto yellow and stays dead still",
+      "narration": {
+        "en": "Hold.",
+        "zh": "停住。"
+      }
+    },
+    {
+      "id": "push",
+      "start": 2.6,
+      "end": 5.2,
+      "camera": "push",
+      "text": {
+        "en": "PUSH",
+        "zh": "推"
+      },
+      "purpose": "Show the push",
+      "action": "The camera snaps 28% closer onto PUSH in 0.28 seconds",
+      "narration": {
+        "en": "Push, fast.",
+        "zh": "快速推近。"
+      }
+    },
+    {
+      "id": "slam",
+      "start": 5.2,
+      "end": 8.2,
+      "camera": "slam",
+      "text": {
+        "en": "SLAM",
+        "zh": "砸"
+      },
+      "purpose": "Show the slam",
+      "action": "SLAM crashes in on navy and the frame shakes once",
+      "narration": {
+        "en": "Slam, then hold again.",
+        "zh": "砸进来，再停住。"
+      }
+    },
+    {
+      "id": "not",
+      "start": 8.2,
+      "end": 12,
+      "camera": "cut",
+      "text": {
+        "en": "Not a slideshow",
+        "zh": "不是幻灯片"
+      },
+      "purpose": "Pay off",
+      "action": "Words rise in turn and a red stroke crosses out slideshow",
+      "narration": {
+        "en": "That is a film, not a slideshow.",
+        "zh": "这是电影，不是幻灯片。"
+      }
+    }
+  ],
+  "voiceover": {
+    "dir": "voiceover"
+  }
+}

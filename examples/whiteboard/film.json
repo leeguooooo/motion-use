@@ -1,0 +1,112 @@
+{
+  "version": 1,
+  "kind": "film",
+  "name": "whiteboard",
+  "duration": 15,
+  "fps": 30,
+  "languages": [
+    "en",
+    "zh"
+  ],
+  "formats": [
+    "landscape",
+    "vertical"
+  ],
+  "composition": "composition/draw.js",
+  "look": {
+    "style": "RSA-style whiteboard: black marker, one orange, a pen that writes while the voice speaks",
+    "palette": "whiteboard",
+    "character": "the marker pen only"
+  },
+  "music": {
+    "builtin": "pentatonic",
+    "volume": 0.4
+  },
+  "copy": {
+    "en": {
+      "code": "draw.js",
+      "frames": "frames",
+      "mp4": "MP4",
+      "lights": "lights",
+      "watch": "a person watches",
+      "fn": "f(time)"
+    },
+    "zh": {
+      "code": "draw.js",
+      "frames": "逐帧",
+      "mp4": "MP4",
+      "lights": "指标",
+      "watch": "有人看过",
+      "fn": "f(时间)"
+    }
+  },
+  "shots": [
+    {
+      "id": "code",
+      "start": 0,
+      "end": 3.5,
+      "camera": "hold",
+      "text": {
+        "en": "draw.js",
+        "zh": "draw.js"
+      },
+      "purpose": "Start from the code",
+      "action": "The pen writes draw.js and boxes it, then notes it is a function of time",
+      "narration": {
+        "en": "A film starts as code.",
+        "zh": "片子先是一段代码。"
+      }
+    },
+    {
+      "id": "frames",
+      "start": 3.5,
+      "end": 7,
+      "camera": "pan",
+      "text": {
+        "en": "frames",
+        "zh": "逐帧"
+      },
+      "purpose": "Show frame capture",
+      "action": "An arrow runs right; the pen stacks three frames and labels them",
+      "narration": {
+        "en": "Every frame is drawn from time.",
+        "zh": "每一帧，都由时间算出来。"
+      }
+    },
+    {
+      "id": "mp4",
+      "start": 7,
+      "end": 11,
+      "camera": "pan",
+      "text": {
+        "en": "MP4 · lights",
+        "zh": "MP4 · 指标"
+      },
+      "purpose": "Show measurement on the delivered file",
+      "action": "The arrow reaches a film strip; three lights are drawn under it and the green one is circled",
+      "narration": {
+        "en": "The finished file is measured.",
+        "zh": "成片出来，先量一遍。"
+      }
+    },
+    {
+      "id": "watch",
+      "start": 11,
+      "end": 15,
+      "camera": "pull",
+      "text": {
+        "en": "a person watches",
+        "zh": "有人看过"
+      },
+      "purpose": "Close on review",
+      "action": "The pen writes that a person watches, underlines it, and the camera pulls back to the whole board",
+      "narration": {
+        "en": "Then a person watches it.",
+        "zh": "最后，还要有人看过。"
+      }
+    }
+  ],
+  "voiceover": {
+    "dir": "voiceover"
+  }
+}
