@@ -8,7 +8,7 @@ window.drawFrame = function (ctx, t, film, view, M) {
   ctx.drawImage(window.__promo.render(t), 0, 0, W, H);
   // subtitles: one line, bottom centre, soft plate behind for legibility on bright frames
   const sub = window.__subs.find((s) => t >= s.a - 0.05 && t < s.b + 0.25);
-  if (sub) {
+  if (sub && film.copy.noSubs !== "1") {
     const a = Math.min(M.ramp(t, sub.a - 0.05, 0.12), 1 - M.ramp(t, sub.b + 0.1, 0.15));
     ctx.save();
     ctx.globalAlpha = a;
@@ -19,6 +19,6 @@ window.drawFrame = function (ctx, t, film, view, M) {
     M.text(ctx, sub.text, W / 2, y + 2 * S, 44 * S, "#f4f7fa", 600, "center", W - 200 * S);
     ctx.restore();
   }
-  const dark = 1 - M.ramp(t, 0, 0.7) * (1 - M.ramp(t, film.duration - 0.9, 0.9));
+  const dark = M.ramp(t, film.duration - 0.9, 0.9); // no fade-in: frame 0 is the poster
   if (dark > 0.002) { ctx.fillStyle = `rgba(0,0,0,${dark})`; ctx.fillRect(0, 0, W, H); }
 };

@@ -160,7 +160,7 @@ export class PromoFilm {
     this.hookChars = chars.map((ch, i) => {
       const p = textPlane(ch === " " ? " " : ch, size * 1.45, { size: 120, weight: i < 2 ? 700 : 500, color: i < 2 ? "#5fe3ff" : "#f2f6fa", family: ch.charCodeAt(0) < 128 ? MONO : SANS, pad: 6, toneMapped: false });
       const w = widthOf(ch);
-      p.userData.home = new THREE.Vector3(x + w / 2, 1.22, 0.01); x += w; p.userData.i = i; p.renderOrder = 2;
+      p.userData.home = new THREE.Vector3(x + w / 2, 1.22, 0.01); p.userData.w = w; x += w; p.userData.i = i; p.renderOrder = 2;
       g.add(p); return p;
     });
     this.hookCaret = new THREE.Mesh(new THREE.PlaneGeometry(0.016, 0.19), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.5, 2.4, 2.8), transparent: true }));
@@ -168,8 +168,8 @@ export class PromoFilm {
   }
   poseHook(t) {
     const vis = t < S.director + 0.5; this.hook.visible = vis; if (!vis) return;
-    const n = this.hookChars.length, typed = Math.floor(clamp((t - 0.5) / 2.6) * n), enter = 4.4;
-    fade(this.hookPanel, ramp(t, 0, 0.5) * (1 - ramp(t, enter + 0.1, 0.5)));
+    const n = this.hookChars.length, typed = n, enter = 4.4; // frame 0 is the full sentence: it doubles as the poster
+    fade(this.hookPanel, 1 - ramp(t, enter + 0.1, 0.5));
     this.hookPanel.scale.setScalar(1 + 0.04 * bump(t, enter, 0.3));
     for (const p of this.hookChars) {
       const i = p.userData.i, h = p.userData.home;
@@ -181,7 +181,7 @@ export class PromoFilm {
       p.rotation.x = -Math.PI / 2 * smooth(u);
       if (u >= 1) fade(p, 1 - ramp(t, t0 + 0.9, 0.3));
     }
-    const caretX = typed < n ? this.hookChars[typed].userData.home.x - 0.03 : this.hookChars[n - 1].userData.home.x + 0.05;
+    const caretX = typed < n ? this.hookChars[typed].userData.home.x - 0.03 : this.hookChars[n - 1].userData.home.x + this.hookChars[n - 1].userData.w / 2 + 0.035;
     this.hookCaret.position.set(caretX, 1.22, 0.012);
     this.hookCaret.visible = t < enter && Math.floor(t * 2.2) % 2 === 0;
   }
