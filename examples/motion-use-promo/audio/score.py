@@ -188,7 +188,7 @@ for bar in range(41):
     if t0 >= DUR: break
     ch = prog[bar % 4]
     bright = 1200 if t0 < 8 else 1700
-    place(pad(ch, BAR + 0.5, 0.6 if bar == 0 else 0.2, 0.5, bright), t0, 0.11)
+    place(pad(ch, BAR + 0.5, 0.05 if bar == 0 else 0.2, 0.5, bright), t0, 0.11)
     if 8 <= t0 < 93:
         for b in range(4):
             place(pluck_bass(ch[0] - 12 + (7 if b % 2 else 0)), t0 + b * BEAT, 0.22)
@@ -205,8 +205,7 @@ for gi, (g0, g1) in enumerate(gaps):
 
 # 1 hook: typing, enter, letters fall, timeline whoosh
 prompt = "› " + subs["prompt"]
-for i in range(len(prompt)):
-    place(click(0.25), 0.5 + 2.6 * i / len(prompt), 1.0, 0.2 * np.sin(i))
+place(celesta(84, 1.2), 0.05, 0.12)
 place(thock(), 4.4, 0.7)
 for i in range(len(prompt)):
     place(celesta(84 - (i % 12), 0.6), 4.55 + i * 0.035 + 0.9, 0.05, -0.6 + 1.2 * i / len(prompt))
