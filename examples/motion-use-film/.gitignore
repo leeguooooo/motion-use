@@ -1,0 +1,3 @@
+# Footage composites are rebuilt by footage/build.sh (examples ship in every release archive).
+footage/*.mp4
+voiceover/.motion-use-asr.json

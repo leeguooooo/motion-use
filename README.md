@@ -4,9 +4,9 @@ English | [中文](README.zh-CN.md)
 
 Direct a film with your coding agent: plan the action, author exact-time animation, render locally, then inspect the delivered MP4. Chinese/English, landscape/portrait/square, local fonts and assets. Scene templates remain available for quick explainers.
 
-The promo below was directed and rendered with motion-use itself: a three.js scene, Chinese narration with burned-in subtitles, and a score synthesised in code (102 s, 60 fps). [Source and director notes](examples/motion-use-promo/).
+The promo below was directed and rendered with motion-use itself (60 s, 60 fps, English narration with burned-in subtitles). Everything on screen is real: films made with motion-use, the code behind one of them, and actual `verify`, `still --guides` and `voiceover check` output. [Source and director notes](examples/motion-use-film/). The earlier three.js promo is in [examples/motion-use-promo](examples/motion-use-promo/).
 
-https://github.com/user-attachments/assets/2878c92d-10d5-4577-8cd7-ad5d0d8bd2b5
+https://github.com/user-attachments/assets/4176ad22-c992-4c6f-ad7d-1dc50906fa96
 
 A directed example: [OCS — a message crosses the gap](examples/ocs-film/film.json), with its [drawing code](examples/ocs-film/composition/draw.js) and [director notes](examples/ocs-film/DIRECTOR.md).
 
