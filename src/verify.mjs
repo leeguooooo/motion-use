@@ -247,6 +247,8 @@ export function verifyVideo(
     narrationTracks = [],
     // gate: red motion lights fail delivery (authored films); otherwise they are reported only.
     motionCheck = { gate: false, cuts: [], allowStatic: null, allowBluePurple: null },
+    // loop: the film is meant to repeat, so its last frame must lead straight into its first.
+    loop = false,
   } = {},
 ) {
   file = path.resolve(file);
@@ -479,6 +481,17 @@ export function verifyVideo(
   } catch (e) {
     warnings.push(`motion measurement failed: ${e.message}`);
   }
+  let loopSeam = null;
+  if (loop)
+    try {
+      loopSeam = measureLoopSeam(file, meta);
+      if (!loopSeam.ok)
+        warnings.push(
+          `loop: the last frame does not lead into the first (seam ${loopSeam.seam_diff} vs a normal frame step ${loopSeam.step_diff} on 0-255 gray); make draw(duration) equal draw(0), cursor position and speed included`,
+        );
+    } catch (e) {
+      warnings.push(`loop measurement failed: ${e.message}`);
+    }
   const report = {
     version: 1,
     ok: errors.length === 0,
@@ -493,6 +506,7 @@ export function verifyVideo(
     black_intervals: black,
     still_intervals: freezes,
     motion,
+    loop: loopSeam,
     frames,
     sheet,
     visual_review: "pending",
@@ -505,4 +519,34 @@ export function verifyVideo(
   const reportFile = path.join(outDir, "report.json");
   fs.writeFileSync(reportFile, JSON.stringify(report, null, 2) + "\n");
   return { ...report, report: reportFile };
+}
+
+// Mean gray difference between frames, 160 px wide.
+function grayFrames(file, args) {
+  const r = spawnSync("ffmpeg", ["-v", "error", ...args.pre, "-i", file, ...args.post, "-vf", "scale=160:90,format=gray", "-f", "rawvideo", "-"], { maxBuffer: 256 * 1024 * 1024 });
+  if (r.error || r.status !== 0) throw new Error(String(r.stderr || r.error?.message).slice(-400));
+  const n = 160 * 90, out = [];
+  for (let i = 0; i + n <= r.stdout.length; i += n) out.push(r.stdout.subarray(i, i + n));
+  return out;
+}
+const grayDiff = (a, b) => {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
+  return s / a.length;
+};
+
+/** Compare the last frame with the first, against how much the film moves per frame near the seam. */
+export function measureLoopSeam(file, meta = probeVideo(file)) {
+  const [first, second] = grayFrames(file, { pre: [], post: ["-frames:v", "2"] });
+  const tail = grayFrames(file, { pre: ["-sseof", String(-Math.min(1, meta.seconds / 2))], post: [] });
+  const last = tail.at(-1), before = tail.at(-2);
+  if (!first || !last) throw new Error("could not read the first and last frames");
+  const seam = grayDiff(last, first);
+  const step = Math.max(grayDiff(first, second ?? first), before ? grayDiff(before, last) : 0);
+  return {
+    seam_diff: Math.round(seam * 100) / 100,
+    step_diff: Math.round(step * 100) / 100,
+    // A seamless loop jumps no further across the seam than one ordinary frame step (plus codec noise).
+    ok: seam <= Math.max(1.5, step * 1.5 + 0.5),
+  };
 }

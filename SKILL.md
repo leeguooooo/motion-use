@@ -22,6 +22,7 @@ Use the user's subject, material and existing project; verify product claims aga
 - Each shot names an object you could point at, what *it* does, its `camera` move and the ≤ 8 words on screen. Open on a concrete small scene; end on an action on the subject, not a centred card; keep one example through the film.
 - Words go in `copy` per language, numbers and series in `data`, images in `assets`, footage in `videos`. Changing one value then changes one thing.
 - Given a reference video, run `motion-use breakdown ref.mp4` first and learn the mechanism, not the pixels. Pick an explainer look from [references/grammars.md](references/grammars.md) by what the narration explains.
+- Cutting to a song or building a UI-morph loop: ask for the inputs in [references/briefing.md](references/briefing.md), run `motion-use beats song.wav`, and show the shot list on the beat grid before writing code.
 
 ## 2 · Write the drawing
 
@@ -34,6 +35,7 @@ Narration is required by default: write it per shot (each language), then `motio
 ```bash
 motion-use validate <dir>                                   # plan warnings, glyphs, narration fit
 motion-use still <dir> --allow-code --shot <id>             # three frames of one shot
+motion-use still <dir> --allow-code --beats 4               # one frame per bar; warns if drawing keeps state
 motion-use render <dir> --allow-code --from 3 --to 7        # silent draft of a range
 motion-use render <dir> --allow-code --quality draft --json # compact summary
 ```

@@ -31,6 +31,7 @@ motion-use voiceover my-film                 # 按镜头生成旁白，有缓存
 motion-use still my-film --allow-code
 motion-use render my-film --allow-code --quality high --json
 motion-use breakdown 参考.mp4                # 拆参考片：切点、节拍网格、运动热力图
+motion-use beats 歌曲.wav                    # 卡歌曲节拍：速度、第一个强拍、高潮
 ```
 
 **代码短，片子不雷同。** 绘图工具包把一支片子的绘图代码压到几 KB：脉冲运镜、从 `film.json` 读数字的图表和计数器、标注、逐词动态文字、砸入印章、手写、演示用的光标和聚光，素材视频上叠图形（`videos`，渲染前抽帧），以及按旁白时间自动生成的字幕。起手模板画面不变，代码从 7,008 字节降到 3,053 字节。三个示例三种画风：[数据故事](examples/data-story/)、[白板](examples/whiteboard/)、[动态文字](examples/kinetic/)。迭代成本低：`still --shot <id>` 只看一个镜头，`render --from 3 --to 7` 渲一段无声草稿；构图和起手模板太像的片子会被标出来，提醒重新设计而不是换皮。一页指南：[references/kit.md](references/kit.md)。
@@ -107,10 +108,11 @@ motion-use 是一个 Node.js 程序，不是单个原生二进制：渲染要驱
 | `init [dir]` | 默认创建导演模式项目；`--mode template` 选择模板 brief：`--style`、`--name`、`--lang zh,en`、`--format landscape,vertical` |
 | `validate [brief]` | 检查 brief、文件、旁白长度和字形覆盖；打印时间线 |
 | `voiceover [brief]` | 按场景的 `narration` 生成语音：`--engine azure`（有授权）或 `edge`（预览） |
-| `still [brief]` | 关键帧和联系表；`--at 1.5,4` 指定秒数 |
+| `still [brief]` | 关键帧和联系表；`--at 1.5,4` 指定秒数，`--beats 4` 每小节一帧；绘制代码在帧之间留了状态时会警告 |
 | `render [brief]` | 每种语言 × 画幅一个 MP4，外加封面 PNG；`--quality draft\|standard\|high`、`--target github` / `--max-size 9MB` |
-| `verify <mp4>` | 解码并测量交付的视频：检查帧、音频、运动指标；`--gate` 红灯时失败 |
+| `verify <mp4>` | 解码并测量交付的视频：检查帧、音频、运动指标；`--gate` 红灯时失败，`--loop` 检查循环接缝 |
 | `breakdown <video>` | 拆解参考片：切点、节拍网格、联系表、转场条、运动热力图、色板、运动指标 |
+| `beats <audio>` | 测一首歌：速度、第一个强拍、每小节响度、高潮；打印让片子从强拍开始的 `music` 配置 |
 | `compare <a> <b>` | 两支片子同一时刻并排对比：`--times 1.5,4` |
 | `doctor` | 检查 Node、FFmpeg、Chrome、引擎和字体 |
 | `upgrade` | 更新 CLI 和它的 skill；`--check` 只检查不安装 |

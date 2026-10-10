@@ -811,6 +811,20 @@ window.__filmKit = function (view, film) {
       const x = Math.max(0, t - start);
       return t < start ? 0 : 1 - Math.exp(-d * x) * Math.cos(2 * Math.PI * f * x);
     },
+    // A value that changes target many times and stays a pure function of t: one closed-form spring
+    // step (zero starting velocity) per change, summed. keys = [[at, value], …]; the first value holds
+    // before the second key. Values are numbers or same-length arrays. Two edges of one shape on
+    // different f stretch it while it moves (the leading edge on the faster spring).
+    follow: (t, keys, { f = 2, d = 12 } = {}) => {
+      const w = 2 * Math.PI * f;
+      const step = (x) => (x <= 0 ? 0 : 1 - Math.exp(-d * x) * (Math.cos(w * x) + (d / w) * Math.sin(w * x)));
+      let v = Array.isArray(keys[0][1]) ? [...keys[0][1]] : keys[0][1];
+      for (let i = 1; i < keys.length; i++) {
+        const k = step(t - keys[i][0]), a = keys[i - 1][1], b = keys[i][1];
+        v = Array.isArray(v) ? v.map((x, j) => x + (b[j] - a[j]) * k) : v + (b - a) * k;
+      }
+      return v;
+    },
     settle: (t, start, amp, f = 3, d = 5) => {
       const x = t - start;
       return x < 0 ? 0 : (amp * Math.sin(2 * Math.PI * f * x)) / Math.exp(d * x);

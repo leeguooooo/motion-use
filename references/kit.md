@@ -36,6 +36,7 @@ Every time-based helper is `(c, t, …positional, options)`; points are `[x, y]`
 | `cover(c, image, {x, y, w, h, fx, fy, zoom})`, `video(name, t)` | image or current footage frame covering a box, zoomed on a focus |
 | `spotlight(c, t, [x,y,w,h], {at, until})`, `cursor(c, t, [[t,x,y], …], {clicks})` | dim all but a region; a pointer that moves and clicks |
 | `grade(c, "mono"\|"tint"\|"duotone", …)`, `grain(c, t)`, `vignette(c)` | whole-frame looks, drawn last |
+| `follow(t, [[at, value], …], {f, d})` | a number or point that springs to each new target in turn, a pure function of `t` (UI morphs) |
 | `tween(t, at, dur, ease)`, `springHz`, `settle`, `lagged`, `step`, `easings.*` | timing building blocks |
 | `rough`, `drawOn`, `paragraph`, `wrap`, `ring`, `lerp2`, `add`, `rng`, `noise` | drawing building blocks |
 
@@ -49,7 +50,7 @@ Every time-based helper is `(c, t, …positional, options)`; points are `[x, y]`
            "narration": {"en": "Sales peaked in the third quarter."}}]
 ```
 
-Palettes: `paper` `poster` `ink` `navy` `bauhaus` `snow` `wood` `chalk` `whiteboard`, or 3–6 hex colors. Music moods: `promo` `explainer` `pulse` `chiptune` `pentatonic` `ambient`. Footage frames are extracted at build time (≤ 5,400 per film); sound only at rate 1.
+Palettes: `paper` `poster` `ink` `navy` `bauhaus` `snow` `wood` `chalk` `whiteboard`, or 3–6 hex colors. Music moods: `promo` `explainer` `pulse` `chiptune` `pentatonic` `ambient`, or a song: `{"file": "audio/song.wav", "bpm": 128, "from": 1.3}` from `motion-use beats`. Sound effects take `"align": "peak"` to land their hit on `start`; `"loop": true` checks the last frame leads into the first. Beat-driven briefs and the one-shape morph: [briefing.md](briefing.md). Footage frames are extracted at build time (≤ 5,400 per film); sound only at rate 1.
 
 ## Cheap iteration
 
@@ -57,6 +58,8 @@ Palettes: `paper` `poster` `ink` `navy` `bauhaus` `snow` `wood` `chalk` `whitebo
 motion-use validate .                                  # plan warnings, glyphs, narration fit
 motion-use still . --allow-code --shot peak            # three frames of one shot
 motion-use still . --allow-code --format vertical --guides   # tint what platform UI covers
+motion-use still . --allow-code --beats 4              # one frame per bar of the beat grid
+motion-use beats audio/song.wav                        # imported song: tempo, downbeat, drop → music line
 motion-use render . --allow-code --from 3 --to 7       # silent draft of a range, no delivery checks
 motion-use render . --allow-code --quality draft --json  # compact summary; full report on disk
 ```

@@ -79,8 +79,9 @@ Each event starts from wherever earlier events have brought the camera at time `
 
 - One short motif, re-voiced rather than replaced. `music: {"builtin": "pulse"}` (also `promo`, `explainer`, `chiptune`, `pentatonic`, `ambient`) sets the beat grid to the mood's tempo, so `M.beat(t)` lines up.
 - `hits: [4.62, 14.52]` adds a thump and a plucked accent at those seconds: put them on slams and reveals.
-- Hard attacks at changes; no crossfaded music under cuts. For effects, subtract the measured transient offset (see film.md).
-- A multimodal model "listening" to a reference is a guess (it said 120 BPM; it was 128). Measure with `motion-use breakdown`.
+- Hard attacks at changes; no crossfaded music under cuts. For effects, `"align": "peak"` lands the measured transient on `start`.
+- A multimodal model "listening" to a reference is a guess (it said 120 BPM; it was 128). Measure: `motion-use beats song.wav` for a song you will cut to, `motion-use breakdown` for a reference video.
+- Cutting to a song: start it on its first downbeat (`music.from`), put shot starts on bars and the reveal on the drop, then check `still --beats 4` before rendering. Brief shape and recipes: [briefing.md](briefing.md).
 
 ## Learning from a reference
 
