@@ -4,6 +4,10 @@ English | [中文](README.zh-CN.md)
 
 Direct a film with your coding agent: plan the action, author exact-time animation, render locally, then inspect the delivered MP4. Chinese/English, landscape/portrait/square, local fonts and assets. Scene templates remain available for quick explainers.
 
+The promo below was directed and rendered with motion-use itself: a three.js scene, Chinese narration with burned-in subtitles, and a score synthesised in code (102 s, 60 fps). [Source and director notes](examples/motion-use-promo/).
+
+https://github.com/user-attachments/assets/c133e8a4-83e1-4dd6-b4d8-f2ee1517fc23
+
 A directed example: [OCS — a message crosses the gap](examples/ocs-film/film.json), with its [drawing code](examples/ocs-film/composition/draw.js) and [director notes](examples/ocs-film/DIRECTOR.md).
 
 **Showcase: yarn relay (three.js).** Six felt monsters relay a ball of white yarn; the thread it pays out draws the OpenAI blossom, puffs into plush rope and stands up; the lights go out, six coloured lights run along the yarn and sum to white; a flash takes the group photo. 40 s at 60 fps, with the score and sound effects synthesised in code. [Source and director notes](examples/openai-yarn-film/).

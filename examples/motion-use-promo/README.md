@@ -2,6 +2,9 @@
 
 102 秒，60fps，中文旁白和烧录字幕。一条发光的时间线贯穿全片，依次讲 motion-use 的原理和能力：agent 写导演稿 → 画面是时间的函数 → 浏览器逐帧定位、多进程并行截帧 → 字体子集、离线渲染 → 旁白必须装进镜头 → 交付前实测成片，但要有人看过才算通过 → 一份导演稿出多种画幅。导演记录见 [DIRECTOR.md](DIRECTOR.md)。
 
+https://github.com/user-attachments/assets/c133e8a4-83e1-4dd6-b4d8-f2ee1517fc23
+
+
 ```bash
 cd examples/motion-use-promo
 npm install && npm run build          # three.js 场景 → vendor/scene.js
