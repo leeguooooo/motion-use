@@ -1,3 +1,5 @@
+// gradient_shader is deprecated in skia-safe in favour of the gradient module; same Skia calls.
+#![allow(deprecated)]
 //! The Canvas 2D API over Skia (CPU raster). Semantics follow the HTML spec and Blink where they
 //! differ in detail: the current path lives in the user space of the current transform (Blink
 //! transforms it by the inverse of every transform change), shadows and filters are evaluated in
@@ -751,7 +753,7 @@ impl Runtime {
             ImageSrc::Picture(pic, _, _) => {
                 c.save();
                 c.clip_rect(d, None, true);
-                let m = Matrix::rect_to_rect(s, d, None).unwrap_or_default();
+                let m = Matrix::rect_2_rect(s, d, None).unwrap_or_default();
                 c.concat(&m);
                 let alpha = paint.alpha_f();
                 if alpha < 1.0 || paint.blend_mode_or(BlendMode::SrcOver) != BlendMode::SrcOver {

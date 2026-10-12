@@ -71,12 +71,6 @@ fn boolean(s: &mut v8::PinScope, a: &Args, i: i32) -> bool {
     a.get(i).boolean_value(s)
 }
 
-fn throw(s: &mut v8::PinScope, msg: &str) {
-    let m = v8::String::new(s, msg).unwrap();
-    let e = v8::Exception::error(s, m);
-    s.throw_exception(e);
-}
-
 fn resolve(base: &Path, url: &str) -> PathBuf {
     let u = url.strip_prefix("file://").unwrap_or(url);
     let u = u.split(['?', '#']).next().unwrap_or(u);
@@ -231,7 +225,8 @@ macro_rules! native {
     ($scope:ident, $obj:ident, $( $name:literal => |$s:ident, $a:ident, $rv:ident| $body:block ),* $(,)?) => {
         $(
             {
-                fn cb($s: &mut v8::PinScope, $a: v8::FunctionCallbackArguments, #[allow(unused_mut)] mut $rv: v8::ReturnValue) {
+                #[allow(unused_variables, unused_mut)]
+                fn cb($s: &mut v8::PinScope, $a: v8::FunctionCallbackArguments, mut $rv: v8::ReturnValue) {
                     #[allow(unused_variables)]
                     let _ = &$a;
                     $body
