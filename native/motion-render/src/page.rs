@@ -38,6 +38,9 @@ pub struct Page {
     pub fonts: Vec<FontFace>,
     /// the document language (<html lang>, or the job's language)
     pub lang: String,
+    /// the page background the canvas is composited over in Chrome's screenshot (motion-use's
+    /// film page: #151515; an overlay layer: transparent = None)
+    pub background: Option<[u8; 3]>,
 }
 
 impl Page {
@@ -145,12 +148,33 @@ fn font_faces(css: &str, base: &Path) -> Vec<FontFace> {
     out
 }
 
+/// `html,body{...background:#rrggbb...}` → Some(Some(rgb)); `transparent` → Some(None).
+fn body_background(css: &str) -> Option<Option<[u8; 3]>> {
+    let lower = css.to_ascii_lowercase();
+    let at = lower.find("body")?;
+    let rule = &lower[at..];
+    let open = rule.find('{')?;
+    let close = rule[open..].find('}')? + open;
+    for decl in rule[open + 1..close].split(';') {
+        let Some((k, v)) = decl.split_once(':') else { continue };
+        if k.trim() == "background" || k.trim() == "background-color" {
+            let v = v.trim();
+            if v == "transparent" {
+                return Some(None);
+            }
+            let c = csscolorparser::parse(v).ok()?.to_rgba8();
+            return Some(if c[3] == 255 { Some([c[0], c[1], c[2]]) } else { None });
+        }
+    }
+    None
+}
+
 /// Read an HTML page: scripts in order (inline and src), canvases and other id'd elements,
 /// JSON script blocks (as elements with text), @font-face rules from <style>.
 pub fn load_html(path: &Path) -> Result<Page> {
     let html = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let base = path.parent().unwrap_or(Path::new(".")).to_path_buf();
-    let mut page = Page { base: base.clone(), elements: vec![], scripts: vec![], fonts: vec![], lang: "en".into() };
+    let mut page = Page { base: base.clone(), elements: vec![], scripts: vec![], fonts: vec![], lang: "en".into(), background: None };
     let lower = html.to_ascii_lowercase();
     let mut i = 0;
     while let Some(lt) = lower[i..].find('<').map(|p| p + i) {
@@ -192,6 +216,9 @@ pub fn load_html(path: &Path) -> Result<Page> {
             "style" => {
                 let end = lower[i..].find("</style").map(|p| p + i).unwrap_or(lower.len());
                 page.fonts.extend(font_faces(&html[i..end], &base));
+                if let Some(bg) = body_background(&html[i..end]) {
+                    page.background = bg;
+                }
                 i = end;
             }
             "canvas" | "img" | "div" | "audio" | "video" | "span" | "p" | "section" | "main" => {
@@ -296,5 +323,6 @@ pub fn from_job(job: &Value, draw: &Path) -> Result<Page> {
         scripts,
         fonts: bundled_fonts()?,
         lang: job["lang"].as_str().unwrap_or("en").to_string(),
+        background: Some([0x15, 0x15, 0x15]),
     })
 }

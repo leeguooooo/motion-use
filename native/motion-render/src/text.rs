@@ -340,7 +340,7 @@ impl Fonts {
                 font.set_linear_metrics(true);
             },
         );
-        if std::env::var("MR_DEBUG_TEXT").is_ok() {
+        if std::env::var("MOTION_RENDER_DEBUG").as_deref() == Ok("text") {
             for r in &runs {
                 eprintln!("{:?}: {} size={} hint={:?} sub={} snap={} lin={} glyphs={:?} pos={:?}", clean, r.font.typeface().family_name(), r.font.size(), r.font.hinting(), r.font.is_subpixel(), r.font.is_baseline_snap(), r.font.is_linear_metrics(), r.glyphs, r.positions);
             }

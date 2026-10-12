@@ -141,6 +141,48 @@ fn read_url(base: &Path, url: &str) -> Option<Vec<u8>> {
     std::fs::read(resolve(base, url)).ok()
 }
 
+/// The (primaries, transfer) of a PNG's cICP chunk, if it has one before its image data.
+fn png_cicp(b: &[u8]) -> Option<(u8, u8)> {
+    if b.len() < 8 || &b[..8] != b"\x89PNG\r\n\x1a\n" {
+        return None;
+    }
+    let mut i = 8;
+    while i + 8 <= b.len() {
+        let n = u32::from_be_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]) as usize;
+        let t = &b[i + 4..i + 8];
+        if t == b"cICP" && n >= 2 && i + 10 <= b.len() {
+            return Some((b[i + 8], b[i + 9]));
+        }
+        if t == b"IDAT" {
+            return None;
+        }
+        i += 12 + n;
+    }
+    None
+}
+
+fn cicp_space(primaries: u8, transfer: u8) -> Option<sk::ColorSpace> {
+    use sk::named_primaries::CicpId as P;
+    use sk::named_transfer_fn::CicpId as T;
+    let p = match primaries {
+        1 => P::Rec709,
+        9 => P::Rec2020,
+        11 => P::SMPTE_RP_431_2,
+        12 => P::SMPTE_EG_432_1,
+        _ => return None,
+    };
+    let t = match transfer {
+        1 => T::Rec709,
+        6 => T::Rec601,
+        8 => T::Linear,
+        13 => T::IEC61966_2_1,
+        14 => T::Rec2020_10bit,
+        15 => T::Rec2020_12bit,
+        _ => return None,
+    };
+    sk::ColorSpace::new_cicp(p, t)
+}
+
 fn decode_image(bytes: &[u8], name: &str) -> Option<ImageSrc> {
     let head = &bytes[..bytes.len().min(512)];
     let looks_svg = name.to_ascii_lowercase().ends_with(".svg") || String::from_utf8_lossy(head).contains("<svg");
@@ -170,6 +212,18 @@ fn decode_image(bytes: &[u8], name: &str) -> Option<ImageSrc> {
     let img = sk::Image::from_encoded(data)?;
     // Decode now: a lazy image would decode on every draw from a different thread state.
     let img = img.make_raster_image(None, sk::image::CachingHint::Allow).unwrap_or(img);
+    // Like Chrome, convert tagged images (ICC, cICP: Display P3 screenshots…) to sRGB at decode;
+    // the canvas itself is untagged sRGB, so Skia would otherwise draw the raw values.
+    // A PNG cICP chunk (e.g. BT.709 primaries with the BT.709 transfer curve, what some screen
+    // recorders write) wins over gAMA/cHRM in Chrome; Skia's codec may not read it.
+    let img = match png_cicp(bytes).and_then(|(p, t)| cicp_space(p, t)) {
+        Some(cs) => img.reinterpret_color_space(cs).unwrap_or(img),
+        None => img,
+    };
+    let img = match img.color_space() {
+        Some(cs) if !cs.is_srgb() => img.make_color_space(None, sk::ColorSpace::new_srgb(), sk::image::RequiredProperties::default()).unwrap_or(img),
+        _ => img,
+    };
     Some(ImageSrc::Raster(img))
 }
 
@@ -559,6 +613,22 @@ pub struct Engine {
     context: v8::Global<v8::Context>,
     output: usize,
     mode: Mode,
+    background: Option<[u8; 3]>,
+}
+
+/// Composite straight RGBA over an opaque colour in place (what the page background does under
+/// a canvas with transparent pixels). Opaque frames are left untouched.
+fn flatten(px: &mut [u8], bg: [u8; 3]) {
+    for p in px.chunks_exact_mut(4) {
+        let a = p[3] as u32;
+        if a == 255 {
+            continue;
+        }
+        for k in 0..3 {
+            p[k] = ((p[k] as u32 * a + bg[k] as u32 * (255 - a) + 127) / 255) as u8;
+        }
+        p[3] = 255;
+    }
 }
 
 fn exception_text(tc: &mut v8::PinnedRef<'_, v8::TryCatch<v8::HandleScope>>) -> String {
@@ -607,7 +677,7 @@ impl Engine {
             install_natives(cs, global);
             v8::Global::new(cs, ctx)
         };
-        let mut e = Engine { isolate, context, output: 0, mode };
+        let mut e = Engine { isolate, context, output: 0, mode, background: page.background };
         e.eval("dom.js", DOM_JS)?;
         let size_js = match size {
             Some((w, h)) => format!("[{},{}]", w, h),
@@ -694,7 +764,11 @@ impl Engine {
         };
         self.eval("frame", &call)?;
         self.settle(&format!("frame at {:.4}s", t), true)?;
-        Ok(with_rt(|r| r.read_rgba(self.output, out)))
+        let size = with_rt(|r| r.read_rgba(self.output, out));
+        if let Some(bg) = self.background {
+            flatten(out, bg);
+        }
+        Ok(size)
     }
 }
 

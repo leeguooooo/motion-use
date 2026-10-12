@@ -455,6 +455,8 @@ impl Runtime {
             _ => {
                 let shader = self.shader_for(fill).ok()?;
                 paint.set_shader(shader);
+                // Chrome dithers gradients (and other shaders) in 2D canvas.
+                paint.set_dither(true);
                 paint.set_alpha_f(st.alpha);
             }
         }
