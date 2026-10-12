@@ -30,6 +30,8 @@ Use the user's subject, material and existing project; verify product claims aga
 
 Read [references/kit.md](references/kit.md) — one page that covers most films. `M.shoot`, `M.chart`, `M.counter`, `M.callout`, `M.words`, `M.stamp`, `M.cover`/`M.video`, `M.cursor`, `M.spotlight`, `M.signature`, `M.captions` and the timing helpers keep a film to a few kilobytes; write custom drawing where the subject needs it. Move on events: hold → 0.28 s push / 0.30 s pan / 0.17 s slam → hold. Springs by damping ratio: `M.springZeta(t, 0.8)` premium, 0.5 playful, 1 no bounce; opacity and colour never bounce. In portrait, keep text and the key action inside `view.safe` (platform UI covers the top, bottom and right) and check with `still --guides`. Make subjects big and high-contrast. Directing method and failure modes: [references/directing.md](references/directing.md). Full contract: [references/film.md](references/film.md).
 
+Dynamic comics from aligned character art: `M.layers` gives depth parallax, `M.sprite` switches expression/eye/mouth PNGs with alignment offsets and an optional isolated crossfade, `M.mouth` selects Rhubarb mouth cues, and `M.breath` / `M.sway` / `M.shake` add bounded time-based motion. Read kit.md → Dynamic comics; stage reactions on the line, avoid breathing and camera drift on every layer.
+
 3D or another renderer: models, HDRs and decoders go in `files` (a three.js loader fetches `window.filmFiles.<name>`); a scene that belongs in Blender, Unity or Godot runs as `"engine": {"type": "command", "command": [...]}`, which renders PNG frames from a job file while motion-use keeps sound, delivery checks and release. Draw subtitles in `composition` as a transparent overlay so the text check still measures them. Contract: film.md → External engines.
 
 Narration is required by default: write it per shot (each language), then `motion-use voiceover <dir>`; it must fit its shot window, so shorten the script or retime the shot, never truncate. `M.captions(c, t)` draws subtitles from it. `voiceover:false` only when the user wants a silent film.
@@ -45,7 +47,7 @@ motion-use render <dir> --allow-code --from 3 --to 7        # silent draft of a 
 motion-use render <dir> --allow-code --quality draft --json # compact summary
 ```
 
-Read the numbers first; open an image when they do not settle it. Fix clipping, crowding, unreadable text and decoration that does not explain. Stills cannot prove timing: watch a draft.
+Read the check report and inspect the contact sheet at full size after each new look or staging change. For character scenes, inspect expression, eyeline and mouth changes against the dialogue; camera motion alone is not acting. Fix clipping, crowding, unreadable text and decoration that does not explain. Stills cannot prove timing: watch a draft.
 
 `--allow-code` is for projects you wrote in this task or the user trusts; code runs in the renderer and lint is not a sandbox.
 

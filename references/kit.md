@@ -65,10 +65,49 @@ motion-use render . --allow-code --from 3 --to 7       # silent draft of a range
 motion-use render . --allow-code --quality draft --json  # compact summary; full report on disk
 ```
 
-Look at an image only when the numbers do not settle the question. A `demo_similarity` above 0.3 means the film is laid out like the starter: redesign it, do not re-skin it.
+Inspect a contact sheet after each new look or staging change, then watch a draft for timing and performance. Numeric checks cannot approve the picture. A `demo_similarity` above 0.3 means the film is laid out like the starter: redesign it, do not re-skin it.
 
 ## Three examples, three looks
 
 - [examples/data-story](../examples/data-story/): finance chart, data in `film.json`, a bar that shrinks when its value changes.
 - [examples/whiteboard](../examples/whiteboard/): marker on a wide board, the camera framing each idea, then the whole.
 - [examples/kinetic](../examples/kinetic/): one heavy word per beat, flat colour chapters, a stroke that crosses out the last word.
+
+## Dynamic comics
+
+These helpers animate layered art and expression variants already declared in `film.json.assets`. Keep a character's body, face, eyes and mouth in the same reference coordinates. They cannot turn a single pose into full character acting; plan expression changes, eyelines, reactions and cuts alongside the dialogue.
+
+| helper | contract |
+|---|---|
+| `layers(c, t, [{image, depth, x, y, w, h, opacity}], {camera, at})` | Draw back to front in array order. `image` is an asset key or a loaded image. Depth 0 stays fixed; 1 follows the camera; intermediate depths give parallax. Default rectangle is the frame. |
+| `sprite(c, t, variants, [[time, name], …], {x, y, w, h, at, fade})` | Select an expression/eye/mouth variant. Times are relative to `at`; the first variant holds until the next cue. Return its name, or null before `at`. Variants are asset keys/images or `{image, dx, dy}` alignment offsets. Default fade 0 gives an instant swap. |
+| `mouth(t, cues, {at, rest})` | Select a Rhubarb `mouthCues` value at dialogue-relative time; accepts the JSON object or cue array. Intervals include start, exclude end; gaps return `rest` (default `X`). It reads cues, it does not analyse audio or generate them. |
+| `breath(t, {at, period, amp, phase})` | Scale 1…1+amp, default amp 0.012 and period 3 s; 1 before `at`. |
+| `sway(t, {at, period, amp, phase})` | Rotation in radians, default ±0.025 over 4 s; 0 before `at`. |
+| `shake(t, {at, dur, amp, hz, seed})` | `{x,y}` offset in pixels, default 8 px over 0.2 s; zero outside its window. Each axis stays within ±amp. |
+
+```js
+const cam = M.camera(t, [{at: 2, kind: "push", x: W * 0.6, y: H * 0.4}]);
+M.layers(c, t, [
+  {image: "background", depth: 0.15},
+  {image: "foreground", depth: 0.8},
+], {camera: cam}); // call outside M.shoot/applyCamera: layers applies its own camera
+
+const jolt = M.shake(t, {at: 3.2, dur: 0.18, amp: 6});
+c.save();
+c.translate(W * 0.6 + jolt.x, H * 0.8 + jolt.y); // actor's feet are the pivot
+c.rotate(M.sway(t, {amp: 0.008, period: 5}));
+c.scale(1, M.breath(t, {amp: 0.008, period: 3.8}));
+M.sprite(c, t, {
+  calm: "actor-calm", reply: {image: "actor-reply", dx: 2, dy: -1},
+}, [[0, "calm"], [2, "reply"]], {x: -180, y: -600, w: 360, h: 600, fade: 0.08});
+c.restore();
+
+const shape = M.mouth(t, film.data.dialogue, {at: 2}); // {mouthCues:[{start,end,value},…]}
+M.sprite(c, t, {A: "mouth-a", B: "mouth-b", X: "mouth-rest"}, [[0, shape]],
+  {x: mouthX, y: mouthY, w: 48, h: 24}); // provide every shape present in the cues
+```
+
+Expression/eye/mouth PNGs need matching head positions; use `dx`/`dy` for small alignment corrections. Crossfades use an isolated premultiplied blend, so swapping opaque poses does not expose the background at the midpoint. Keep `fade` shorter than the gap between consecutive cues; use instant swaps for speech mouth shapes and brief blinks. Draw each face component separately over the body. Do not fade whole bodies to simulate a blink.
+
+All selection and motion derive from the requested time, including backward seeks and worker renders. Inspect the actual art at full size, then watch a draft: a breathing loop alone does not resolve weak acting, and mouth cues do not certify lip sync.

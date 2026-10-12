@@ -746,6 +746,82 @@ window.__filmKit = function (view, film) {
     c.drawImage(img, dx, dy, dw, dh);
     c.restore();
   }
+  const assetImage = (image) => {
+    const img = typeof image === "string" ? window.filmAssets?.[image] : image;
+    if (!img) throw new Error(`sprite: no image "${image}"; declare it under film.json assets`);
+    return img;
+  };
+  // Layers share reference coordinates, but follow camera displacement/zoom by their depth.
+  // Input order is back to front; no camera mutation or integrated velocity between frames.
+  function layers(c, t, items, { camera: cam = {}, at = 0 } = {}) {
+    if (t < at) return;
+    for (const layer of items) {
+      const depth = layer.depth ?? 1;
+      const img = assetImage(layer.image);
+      c.save();
+      try {
+        c.globalAlpha *= layer.opacity ?? 1;
+        applyCamera(c, {
+          x: view.width / 2 + ((cam.x ?? view.width / 2) - view.width / 2) * depth,
+          y: view.height / 2 + ((cam.y ?? view.height / 2) - view.height / 2) * depth,
+          z: (cam.z ?? 1) ** depth, r: (cam.r ?? 0) * depth,
+        });
+        c.drawImage(img, layer.x ?? 0, layer.y ?? 0, layer.w ?? view.width, layer.h ?? view.height);
+      } finally { c.restore(); }
+    }
+  }
+  let spriteBlend;
+  // Variants are aligned PNGs, or {image, dx, dy} offsets in drawing coordinates.
+  // Blend premultiplied images in an isolated canvas: opaque swaps do not dip to 75% alpha.
+  function sprite(c, t, variants, keys, { x = 0, y = 0, w = view.width, h = view.height, fade = 0, at = 0 } = {}) {
+    if (t < at || !keys.length) return null;
+    const sorted = [...keys].sort((a, b) => a[0] - b[0]);
+    let index = 0;
+    for (let i = 1; i < sorted.length && sorted[i][0] <= t - at; i++) index = i;
+    const key = sorted[index][1];
+    const pose = (name) => {
+      if (!Object.hasOwn(variants, name)) throw new Error(`sprite: unknown variant "${name}"`);
+      const v = variants[name];
+      const spec = v && typeof v === "object" && Object.hasOwn(v, "image") ? v : { image: v };
+      return { img: assetImage(spec.image), x: x + (spec.dx ?? 0), y: y + (spec.dy ?? 0) };
+    };
+    const next = pose(key);
+    const p = fade > 0 && index > 0 ? clamp((t - at - sorted[index][0]) / fade) : 1;
+    if (p >= 1) c.drawImage(next.img, next.x, next.y, w, h);
+    else {
+      const old = pose(sorted[index - 1][1]);
+      const left = Math.floor(Math.min(old.x, next.x)), top = Math.floor(Math.min(old.y, next.y));
+      if (!spriteBlend) spriteBlend = document.createElement("canvas");
+      spriteBlend.width = Math.ceil(Math.max(old.x, next.x) + w - left);
+      spriteBlend.height = Math.ceil(Math.max(old.y, next.y) + h - top);
+      const mix = spriteBlend.getContext("2d");
+      mix.globalCompositeOperation = "lighter";
+      mix.globalAlpha = 1 - p;
+      mix.drawImage(old.img, old.x - left, old.y - top, w, h);
+      mix.globalAlpha = p;
+      mix.drawImage(next.img, next.x - left, next.y - top, w, h);
+      c.drawImage(spriteBlend, left, top);
+    }
+    return key;
+  }
+  // Rhubarb cue intervals are half-open and relative to the dialogue's film start.
+  function mouth(t, cues, { at = 0, rest = "X" } = {}) {
+    const time = Math.round((t - at) * 1e9) / 1e9;
+    const cue = (Array.isArray(cues) ? cues : cues?.mouthCues ?? []).find((q) => time >= q.start && time < q.end);
+    return cue?.value ?? rest;
+  }
+  function breath(t, { at = 0, period = 3, amp = 0.012, phase = 0 } = {}) {
+    return t < at || !(period > 0) ? 1 : 1 + amp * (1 - Math.cos(2 * Math.PI * (t - at) / period + phase)) / 2;
+  }
+  function sway(t, { at = 0, period = 4, amp = 0.025, phase = 0 } = {}) {
+    return t < at || !(period > 0) ? 0 : amp * Math.sin(2 * Math.PI * (t - at) / period + phase);
+  }
+  function shake(t, { at = 0, dur = 0.2, amp = 8, hz = 24, seed = 0 } = {}) {
+    const dt = t - at;
+    if (dt <= 0 || dt >= dur || !(dur > 0)) return { x: 0, y: 0 };
+    const envelope = amp * (1 - dt / dur) ** 2 * smooth(Math.min(1, dt / 0.02));
+    return { x: envelope * Math.sin(2 * Math.PI * hz * dt + seed), y: envelope * Math.sin(2 * Math.PI * hz * 1.37 * dt + seed * 2.17) };
+  }
   // Whole-frame looks, drawn last: "mono", "tint" (color), "duotone" (dark → light).
   function grade(c, mode = "mono", { color = ink().accent, dark = ink().ink, light = ink().bg, amount = 1 } = {}) {
     c.save();
@@ -901,6 +977,12 @@ window.__filmKit = function (view, film) {
     spotlight,
     cursor,
     cover,
+    layers,
+    sprite,
+    mouth,
+    breath,
+    sway,
+    shake,
     grade,
     grain,
     vignette,
