@@ -155,3 +155,38 @@ test("text check on a real film: grey on grey and a 1 s callout are flagged; whi
   assert.deepEqual(slow.map((x) => x.text), ["scan with an iPhone: no address"], JSON.stringify(r.runs));
   assert.ok(Math.abs(slow[0].seconds - 1) < 0.05 && slow[0].required === 2.3, JSON.stringify(slow[0]));
 });
+
+test("contrast check on a real film: a wide halo is judged as the backdrop; a hairline outline is not (#43)", { timeout: 180000 }, async (t) => {
+  const { findRenderer } = await import("../src/native.mjs");
+  const native = findRenderer();
+  const haveChrome = await chrome();
+  if (!haveChrome && !native?.bin) return t.skip("no renderer for the probe");
+  const dir = temp();
+  initFilm({ lang: "en", format: "landscape" }, dir);
+  const file = path.join(dir, "film.json");
+  const data = JSON.parse(fs.readFileSync(file, "utf8"));
+  Object.assign(data, { voiceover: false, music: "none", duration: 2, shots: [{ id: "only", start: 0, end: 2, purpose: "probe", action: "map labels" }] });
+  fs.writeFileSync(file, JSON.stringify(data));
+  // Grey labels on a grey province: one with a wide paper halo (readable), one with a 1 px outline.
+  fs.writeFileSync(
+    path.join(dir, "composition", "draw.js"),
+    `window.drawFrame = function (c, t, film, view, M) {
+      c.fillStyle = "#f0e6d0"; c.fillRect(0, 0, view.width, view.height);
+      c.fillStyle = "#888888"; c.fillRect(200, 300, 1400, 400);
+      c.font = '700 48px "Film Sans"'; c.textBaseline = "middle"; c.lineJoin = "round";
+      c.strokeStyle = "#f0e6d0"; c.lineWidth = 6; c.strokeText("haloed label", 260, 420);
+      c.fillStyle = "#777777"; c.fillText("haloed label", 260, 420);
+      c.strokeStyle = "#f0e6d0"; c.lineWidth = 1; c.strokeText("hairline label", 260, 580);
+      c.fillStyle = "#777777"; c.fillText("hairline label", 260, 580);
+    };`,
+  );
+  const c = checkFilm(file, {});
+  const proj = await buildFilm(c.film, "en", "landscape", path.join(dir, "out", ".build", "probe"));
+  for (const opts of [haveChrome ? {} : null, native?.bin ? { native: { bin: native.bin } } : null].filter(Boolean)) {
+    const r = await probeText(proj.dir, proj.total, opts);
+    assert.equal(r.skipped, undefined, r.skipped);
+    const low = r.runs.filter((x) => x.kind === "contrast").map((x) => x.text);
+    assert.deepEqual(low, ["hairline label"], `${opts.native ? "native" : "chrome"}: ${JSON.stringify(r.runs)}`);
+  }
+});
+

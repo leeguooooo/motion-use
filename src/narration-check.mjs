@@ -75,11 +75,15 @@ const sameSound = (x, y, chars) => {
     b = chars[y];
   return Boolean(a && b && a.some((r) => b.includes(r)));
 };
+// With tones (TONE3 from pypinyin), a homophone must share a reading tone and all: 奉 fèng heard
+// 凤 fèng is spelling, 买 mǎi heard 卖 mài is a misreading. Caches from before tones fall back
+// to toneless readings.
+const sameTone = (x, y, tones) => (tones[x] && tones[y] ? tones[x].some((r) => tones[y].includes(r)) : true);
 
-// Sounds whisper confuses on names and rare characters (霖 lín heard 陵 líng, 蒋 jiǎng heard 抢
-// qiǎng, 卢 lú heard 如 rú, 溃 kuì heard 跪 guì): one consonant from the same group, or a front and
-// back nasal (in/ing, an/ang). A voice misreading a character says a different reading, not a
-// neighbouring sound, so these are reported but not flagged; they still lower the similarity.
+// Neighbouring sounds (霖 lín heard 陵 líng, 蒋 jiǎng heard 抢 qiǎng, 卢 lú heard 如 rú): one
+// consonant from the same group, or a front and back nasal (in/ing, an/ang). Whisper often hears
+// names this way, but a voice can also really say them wrong, so they stay flagged; the kind
+// "near" tells the reviewer to listen rather than to assume a different word.
 const INITIALS = ["zh", "ch", "sh", "b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x", "r", "z", "c", "s", "y", "w"];
 const NEAR_INITIALS = [["l", "r", "n"], ["j", "q"], ["g", "k"], ["z", "zh"], ["c", "ch"], ["s", "sh"]];
 const PARTICLES = "的了地得着";
@@ -123,7 +127,7 @@ export function chineseNumber(s) {
  * that forms a word with a many-reading neighbour: 重试 → 重视), homophone (ASR spelling only:
  * 它 → 他), word (different sound), missing/extra.
  */
-export function compareNarration(script, heard, lang, { chars = {}, phrases = [], threshold = 0.8 } = {}) {
+export function compareNarration(script, heard, lang, { chars = {}, tones = {}, phrases = [], threshold = 0.8 } = {}) {
   const A = tokenize(script, lang),
     B = tokenize(heard, lang);
   const { ops } = align(A, B);
@@ -162,9 +166,13 @@ export function compareNarration(script, heard, lang, { chars = {}, phrases = []
       const latinLine = !A.some((x) => !x.latin);
       change.flag = acronym || (!digits && !latinLine);
     } else if (exp.length && exp.length === got.length) {
-      const homophone = exp.every((x, i) => sameSound(x.t, got[i].t, chars));
-      const near = !homophone && exp.every((x, i) => sameSound(x.t, got[i].t, chars) || nearSound(x.t, got[i].t, chars));
-      if (homophone) {
+      const toneless = exp.every((x, i) => sameSound(x.t, got[i].t, chars));
+      const homophone = toneless && exp.every((x, i) => sameTone(x.t, got[i].t, tones));
+      const near = !toneless && exp.every((x, i) => sameSound(x.t, got[i].t, chars) || nearSound(x.t, got[i].t, chars));
+      if (toneless && !homophone) {
+        change.kind = "tone";
+        change.flag = true;
+      } else if (homophone) {
         // The heard word exists in the dictionary and the script puts a many-reading character
         // in it: the voice most likely read that character the wrong way (重试 spoken zhòng shì →
         // 重视). The many-reading character must be the script's own neighbour: 帝制 heard 地质 is
@@ -182,8 +190,7 @@ export function compareNarration(script, heard, lang, { chars = {}, phrases = []
         change.flag = polyphone;
       } else if (near) {
         change.kind = "near";
-        change.flag = false;
-        change.cost = 0.5 * exp.filter((x, i) => !sameSound(x.t, got[i].t, chars)).length;
+        change.flag = true;
       } else {
         change.kind = "word";
         change.flag = true;
@@ -198,7 +205,7 @@ export function compareNarration(script, heard, lang, { chars = {}, phrases = []
       change.kind = "word";
       change.flag = true;
     }
-    // Same sound or the same number costs nothing; a near sound half a character.
+    // The same sound (tone included when known) or the same number costs nothing.
     if (change.cost === undefined)
       change.cost = ["spelling", "homophone"].includes(change.kind) || (change.kind === "number" && !change.flag) ? 0 : Math.max(exp.length, got.length);
     changes.push(change);
@@ -254,7 +261,7 @@ export function checkNarration(items, { model = process.env.MOTION_USE_ASR_MODEL
     if (res.skipped) return { ok: true, lines: [], skipped: res.skipped };
     for (const it of todo) {
       const got = res.items.find((x) => x.file === it.file);
-      cache[key(it)] = { sha: sha(it.file), model, text: got?.text ?? "", chars: res.chars, phrases: res.phrases };
+      cache[key(it)] = { sha: sha(it.file), model, text: got?.text ?? "", chars: res.chars, tones: res.tones, phrases: res.phrases };
     }
     if (cacheFile)
       try {
@@ -263,7 +270,7 @@ export function checkNarration(items, { model = process.env.MOTION_USE_ASR_MODEL
   }
   const lines = items.map((it) => {
     const rec = cache[key(it)];
-    const r = compareNarration(it.text, rec.text, it.lang, { chars: rec.chars, phrases: rec.phrases });
+    const r = compareNarration(it.text, rec.text, it.lang, { chars: rec.chars, tones: rec.tones, phrases: rec.phrases });
     return { id: it.id, lang: it.lang, script: it.text, heard: rec.text, ...r };
   });
   return { ok: !lines.some((l) => l.flagged), model, lines };
@@ -293,6 +300,8 @@ const FIX = {
   latin: "check how the voice reads this word; respell it the way it should sound",
   polyphone: "the voice read a many-reading character the other way; use a word with one reading (重试 → 再试)",
   number: "the clip says a different number; listen and fix the script or re-voice it",
+  tone: "same syllable, different tone: listen; if the voice is wrong, respell or use another word",
+  near: "a neighbouring sound (often the recognizer on a name): listen before re-voicing",
   word: "the clip says something else; listen and re-voice it",
   missing: "words are missing from the clip; re-voice it",
   extra: "the clip has extra words; re-voice it",

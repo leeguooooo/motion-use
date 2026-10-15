@@ -48,30 +48,36 @@ test("narration check: the fixed lines pass, and spelled acronyms or ASR word no
   assert.deepEqual(tokenize("A-A-I and A.I.", "en").map((t) => t.t), ["aai", "and", "ai"]);
 });
 
-test("narration check: Chinese numerals, ASR homophones and near sounds on names are not flagged (#41)", () => {
-  // Lines from an 8-minute history film: 15 of 45 lines were flagged, every one a false alarm.
+test("narration check: same-sound names and Chinese numerals pass; a different tone or initial is still flagged (#41)", () => {
+  // Readings exactly as pypinyin gives them (NORMAL and TONE3), for the characters these lines use.
   const LEX = {
-    chars: { 溥: ["pu"], 普: ["pu"], 仪: ["yi"], 遗: ["wei", "yi"], 帝: ["di"], 制: ["zhi"], 地: ["de", "di"], 质: ["zhi"], 霖: ["lin"], 陵: ["ling"], 森: ["sen"], 蒋: ["jiang"], 抢: ["qiang"], 卢: ["lu"], 如: ["ru"], 沟: ["gou"], 钩: ["gou"], 了: ["le", "liao"], 的: ["de", "di"], 介: ["jie"], 戒: ["jie"], 石: ["dan", "shi"], 时: ["shi"], 重: ["chong", "tong", "zhong"], 试: ["shi"], 视: ["shi"] },
+    chars: { 奉: ["feng"], 凤: ["feng"], 系: ["ji", "xi"], 戏: ["hu", "xi"], 杨: ["yang"], 虎: ["hu"], 城: ["cheng"], 成: ["cheng"], 买: ["mai"], 卖: ["mai"], 重: ["chong", "tong", "zhong"], 试: ["shi"], 视: ["shi"], 霖: ["lin"], 陵: ["ling"], 蒋: ["jiang"], 抢: ["qiang"], 溥: ["bo", "bu", "fu", "po", "pu"], 普: ["pu"], 仪: ["yi"], 遗: ["wei", "yi"], 帝: ["di"], 地: ["de", "di"], 制: ["zhi"], 质: ["zhi"] },
+    tones: { 奉: ["feng4"], 凤: ["feng4"], 系: ["ji4", "xi4"], 戏: ["hu1", "xi4"], 杨: ["yang2"], 虎: ["hu3", "hu4"], 城: ["cheng2"], 成: ["cheng2"], 买: ["mai3"], 卖: ["mai4"], 重: ["chong2", "tong2", "zhong4"], 试: ["shi4"], 视: ["shi4"], 霖: ["lin2"], 陵: ["ling2"], 蒋: ["jiang3"], 抢: ["qiang1", "qiang3"], 溥: ["bo2", "bu4", "fu1", "po4", "pu3"], 普: ["pu3"], 仪: ["yi2"], 遗: ["wei4", "yi2"], 帝: ["di4"], 地: ["de5", "di4"], 制: ["zhi4"], 质: ["zhi4"] },
     phrases: ["地质", "重视"],
   };
-  const nums = compareNarration("六岁的溥仪退位，清朝两百六十八年的统治结束。", "6岁的普遗退位,清朝268年的统治结束。", "zh", LEX);
-  assert.equal(nums.flagged, false);
-  assert.deepEqual(nums.changes.map((c) => [c.kind, c.flag]), [["number", false], ["homophone", false], ["number", false]]);
-  assert.equal(nums.similarity, 1);
-  // A different number is still a misreading.
-  assert.equal(compareNarration("损失一百五十多万人。", "损失250多万人。", "zh", LEX).flagged, true);
+  const kinds = (r) => r.changes.map((c) => [c.expected, c.heard, c.kind, c.flag]);
+  // Same syllable, same tone: the recognizer's spelling of a name.
+  const feng = compareNarration("北方是奉系。", "北方是凤戏。", "zh", LEX);
+  assert.deepEqual(kinds(feng), [["奉系", "凤戏", "homophone", false]]);
+  assert.equal(feng.flagged, false);
+  assert.equal(compareNarration("张学良和杨虎城。", "张学良和杨虎成。", "zh", LEX).flagged, false);
+  assert.equal(compareNarration("六岁的溥仪退位。", "6岁的普遗退位。", "zh", LEX).flagged, false);
+  // The iphone-use promo misreading is still caught: 重试 read zhòng shì, heard 重视.
+  assert.deepEqual(kinds(compareNarration("能不能重试。", "能不能重视。", "zh", LEX)), [["试", "视", "polyphone", true]]);
+  // Same letters, another tone: flagged.
+  assert.deepEqual(kinds(compareNarration("我们买了。", "我们卖了。", "zh", LEX)), [["买", "卖", "tone", true]]);
+  // Another initial or nasal: flagged as near (listen), never passed silently.
+  assert.deepEqual(kinds(compareNarration("扣押了蒋介石。", "扣押了抢介石。", "zh", LEX)), [["蒋", "抢", "near", true]]);
+  assert.deepEqual(kinds(compareNarration("张作霖。", "张作陵。", "zh", LEX)), [["霖", "陵", "near", true]]);
+  // Without tones (a cache from before), toneless homophones still pass and 买/卖 cannot be told apart.
+  assert.equal(compareNarration("我们买了。", "我们卖了。", "zh", { chars: LEX.chars, phrases: LEX.phrases }).flagged, false);
   // 地 has two readings, but it is the recognizer's character, not the script's: spelling only.
-  assert.deepEqual(compareNarration("取消帝制。", "取消地质。", "zh", LEX).changes.map((c) => [c.kind, c.flag]), [["homophone", false]]);
-  // The script's own many-reading neighbour still catches 重试 read zhòng shì.
-  assert.equal(compareNarration("能不能重试。", "能不能重视。", "zh", LEX).changes[0].kind, "polyphone");
-  // lin/ling, jiang/qiang, lu/ru and the particles 了/的: reported as near, not flagged.
-  const near = compareNarration("关外的张作霖，扣押了蒋介石，卢沟桥。", "关外的张作陵,扣押的抢戒时,如钩桥。", "zh", LEX);
-  assert.equal(near.flagged, false);
-  assert.ok(near.changes.every((c) => ["near", "homophone"].includes(c.kind)));
-  assert.ok(near.similarity < 1 && near.similarity >= 0.8);
-  // A different sound is still a different word.
-  const word = compareNarration("关外的张作霖。", "关外的张作森。", "zh", LEX);
-  assert.deepEqual(word.changes.map((c) => [c.kind, c.flag]), [["word", true]]);
+  assert.deepEqual(kinds(compareNarration("取消帝制。", "取消地质。", "zh", LEX)), [["帝制", "地质", "homophone", false]]);
+  // Chinese numerals and digits are compared by value.
+  const nums = compareNarration("清朝两百六十八年，损失一百五十多万人。", "清朝268年,损失150多万人。", "zh", LEX);
+  assert.deepEqual(nums.changes.map((c) => [c.kind, c.flag]), [["number", false], ["number", false]]);
+  assert.equal(nums.similarity, 1);
+  assert.equal(compareNarration("损失一百五十多万人。", "损失250多万人。", "zh", LEX).flagged, true);
   assert.equal(chineseNumber("两百六十八") + chineseNumber("一九一二") + chineseNumber("三万五千"), 268 + 1912 + 35000);
 });
 
