@@ -75,6 +75,20 @@ test("narration check: Chinese numerals, ASR homophones and near sounds on names
   assert.equal(chineseNumber("两百六十八") + chineseNumber("一九一二") + chineseNumber("三万五千"), 268 + 1912 + 35000);
 });
 
+test("native probe output keeps CJK text whole across pipe chunks (#42)", async () => {
+  // A stand-in motion-render that prints a probe result larger than one 64 KB pipe chunk, with
+  // three-byte characters, so some character straddles a chunk boundary.
+  const d = temp();
+  const bin = path.join(d, "motion-render");
+  fs.writeFileSync(bin, `#!/usr/bin/env node\nconst text = "北洋政府".repeat(30000);\nprocess.stdout.write(JSON.stringify({ samples: [{ t: 0, boxes: [{ text }] }] }) + "\\n");\n`);
+  fs.chmodSync(bin, 0o755);
+  const { nativeProbe } = await import("../src/native.mjs");
+  const r = await nativeProbe({ bin, projDir: d, times: [0], work: path.join(d, ".probe") });
+  const text = r.samples[0].boxes[0].text;
+  assert.equal(text.includes("\uFFFD"), false);
+  assert.equal(text, "北洋政府".repeat(30000));
+});
+
 test("narration check caches transcripts by clip hash and skips cleanly without a recognizer", () => {
   const dir = temp();
   fs.mkdirSync(path.join(dir, "zh"));

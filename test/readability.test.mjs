@@ -41,6 +41,25 @@ test("reading check: a line held long enough, words arriving one by one and a ro
   assert.deepEqual(runs, []);
 });
 
+test("reading check: a haloed label is one string, and a label the camera carries out of frame is not judged (#42, #43)", () => {
+  // strokeText halo + fillText at the same place: one "新疆", never "新疆新疆".
+  const halo = (t0, t1, x) => (t) => t >= t0 && t < t1 ? [box("新疆", x, 100, x + 60, 130), box("新疆", x, 100, x + 60, 130)] : [];
+  const flashed = readingRuns(every(3, halo(1, 1.2, 300)), { width: 1920, height: 1080 });
+  assert.deepEqual(flashed.map((r) => r.text), ["新疆"]);
+  // A push carries the label off the left edge after 0.2 s: the film moved on, nothing vanished.
+  const pushed = readingRuns(
+    every(3, (t) => (t >= 1 ? [box("新疆", t < 1.2 ? 300 : -400, 100, t < 1.2 ? 360 : -340, 130), box("新疆", t < 1.2 ? 300 : -400, 100, t < 1.2 ? 360 : -340, 130)] : [])),
+    { width: 1920, height: 1080 },
+  );
+  assert.deepEqual(pushed, []);
+  // Faded out in place after 0.2 s: still flagged.
+  const faded = readingRuns(every(3, (t) => (t >= 1 ? [box("新疆", 300, 100, 360, 130, { alpha: t < 1.2 ? 1 : 0.1 })] : [])), { width: 1920, height: 1080 });
+  assert.deepEqual(faded.map((r) => [r.text, r.seconds]), [["新疆", 0.2]]);
+  // Two different strings side by side still read as one line.
+  const two = readingRuns(every(3, (t) => (t >= 1 && t < 1.2 ? [box("北洋", 300, 100, 360, 130), box("政府", 362, 100, 422, 130)] : [])), { width: 1920, height: 1080 });
+  assert.deepEqual(two.map((r) => r.text), ["北洋政府"]);
+});
+
 test("shot text that cannot be read inside its shot window is a validate warning", () => {
   const d = temp();
   initFilm({ lang: "en", format: "landscape" }, d);
