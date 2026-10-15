@@ -456,3 +456,12 @@ test("word anchors respect complete service-word boundaries and never join acros
   assert.equal(m.at("rain"), 1);
   assert.throws(() => m.at("rain", {occurrence:-1}), /non-negative/);
 });
+
+test("explicit geographic ID fields override duplicate native IDs; blank defaults fall back", () => {
+  const duplicate = {type:"FeatureCollection", features:[{...square.features[0], id:"036",properties:{name:"Australia"}},{...square.features[0],id:"036",properties:{name:"Ashmore and Cartier Is."}}]};
+  assert.throws(() => compileGeo(duplicate), /duplicate region ID/);
+  assert.deepEqual(compileGeo(duplicate,{idField:"name"}).regions.map(r=>r.id), ["Australia","Ashmore and Cartier Is."]);
+  const unnamed = {type:"FeatureCollection",features:[{...square.features[0],id:"",properties:{name:""}}]};
+  assert.equal(compileGeo(unnamed).regions[0].id,"0");
+  assert.throws(()=>compileGeo(unnamed,{idField:"name"}), /missing or empty/);
+});

@@ -10,7 +10,7 @@ export function compileGeo(
     projection = "mercator",
     simplify = 0.6,
     object,
-    idField = "name",
+    idField,
   } = {},
 ) {
   width = Number(width);
@@ -27,6 +27,8 @@ export function compileGeo(
     throw new Error("geo: width/height 32–8192; simplify 0–50 output pixels");
   if (!["mercator", "equirectangular"].includes(projection))
     throw new Error("geo: projection mercator or equirectangular");
+  if (idField !== undefined && (typeof idField !== "string" || !idField.trim()))
+    throw new Error("geo: --id-field must name a nonempty properties field");
   if (input.type === "Topology") input = topologyFeatures(input, object);
   const features =
     input.type === "FeatureCollection"
@@ -69,12 +71,15 @@ export function compileGeo(
       polygons.some((p) => !Array.isArray(p) || !p.length)
     )
       throw new Error(`geo feature ${i}: empty polygon`);
-    const id = String(f.id ?? f.properties?.[idField] ?? i);
+    const usableId = (v) => (typeof v === "string" && Boolean(v.trim())) || (typeof v === "number" && Number.isFinite(v));
+    const selected = idField !== undefined ? f.properties?.[idField] : [f.id, f.properties?.name, i].find(usableId);
+    if (!usableId(selected)) throw new Error(`geo feature ${i}: --id-field ${idField} is missing or empty`);
+    const id = String(selected).trim();
     if (used.has(id)) throw new Error(`geo duplicate region ID: ${id}`);
     used.add(id);
     return {
       id,
-      name: String(f.properties?.[idField] ?? id),
+      name: String(f.properties?.[idField ?? "name"] || id),
       polygons: polygons.map((p) =>
         p.map((ring) => {
           if (!Array.isArray(ring) || ring.length < 4)
