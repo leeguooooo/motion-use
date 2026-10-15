@@ -446,3 +446,13 @@ print(json.dumps(m.synthesize({'ssml':'<synthetic/>','out':${JSON.stringify(out)
   ]);
   assert.equal(fs.readFileSync(out, "utf8"), "synthetic");
 });
+
+test("word anchors respect complete service-word boundaries and never join across shots", () => {
+  const m = kit({ words: [{text:"rain",start:1,id:"a"},{text:"bow",start:5,id:"b"},{text:"Hello",start:7,id:"c"},{text:"world",start:8,id:"c"}] });
+  assert.throws(() => m.at("rainbow"), /No measured/);
+  assert.throws(() => m.at("ain"), /No measured/);
+  assert.throws(() => m.at("rai"), /No measured/);
+  assert.equal(m.at("Hello world"), 7);
+  assert.equal(m.at("rain"), 1);
+  assert.throws(() => m.at("rain", {occurrence:-1}), /non-negative/);
+});

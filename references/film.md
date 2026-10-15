@@ -215,7 +215,7 @@ Retime before placing external subtitles, cues, audio or footage; the command re
 
 For measured word timing, `voiceover --engine azure --word-timing` uses Azure Speech SDK 1.52.0 in an optional uv-managed Python environment. Credentials remain in the environment; audio and service word boundaries are cached together. No call to this service happens in catalog, handoff or retime. The normal Azure REST route remains audio-only. SDK unavailable or no returned boundaries means an explicit failure, not invented timing. [Azure event documentation](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/how-to-speech-synthesis#subscribe-to-synthesizer-events).
 
-`M.at('phrase', {shot:'shot-id', occurrence:0})` reads only service boundaries whose audio hash and script still match. `shot` is optional; multiple matches require it or an explicit zero-based occurrence. No measured match throws. Manual/imported sources can use named `cues` instead. Do not treat this as forced alignment of arbitrary recordings.
+`M.at('phrase', {shot:'shot-id', occurrence:0})` reads only service boundaries whose audio hash and script still match. `shot` is optional; multiple matches require it or an explicit zero-based occurrence. No measured match throws. Matches must start and end on service word boundaries inside the same shot; whitespace between words is ignored. A substring inside a service word has no measured onset and is rejected. Manual/imported sources can use named `cues` instead. Do not treat this as forced alignment of arbitrary recordings.
 
 ## Custom font families
 

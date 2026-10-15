@@ -949,17 +949,32 @@ window.__filmKit = function (view, film) {
     list, map, geoPoint, route, pin,
     arrow: (c,t,points,options={}) => route(c,t,points,{...options,head:true}),
     at: (word, { shot, occurrence } = {}) => {
-      const words = (film.words ?? []).filter((w) => !shot || w.id === shot);
-      const joined = words.map((w) => w.text).join("");
-      const starts = []; let offset = 0;
-      for (const w of words) { starts.push({ offset, time: w.start }); offset += w.text.length; }
-      const matches = []; let pos = joined.indexOf(word);
-      while (word && pos >= 0) { matches.push(pos); pos = joined.indexOf(word, pos + Math.max(1, word.length)); }
+      const needle = typeof word === "string" ? word.replace(/\s+/gu, "") : "";
+      if (!needle) throw new Error("A non-empty keyword is required");
+      if (occurrence !== undefined && (!Number.isInteger(occurrence) || occurrence < 0)) throw new Error("Word occurrence must be a non-negative integer");
+      const groups = new Map();
+      for (const w of film.words ?? []) {
+        if (shot && w.id !== shot) continue;
+        if (!groups.has(w.id)) groups.set(w.id, []);
+        groups.get(w.id).push(w);
+      }
+      const matches = [];
+      for (const words of groups.values()) {
+        for (let i = 0; i < words.length; i++) {
+          let phrase = "";
+          for (let j = i; j < words.length; j++) {
+            phrase += words[j].text.replace(/\s+/gu, "");
+            if (phrase === needle) { matches.push(words[i].start); break; }
+            if (!needle.startsWith(phrase)) break;
+          }
+        }
+      }
+      matches.sort((a, b) => a - b);
       if (!matches.length) throw new Error(`No measured word timing for: ${word}`);
       if (matches.length > 1 && occurrence === undefined) throw new Error(`Ambiguous word timing: ${word}; specify shot or occurrence`);
       const match = matches[occurrence ?? 0];
       if (match === undefined) throw new Error(`No such word occurrence: ${word}`);
-      return [...starts].reverse().find((w) => w.offset <= match).time;
+      return match;
     },
     hasCue: (name) => Object.hasOwn(film.cues ?? {}, name),
     cue: (name) => {
