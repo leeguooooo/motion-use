@@ -105,6 +105,11 @@ const CN_DIGITS = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五:
 const CN_UNITS = { 十: 10, 百: 100, 千: 1000 };
 const CN_NUMBER = /^[零〇一二两三四五六七八九十百千万亿]+$/;
 export function chineseNumber(s) {
+  // Apply the largest unit first: 一万亿 is 10000 × 亿, not 10000 + 0 × 亿.
+  for (const [unit, scale] of [["亿", 1e8], ["万", 1e4]]) {
+    const at = s.indexOf(unit);
+    if (at >= 0) return chineseNumber(s.slice(0, at) || "一") * scale + chineseNumber(s.slice(at + 1) || "零");
+  }
   const cs = [...s];
   if (!cs.some((c) => c in CN_UNITS || c === "万" || c === "亿")) return Number(cs.map((c) => CN_DIGITS[c]).join(""));
   let total = 0,
@@ -230,8 +235,9 @@ export function narrationItems(project) {
   for (const p of plans)
     for (const [lang, text] of Object.entries(p.narration ?? {})) {
       if (typeof text !== "string" || !text.trim()) continue;
-      const file = [".mp3", ".wav", ".m4a", ".aac", ".ogg"].map((e) => path.join(dir, lang, p.id + e)).find((f) => fs.existsSync(f));
-      if (file) items.push({ id: p.id, lang, text, file });
+      const selected = project.tracks?.find((a) => a.role === "voiceover" && a.id === p.id && (!a.lang || a.lang === lang))?.file ?? p.voiceover?.[lang];
+      const file = selected ?? [".wav", ".m4a", ".aac", ".ogg", ".mp3"].map((e) => path.join(dir, lang, p.id + e)).find((f) => fs.existsSync(f));
+      if (file) items.push({ id: p.id, lang, text, file, ...(project.narrationReviews?.[`${lang}/${p.id}`] ? { review: project.narrationReviews[`${lang}/${p.id}`] } : {}) });
     }
   return items;
 }
@@ -243,7 +249,7 @@ const CACHE = ".motion-use-asr.json";
  * Transcribe (cached by clip hash and model) and compare every narration clip.
  * Never throws for a missing recognizer: returns { skipped: "<why>" } so render can go on.
  */
-export function checkNarration(items, { model = process.env.MOTION_USE_ASR_MODEL || "small", dir, log = () => {}, run = runAsr } = {}) {
+export function checkNarration(items, { model = process.env.MOTION_USE_ASR_MODEL || "small", dir, log = () => {}, run = runAsr, force = false } = {}) {
   if (!items.length) return { ok: true, lines: [], skipped: "no generated narration with a script" };
   const cacheFile = dir ? path.join(dir, CACHE) : null;
   let cache = {};
@@ -253,7 +259,7 @@ export function checkNarration(items, { model = process.env.MOTION_USE_ASR_MODEL
   const key = (it) => (dir ? path.relative(dir, it.file) : it.file);
   const todo = items.filter((it) => {
     const rec = cache[key(it)];
-    return !(rec && rec.sha === sha(it.file) && rec.model === model && rec.chars);
+    return force || !(rec && rec.sha === sha(it.file) && rec.model === model && rec.chars);
   });
   if (todo.length) {
     log(`narration check: transcribing ${todo.length} clip(s) with whisper ${model}…`);
@@ -271,7 +277,10 @@ export function checkNarration(items, { model = process.env.MOTION_USE_ASR_MODEL
   const lines = items.map((it) => {
     const rec = cache[key(it)];
     const r = compareNarration(it.text, rec.text, it.lang, { chars: rec.chars, tones: rec.tones, phrases: rec.phrases });
-    return { id: it.id, lang: it.lang, script: it.text, heard: rec.text, ...r };
+    const audioSha = sha(it.file), review = it.review;
+    const reviewed = review?.sha256 === audioSha && review.script === it.text && review.heard === rec.text && typeof review.reason === "string" && review.reason.trim();
+    return { id: it.id, lang: it.lang, script: it.text, heard: rec.text, audio_sha256: audioSha, ...r,
+      ...(reviewed ? { comparison_flagged: r.flagged, flagged: false, reviewed: { reason: review.reason, sha256: audioSha } } : {}) };
   });
   return { ok: !lines.some((l) => l.flagged), model, lines };
 }

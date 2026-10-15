@@ -12,6 +12,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const DEFAULT_VOICES = { zh: "zh-CN-YunxiNeural", en: "en-US-AndrewMultilingualNeural" };
 export const MANIFEST = ".motion-use-voiceover.json";
@@ -52,7 +53,7 @@ async function azure(text, voice, rate, out) {
 // Word boundaries require the Speech SDK; the audio-only REST endpoint supplies none.
 function azureTimed(text, voice, rate, out) {
   const script = new URL("../scripts/azure-word-timing.py", import.meta.url);
-  const r = spawnSync("uv", ["run", "--quiet", "--with", "azure-cognitiveservices-speech==1.52.0", script.pathname], {
+  const r = spawnSync("uv", ["run", "--quiet", "--no-project", "--python", "3.12", "--with", "azure-cognitiveservices-speech==1.52.0", fileURLToPath(script)], {
     input: JSON.stringify({ ssml: ssml(text, voice, rate), out }), encoding: "utf8", timeout: 120000,
     maxBuffer: 8 * 1024 * 1024,
   });

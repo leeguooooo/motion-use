@@ -306,3 +306,13 @@ motion-use still ./my-film --allow-code --out ./local-review
 ```
 
 This is an explicit synchronization workflow, not a --remote renderer. Quoted paths/host commands must be adjusted for the actual machine. Omit --delete; do not share a folder between simultaneous jobs. A verified downloaded hash proves transport/file identity, not visual acceptance on the target platform.
+
+## Reading and motion diagnostics
+
+Chinese narration comparisons use tone-bearing readings when the cached transcript has them. Same-sound spelling differences and equivalent Chinese/Arabic numerals do not lower similarity; different tones, near consonants and ambiguous polyphones remain review signals. ASR cannot prove a name's intended pronunciation. Old caches remain compatible with the earlier toneless comparison; explicitly run `motion-use voiceover check <film> --force` to refresh them. This flag applies to that check; render --force retains its output-overwrite meaning.
+
+The text probe decodes native output as a UTF-8 stream and deduplicates the same string's coincident stroke/fill passes for reading-time analysis. A label carried fully outside the frame is distinguished from text disappearing in place. Contrast still uses a coincident stroke as backing when available; these checks do not assess every decorative/offscreen-canvas treatment.
+
+Motion reports retain the grayscale fast_ratio measurement and add colour-region events (at least 5% of a 160 px analysis frame changes a channel by at least 24). Recolouring a region can therefore count as an event even when its luminance barely changes. Low fast_ratio with frequent region events gets a specific note; a red delivery light is not silently waived. Review the cut and record a deliberate allow-static reason when its measured motion is appropriate to the subject.
+
+Tone-bearing transcript text is still ASR's spelling, not a measurement of spoken tone; names may produce more conservative flags. After actually listening, a reviewer can record an exact exception under `narrationReviews["zh/shot-id"]`: `{sha256, script, heard, reason}`. Use the check report's audio_sha256 and exact script/heard strings. It applies only while all three still match, preserves comparison_flagged and the underlying changes, and records reviewed.reason. Changed audio, script or transcript invalidates it automatically. This is a review record, not an authentication mechanism; never fabricate one to pass a gate.

@@ -125,6 +125,16 @@ export function validateFilm(
       );
   }
   validateTiming(data, error);
+  if (data.narrationReviews !== undefined) {
+    if (!data.narrationReviews || typeof data.narrationReviews !== "object" || Array.isArray(data.narrationReviews)) error("$.narrationReviews", "a map keyed by language/shot-id");
+    else for (const [key, review] of Object.entries(data.narrationReviews)) {
+      const [lang, id, extra] = key.split("/");
+      if (extra || !Array.isArray(data.languages) || !data.languages.includes(lang) || !(id === "narration" || (Array.isArray(data.shots) && data.shots.some((s) => s?.id === id))))
+        error(`$.narrationReviews.${key}`, "a language and narration shot ID in this film");
+      if (!review || !/^[a-f0-9]{64}$/.test(review.sha256 ?? "") || ["script", "heard", "reason"].some((f) => typeof review[f] !== "string" || !review[f].trim() || review[f].length > 16000))
+        error(`$.narrationReviews.${key}`, "{sha256, script, heard, reason}: an exact audio/script/transcript review record");
+    }
+  }
   const local = (v, p) => {
     if (
       typeof v !== "string" ||

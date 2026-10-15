@@ -49,6 +49,8 @@ export function concatParts(configFile, options = {}) {
       throw new Error("concat part needs a file");
     const file = path.resolve(base, p.file),
       facts = probeMedia(file);
+    if (!facts.width || !facts.height || !Number.isFinite(facts.fps) || facts.fps <= 0)
+      throw new Error(`${p.file}: a video stream with dimensions and frame rate is required`);
     const from = p.from ?? 0,
       to = p.to ?? facts.duration;
     if (

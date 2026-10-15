@@ -597,10 +597,10 @@ window.__filmKit = function (view, film) {
       c.save();c.translate(...tip);c.rotate(angle);c.fillStyle=color;c.beginPath();c.moveTo(0,0);c.lineTo(-18*unit,-8*unit);c.lineTo(-18*unit,8*unit);c.closePath();c.fill();c.restore();
     }return tip;
   }
-  function pin(c,t,point,{at=0,text="",color=ink().accent,size=10*unit}={}){
+  function pin(c,t,point,{at=0,text="",color=ink().accent,labelColor=ink().ink,size=10*unit}={}){
     const q=easings.smooth((t-at)/.3);if(q<=0)return;
     c.save();c.globalAlpha*=q;c.fillStyle=color;c.beginPath();c.arc(...point,size*q,0,Math.PI*2);c.fill();
-    if(text)label(c,text,point[0],point[1]-size-22*unit,{color,size:28*unit});c.restore();
+    if(text)label(c,text,point[0],point[1]-size-22*unit,{color:labelColor,size:28*unit});c.restore();
   }
   // Kinetic words: each word enters at its own time (at + i * stagger, or times[i]).
   function words(c, t, text, at, { at: start = 0, stagger = 0.12, times = null, style = "rise", size = 96 * unit, color = ink().ink, emphasis = [], emphasisColor = ink().accent, weight = 800, align = "center", maxWidth = view.width * 0.86, lineHeight = 1.15, until = Infinity } = {}) {

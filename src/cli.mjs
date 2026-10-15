@@ -1495,11 +1495,11 @@ function projectNarration(briefPath, o) {
 
 function runNarrationCheck(briefPath, o) {
   const { items, dir } = projectNarration(briefPath, o);
-  return checkNarration(items, { dir, model: o["asr-model"], log: o.json ? () => {} : (m) => console.error(m) });
+  return checkNarration(items, { dir, model: o["asr-model"], force: Boolean(o._refreshAsr), log: o.json ? () => {} : (m) => console.error(m) });
 }
 
 async function voiceoverCheck(o, [briefPath]) {
-  const r = runNarrationCheck(briefPath, o);
+  const r = runNarrationCheck(briefPath, { ...o, _refreshAsr: Boolean(o.force) });
   if (o.json) console.log(JSON.stringify(r, null, 2));
   else if (r.skipped) console.error(`motion-use: narration check skipped: ${r.skipped}`);
   else {
