@@ -76,6 +76,44 @@ const sameSound = (x, y, chars) => {
   return Boolean(a && b && a.some((r) => b.includes(r)));
 };
 
+// Sounds whisper confuses on names and rare characters (霖 lín heard 陵 líng, 蒋 jiǎng heard 抢
+// qiǎng, 卢 lú heard 如 rú, 溃 kuì heard 跪 guì): one consonant from the same group, or a front and
+// back nasal (in/ing, an/ang). A voice misreading a character says a different reading, not a
+// neighbouring sound, so these are reported but not flagged; they still lower the similarity.
+const INITIALS = ["zh", "ch", "sh", "b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x", "r", "z", "c", "s", "y", "w"];
+const NEAR_INITIALS = [["l", "r", "n"], ["j", "q"], ["g", "k"], ["z", "zh"], ["c", "ch"], ["s", "sh"]];
+const PARTICLES = "的了地得着";
+const splitReading = (r) => {
+  const i = INITIALS.find((p) => r.startsWith(p)) ?? "";
+  return [i, r.slice(i.length)];
+};
+function nearReading(a, b) {
+  const [ia, fa] = splitReading(a),
+    [ib, fb] = splitReading(b);
+  if (ia === ib) return fa !== fb && fa.replace(/g$/, "") === fb.replace(/g$/, "");
+  return fa === fb && NEAR_INITIALS.some((g) => g.includes(ia) && g.includes(ib));
+}
+const nearSound = (x, y, chars) =>
+  (PARTICLES.includes(x) && PARTICLES.includes(y)) || Boolean(chars[x]?.some((a) => chars[y]?.some((b) => nearReading(a, b))));
+
+// Chinese numerals as a number: 两百六十八 → 268, 一百五十 → 150, 一九一二 → 1912.
+const CN_DIGITS = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+const CN_UNITS = { 十: 10, 百: 100, 千: 1000 };
+const CN_NUMBER = /^[零〇一二两三四五六七八九十百千万亿]+$/;
+export function chineseNumber(s) {
+  const cs = [...s];
+  if (!cs.some((c) => c in CN_UNITS || c === "万" || c === "亿")) return Number(cs.map((c) => CN_DIGITS[c]).join(""));
+  let total = 0,
+    section = 0,
+    num = 0;
+  for (const c of cs) {
+    if (c in CN_DIGITS) num = CN_DIGITS[c];
+    else if (c in CN_UNITS) ((section += (num || 1) * CN_UNITS[c]), (num = 0));
+    else ((total += (section + num) * (c === "万" ? 1e4 : 1e8)), (section = 0), (num = 0));
+  }
+  return total + section + num;
+}
+
 /**
  * Compare a script line with what speech recognition heard.
  * `lexicon.chars` maps CJK characters to their toneless readings and `lexicon.phrases` lists
@@ -105,9 +143,15 @@ export function compareNarration(script, heard, lang, { chars = {}, phrases = []
     const change = { expected: join(exp), heard: join(got) };
     const prev = ops[start - 1]?.op === "=" ? ops[start - 1].b.t : "",
       next = ops[k]?.op === "=" ? ops[k].b.t : "";
-    if (exp.map((x) => x.t).join("") === got.map((x) => x.t).join("")) {
+    const expText = exp.map((x) => x.t).join(""),
+      gotText = got.map((x) => x.t).join("");
+    if (expText === gotText) {
       change.kind = "spelling"; // "API" heard as "A P I": the same letters
       change.flag = false;
+    } else if (exp.length && got.length && CN_NUMBER.test(expText) && got.every((x) => /^\d+$/.test(x.t))) {
+      // 两百六十八 written as 268 by the recognizer: the same number, unless the values differ.
+      change.kind = "number";
+      change.flag = chineseNumber(expText) !== Number(gotText);
     } else if ([...exp, ...got].some((x) => x.latin)) {
       const acronym = exp.some((x) => x.acronym);
       change.kind = acronym ? "acronym" : "latin";
@@ -119,18 +163,27 @@ export function compareNarration(script, heard, lang, { chars = {}, phrases = []
       change.flag = acronym || (!digits && !latinLine);
     } else if (exp.length && exp.length === got.length) {
       const homophone = exp.every((x, i) => sameSound(x.t, got[i].t, chars));
+      const near = !homophone && exp.every((x, i) => sameSound(x.t, got[i].t, chars) || nearSound(x.t, got[i].t, chars));
       if (homophone) {
-        // The heard word exists in the dictionary and contains a many-reading character: the
-        // voice most likely read that character the wrong way (重试 spoken zhòng shì → 重视).
+        // The heard word exists in the dictionary and the script puts a many-reading character
+        // in it: the voice most likely read that character the wrong way (重试 spoken zhòng shì →
+        // 重视). The many-reading character must be the script's own neighbour: 帝制 heard 地质 is
+        // ASR spelling, the heard 地 being many-reading proves nothing.
+        const multi = (c) => (chars[c]?.length ?? 0) > 1;
         const word = prev + change.heard + next;
         const words = [];
         for (let n = 2; n <= 3; n++)
           for (let i = 0; i + n <= word.length; i++) words.push(word.slice(i, i + n));
+        // Comparing readings in context does not help: pypinyin itself reads 重试 as zhòng shì.
         const polyphone = words.some(
-          (w) => phraseSet.has(w) && w.includes(change.heard) && [...w].some((c) => (chars[c]?.length ?? 0) > 1),
+          (w) => phraseSet.has(w) && w.includes(change.heard) && ((prev && w.startsWith(prev) && multi(prev)) || (next && w.endsWith(next) && multi(next))),
         );
         change.kind = polyphone ? "polyphone" : "homophone";
         change.flag = polyphone;
+      } else if (near) {
+        change.kind = "near";
+        change.flag = false;
+        change.cost = 0.5 * exp.filter((x, i) => !sameSound(x.t, got[i].t, chars)).length;
       } else {
         change.kind = "word";
         change.flag = true;
@@ -145,7 +198,9 @@ export function compareNarration(script, heard, lang, { chars = {}, phrases = []
       change.kind = "word";
       change.flag = true;
     }
-    change.cost = change.kind === "spelling" ? 0 : Math.max(exp.length, got.length);
+    // Same sound or the same number costs nothing; a near sound half a character.
+    if (change.cost === undefined)
+      change.cost = ["spelling", "homophone"].includes(change.kind) || (change.kind === "number" && !change.flag) ? 0 : Math.max(exp.length, got.length);
     changes.push(change);
   }
   // Edit cost per changed run; a spelled-out acronym costs nothing.
@@ -237,6 +292,7 @@ const FIX = {
   acronym: 'spell the letters apart in the script, e.g. "A I" (subtitles may keep "AI")',
   latin: "check how the voice reads this word; respell it the way it should sound",
   polyphone: "the voice read a many-reading character the other way; use a word with one reading (重试 → 再试)",
+  number: "the clip says a different number; listen and fix the script or re-voice it",
   word: "the clip says something else; listen and re-voice it",
   missing: "words are missing from the clip; re-voice it",
   extra: "the clip has extra words; re-voice it",
