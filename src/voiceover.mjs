@@ -49,6 +49,17 @@ async function azure(text, voice, rate, out) {
   fs.writeFileSync(out, Buffer.from(await res.arrayBuffer()));
 }
 
+// Word boundaries require the Speech SDK; the audio-only REST endpoint supplies none.
+function azureTimed(text, voice, rate, out) {
+  const script = new URL("../scripts/azure-word-timing.py", import.meta.url);
+  const r = spawnSync("uv", ["run", "--quiet", "--with", "azure-cognitiveservices-speech==1.52.0", script.pathname], {
+    input: JSON.stringify({ ssml: ssml(text, voice, rate), out }), encoding: "utf8", timeout: 120000,
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  if (r.error || r.status !== 0) throw new Error(r.error?.code === "ENOENT" ? "--word-timing needs uv (and the optional pinned Azure Speech SDK)" : "Azure word timing failed; check the resource, voice, SDK and connection");
+  return JSON.parse(r.stdout).words;
+}
+
 // Since 2026-10-12 the legacy Edge read-aloud host answers 403 (rany2/edge-tts#490). Run the
 // installed edge-tts through scripts/edge-tts.py, which tries the new host first, with the
 // Python interpreter from the edge-tts launcher's shebang; fall back to the plain CLI.
@@ -126,10 +137,11 @@ export function readVoManifest(dir) {
  * Generate missing or outdated narration audio. Returns one row per scene × language.
  * A scene without narration text for a language is skipped (a recording can still go there).
  */
-export async function generateVoiceover(brief, { langs = brief.languages, engine: requested, force = false, log = () => {} } = {}) {
+export async function generateVoiceover(brief, { langs = brief.languages, engine: requested, force = false, log = () => {}, wordTiming = false } = {}) {
   const vo = brief.voiceover;
   if (!vo?.dir) throw new Error('the brief has no voiceover folder; add "voiceover": {"dir": "voiceover"}');
   const engine = pickEngine(requested ?? vo.engine);
+  if (wordTiming && engine !== "azure") throw new Error("--word-timing currently requires --engine azure; imported cue timestamps remain available for other voices");
   const manifest = readVoManifest(vo.dir);
   const rows = [];
   for (const lang of langs) {
@@ -148,7 +160,7 @@ export async function generateVoiceover(brief, { langs = brief.languages, engine
       // Another recording for this scene (e.g. scene.wav) would be picked up instead of the mp3.
       const other = [".wav", ".m4a", ".aac", ".ogg"].map((e) => path.join(vo.dir, lang, scene.id + e)).find((f) => fs.existsSync(f));
       if (other && !force) {
-        rows.push({ ...row, status: "kept", reason: `${path.basename(other)} already exists for this scene` });
+        rows.push({ ...row, file: other, status: "kept", reason: `${path.basename(other)} already exists for this scene` });
         continue;
       }
       const rec = manifest[rel];
@@ -159,17 +171,17 @@ export async function generateVoiceover(brief, { langs = brief.languages, engine
           rows.push({ ...row, status: "kept", reason: "a recording that motion-use did not make (use --force to replace it)" });
           continue;
         }
-        if (mine && rec.text === text && rec.engine === engine && rec.voice === voice && rec.rate === rate) {
+        if (mine && rec.text === text && rec.engine === engine && rec.voice === voice && rec.rate === rate && (!wordTiming || rec.words?.length)) {
           rows.push({ ...row, status: "unchanged" });
           continue;
         }
       }
       fs.mkdirSync(path.dirname(out), { recursive: true });
       const tmp = `${out}.partial.mp3`;
-      let cues = null;
+      let cues = null, words = null;
       try {
         log(`${lang}/${scene.id}: ${engine} ${voice}`);
-        if (engine === "azure") await azure(text, voice, rate, tmp);
+        if (engine === "azure") { if (wordTiming) words = azureTimed(text, voice, rate, tmp); else await azure(text, voice, rate, tmp); }
         else cues = edge(text, voice, rate, tmp);
         if (!fs.existsSync(tmp) || fs.statSync(tmp).size === 0) throw new Error("no audio was written");
         fs.renameSync(tmp, out);
@@ -178,7 +190,7 @@ export async function generateVoiceover(brief, { langs = brief.languages, engine
         rows.push({ ...row, status: "error", error: e.message });
         continue;
       }
-      manifest[rel] = { ...want, sha: sha(fs.readFileSync(out)), ...(cues?.length ? { cues } : {}) };
+      manifest[rel] = { ...want, sha: sha(fs.readFileSync(out)), ...(cues?.length ? { cues } : {}), ...(words?.length ? { words } : {}) };
       rows.push({ ...row, status: "generated" });
     }
   }
