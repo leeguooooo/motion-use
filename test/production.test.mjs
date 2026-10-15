@@ -471,7 +471,7 @@ test("China ADM1 builtin has 34 distinct regions and preserves its year and attr
  const map=JSON.parse(fs.readFileSync(out,"utf8"));
  assert.equal(result.regions,34);assert.equal(new Set(map.regions.map(r=>r.id)).size,34);
  assert.ok(map.regions.every(r=>r.id && r.name && r.polygons.length));
- assert.equal(map.source.year,"2019");assert.equal(map.source.license,"CC-BY-4.0");
+ assert.equal(map.source.year,"2019");assert.match(map.source.licenseUrl,/creativecommons.org/);assert.ok(map.source.modifications.length);assert.equal(map.source.license,"CC-BY-4.0");
  assert.match(result.attribution,/www.geoboundaries.org/);assert.match(map.notice,/2019/);
  assert.ok(fs.readFileSync(new URL("../assets/geo/LICENSE-geoboundaries.txt",import.meta.url),"utf8").includes("Attribution 4.0 International"));
 });

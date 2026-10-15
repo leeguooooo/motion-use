@@ -229,7 +229,7 @@ export function exportGeo(file, options = {}) {
     throw new Error(`${out} exists; choose a fresh --out`);
   const builtin = {
     world: { name: "Natural Earth 1:110m admin-0 countries", license: "Public domain", url: "https://www.naturalearthdata.com/about/terms-of-use/" },
-    "china-provinces": { name: "geoBoundaries gbOpen CHN ADM1", license: "CC-BY-4.0", year: "2019", boundaryID: "CHN-ADM1-43563684", url: "https://www.geoboundaries.org/api/current/gbOpen/CHN/ADM1/", attribution: "geoBoundaries — www.geoboundaries.org — CC BY 4.0" },
+    "china-provinces": { name: "geoBoundaries gbOpen CHN ADM1", license: "CC-BY-4.0", licenseUrl: "https://creativecommons.org/licenses/by/4.0/", dataUrl: "https://github.com/wmgeolab/geoBoundaries/raw/9469f09/releaseData/gbOpen/CHN/ADM1/geoBoundaries-CHN-ADM1_simplified.geojson", modifications: ["Properties reduced to shapeID/name", "Coordinates rounded to five decimal places", "Projected and optionally simplified by motion-use"], year: "2019", boundaryID: "CHN-ADM1-43563684", url: "https://www.geoboundaries.org/api/current/gbOpen/CHN/ADM1/", attribution: "geoBoundaries — www.geoboundaries.org — CC BY 4.0" },
   };
   const entry = Object.hasOwn(builtin, file) ? builtin[file] : null;
   const source = entry ? new URL(`../assets/geo/${file}.geojson`, import.meta.url) : file;
