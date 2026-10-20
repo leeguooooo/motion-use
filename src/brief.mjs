@@ -56,7 +56,7 @@ export function lintCustomHtml(src, { javascript = false } = {}) {
   const out = [];
   for (const [rule, re] of RULES) for (const m of code.matchAll(re)) out.push({ rule, match: m[0] });
   // Resource sinks still reject remote literal URLs, including Image.src and CSS url().
-  for (const literal of literals) if (/^(?:https?:)?\/\//i.test(literal.text) && /(?:\.src\s*=|\bimport|\bfrom)\s*$/.test(literal.before))
+  for (const literal of literals) if (/^(?:https?:)?\/\//i.test(literal.text) && /(?:\.src\s*=|\bimport|\bfrom|\b(?:fetch|WebSocket|EventSource)\s*\(|\.open\s*\([^,]*,)\s*$/.test(literal.before))
     out.push({ rule: "network", match: literal.text });
   if (!javascript) {
     const markup = src.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "").replace(/\/\*[\s\S]*?\*\//g, "");

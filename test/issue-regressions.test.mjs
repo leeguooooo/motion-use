@@ -145,6 +145,17 @@ test("#88 long films validate, enter narration phase, and retime without manuall
   assert.equal(retimeFilm(p.dir).duration, 211);
 });
 
+test("#87 declaring local files permits local fetch but still rejects a remote fetch URL", (t) => {
+  const p = fixture(t);
+  fs.writeFileSync(path.join(p.dir, "config.json"), "{}");
+  p.data.files = { cfg: "config.json" };
+  const drawing = path.join(p.dir, "composition/draw.js");
+  fs.writeFileSync(drawing, 'window.setupFilm=()=>fetch(window.filmFiles.cfg); window.drawFrame=()=>{};');
+  assert.deepEqual(validateFilm(p.data, p.dir).errors, []);
+  fs.writeFileSync(drawing, 'window.setupFilm=()=>fetch("https://example.com/config.json"); window.drawFrame=()=>{};');
+  assert.ok(validateFilm(p.data, p.dir).errors.some((e) => e.path === "$.composition" && /network/.test(e.message)));
+});
+
 test("#91 asset-name error identifies naming and accessor separately from extension", (t) => {
   const p = fixture(t);
   fs.writeFileSync(path.join(p.dir, "image.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>');
