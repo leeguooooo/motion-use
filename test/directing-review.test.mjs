@@ -175,6 +175,7 @@ test("review rejects stale page imports, invalid frame points and metadata symli
   assert.throws(() => addReview(p.dir, { at: 1, frame, note: "bad", x: 640, y: 0 }), /coordinates/);
   assert.throws(() => addReview(p.dir, { at: 4, frame, note: "bad" }), /inside the film/);
   assert.throws(() => addReview(p.dir, { at: 1, frameData: "bm90LXBuZw==", note: "bad" }), /PNG/);
+  assert.throws(() => addReview(p.dir, { at: 1, frameData: fs.readFileSync(frame).subarray(0, 33).toString("base64"), note: "truncated" }), /decode PNG/);
   p.data.copy.en.title = "New revision"; p.save();
   const file = path.join(p.dir, "comment.json"); fs.writeFileSync(file, JSON.stringify({ ...data, note: "Old view" }));
   const r = cli("review", "add", p.dir, "--input", file);

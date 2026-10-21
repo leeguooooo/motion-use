@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { checkFilm, resolveProject } from "./film.mjs";
 import { filmInputs } from "./snapshot.mjs";
 import { acquireOutputLock } from "./output-lock.mjs";
@@ -45,7 +46,10 @@ function read(context) {
 function png(bytes) {
   if (bytes.length > LIMIT || bytes.length < 33 || !bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) || bytes.toString("ascii", 12, 16) !== "IHDR") throw new Error("frame must be a PNG, at most 20 MiB");
   const width = bytes.readUInt32BE(16), height = bytes.readUInt32BE(20);
-  if (!width || !height || width > 16384 || height > 16384) throw new Error("invalid PNG frame dimensions");
+  if (!width || !height || width > 16384 || height > 16384 || width * height > 64e6) throw new Error("invalid PNG frame dimensions (at most 64 megapixels)");
+  try {
+    execFileSync("ffmpeg", ["-v", "error", "-err_detect", "explode", "-i", "pipe:0", "-frames:v", "1", "-f", "null", "-"], { input: bytes, timeout: 15000, maxBuffer: 1024 * 1024, stdio: ["pipe", "ignore", "pipe"] });
+  } catch { throw new Error("could not decode PNG frame; use a complete still and check that ffmpeg is installed"); }
   return { bytes, sha256: sha(bytes), width, height };
 }
 function frame(context, options) {

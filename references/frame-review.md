@@ -23,7 +23,8 @@ supplied; it is not inferred from pixels. Inline comments are supported too:
 motion-use review add ./film --frame out/stills/.../frame.png --at 1 --x 320 --y 180 --object price --note "Make this number readable" --json
 ```
 
-Only PNGs up to 20 MiB are accepted. Inline file paths must remain inside the
+Only PNGs up to 20 MiB and 64 megapixels are accepted and decoded by FFmpeg before
+recording or export. A header without a complete image is rejected. Inline file paths must remain inside the
 project, including symlink targets. Imported JSON is limited to 30 MiB. Export
 always uses a fresh HTML path; existing pages are not overwritten.
 
