@@ -270,7 +270,7 @@ impl Output {
         if let Some(target) = &self.stream {
             if self.sink.is_none() {
                 self.sink = Some(if target == "-" {
-                    Box::new(std::io::BufWriter::with_capacity(1 << 20, std::io::stdout().lock()))
+                    schedule::raw_stdout()
                 } else {
                     Box::new(std::fs::OpenOptions::new().write(true).open(target).with_context(|| format!("opening stream {}", target))?)
                 });

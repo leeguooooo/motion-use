@@ -370,6 +370,31 @@ pub fn spawn_process(argv: &[String], id: usize, want_frames: bool, disp: Arc<Di
     })?)
 }
 
+/// Standard output for raw frames. Rust's stdout is line-buffered: every 8 MB frame was scanned
+/// backwards for a newline and copied again (memrchr + memmove on the thread that writes frames
+/// out in order). On Unix this writes to descriptor 1 directly.
+pub fn raw_stdout() -> Box<dyn Write> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::FromRawFd;
+        struct Fd1(std::mem::ManuallyDrop<std::fs::File>);
+        impl Write for Fd1 {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.write(b)
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        // ManuallyDrop: descriptor 1 stays open for the rest of the process
+        Box::new(Fd1(std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(1) })))
+    }
+    #[cfg(not(unix))]
+    {
+        Box::new(std::io::BufWriter::with_capacity(1 << 20, std::io::stdout().lock()))
+    }
+}
+
 /// A worker process's loop (--serve): frame indices in on stdin, one per line; per frame, out on
 /// stdout `[index, width, height]` as little-endian u32 and the RGBA when frames go to the caller.
 pub fn serve(plan: Plan) -> Result<Value> {
@@ -379,7 +404,7 @@ pub fn serve(plan: Plan) -> Result<Value> {
     let mut engine = Engine::new(&plan.page, plan.mode, plan.size)?;
     engine.setup(plan.job.as_deref())?;
     tm.setup_ms = s0.elapsed().as_secs_f64() * 1000.0;
-    let mut out = std::io::BufWriter::with_capacity(1 << 20, std::io::stdout().lock());
+    let mut out = raw_stdout();
     let mut buf = Vec::new();
     for line in std::io::stdin().lock().lines() {
         let line = line?;
