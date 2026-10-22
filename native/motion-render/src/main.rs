@@ -169,14 +169,14 @@ fn spawn_shard(argv: &[String], k: usize, n: usize, count: usize, want_frames: b
         .context("starting a render process")?;
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
-    // the last stderr line is the stats JSON; anything else is passed on (and kept for an error)
+    // the last stderr line is the stats JSON; the rest is passed on once the process ends, or
+    // becomes this run's error
     let errs = std::thread::spawn(move || {
         let (mut text, mut stats) = (String::new(), None);
         for line in std::io::BufReader::new(stderr).lines().map_while(|l| l.ok()) {
             match serde_json::from_str::<Value>(&line) {
                 Ok(v) if v.is_object() => stats = Some(v),
                 _ => {
-                    eprintln!("{}", line);
                     text.push_str(line.trim_start_matches("motion-render: "));
                     text.push('\n');
                 }
@@ -216,6 +216,9 @@ fn spawn_shard(argv: &[String], k: usize, n: usize, count: usize, want_frames: b
             let e = anyhow!("render process {} of {}: {}", k + 1, n, why);
             let _ = tx.send(Err(anyhow!("{:#}", e)));
             return Err(e);
+        }
+        if !text.is_empty() {
+            eprint!("{}", text);
         }
         let s = stats.unwrap_or_default();
         let f = |key: &str| s[key].as_f64().unwrap_or(0.0);

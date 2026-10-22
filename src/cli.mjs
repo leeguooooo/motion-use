@@ -162,7 +162,7 @@ Options for still/render:
                       native when motion-render is installed and the film draws no WebGL; film.json "renderer")
   --gpu               Render in Chrome on the GPU: faster than Chrome on the CPU, but frames may differ by
                       invisible noise between runs (default: bit-identical output for the same brief)
-  --workers <n>       still/render: threads of the native renderer (default: cores, at most 8); processes an
+  --workers <n>       still/render: workers of the native renderer (default: cores, at most 8; processes for WebGL on the GPU, else threads); processes an
                       external engine runs at once, each on its own frame range (default 1; an engine with
                       "parallel": true gets one process and n); passed to the browser renderer otherwise
   --json              Machine-readable result on stdout (compact; --verbose adds every measurement)
