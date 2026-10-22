@@ -146,8 +146,9 @@ fn run(plan: Plan) -> Result<Value> {
     // frames in flight past the next one out: a slow worker's frame can trail this far
     let window = 4 * max + 4;
     let disp = Arc::new(schedule::Dispenser::new(len, if want_frames { window } else { len }, max));
-    // a film rendered here before starts at the count its climb found
-    let key = format!("{}|{}", plan.page.base.display(), if procs { "processes" } else { "threads" });
+    // a film rendered here before starts at the count its climb found (per version: a new
+    // renderer measures again)
+    let key = format!("{}|{}|{}", env!("CARGO_PKG_VERSION"), plan.page.base.display(), if procs { "processes" } else { "threads" });
     let known = if adapt { schedule::remembered(&key) } else { None };
     let mut climb = match known {
         Some(n) => schedule::Climb::new(n.min(max), max, false),
@@ -185,7 +186,15 @@ fn run(plan: Plan) -> Result<Value> {
         };
         done += 1;
         match climb.frame(id, done) {
-            schedule::Step::Add => handles.push(spawn(climb.active - 1)?),
+            schedule::Step::Add => match spawn(climb.active - 1) {
+                Ok(h) => handles.push(h),
+                Err(e) => {
+                    // no more workers here: keep rendering on the ones running
+                    eprintln!("motion-render: staying at {} workers: {:#}", climb.active - 1, e);
+                    climb.give_up();
+                    disp.set_allowed(climb.active);
+                }
+            },
             schedule::Step::Retire => disp.set_allowed(climb.active),
             schedule::Step::Keep => {}
         }
@@ -229,7 +238,8 @@ fn run(plan: Plan) -> Result<Value> {
     if let Some(e) = error {
         return Err(e);
     }
-    if climb.found {
+    // a short range is too few frames to trust (and the machine may have been busy)
+    if climb.found && done >= 300 {
         schedule::remember(&key, climb.active);
     }
     let wall = t0.elapsed().as_secs_f64() * 1000.0;

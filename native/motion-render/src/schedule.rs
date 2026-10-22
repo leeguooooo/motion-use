@@ -108,6 +108,13 @@ impl Climb {
         Climb { active, max, settled: !adapt || active >= max, found: false, best: None, mark: None, waiting_for: Some(active - 1) }
     }
 
+    /// The newest worker could not start: settle on the ones before it, without remembering.
+    pub fn give_up(&mut self) {
+        self.active -= 1;
+        self.settled = true;
+        self.found = false;
+    }
+
     /// A frame came back from `worker`; `done` frames so far.
     pub fn frame(&mut self, worker: usize, done: usize) -> Step {
         if self.settled {
