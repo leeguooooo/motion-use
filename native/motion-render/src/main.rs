@@ -37,15 +37,17 @@ Text check (motion-use's probe, run in this page's V8):
   motion-render probe <index.html> --times <t,t,...|times.json>   prints the probe's JSON
 
 Options:
-  --workers <n>   render on n threads, each with its own V8 isolate and Skia canvases
+  --workers <n>   render on n workers, each with its own V8 isolate and Skia canvases: processes
+                  when WebGL may run on the GPU (ANGLE's GPU backends do not scale across the
+                  threads of one process), threads with --gl swiftshader or off;
+                  MOTION_RENDER_PROCESSES=0|1 overrides
   --format        png (fast zlib level, default) or rgba (raw straight RGBA, w*h*4 bytes per frame)
   --ffmpeg <mp4>  pipe raw RGBA into ffmpeg (libx264, yuv420p, bt709, motion-use's settings)
   --stream <path> write raw straight RGBA frames in order to a file or FIFO (- is stdout), for an
                   encoder the caller runs (motion-use); a job does the same with
                   \"formats\": [\"rgba-stream\"], \"stream\": <path>
   --stats         print timing JSON on stdout (stderr when frames go to stdout)
-  --gl <backend>  WebGL backend: auto (default: the GPU on one worker, SwiftShader on several, which
-                  scale with cores), gpu, metal, vulkan,
+  --gl <backend>  WebGL backend: auto (default: the GPU, else SwiftShader), gpu, metal, vulkan,
                   swiftshader (CPU, same pixels as Chrome's software GL), d3d11, off; same as
                   MOTION_RENDER_GL. WebGL runs on ANGLE, found next to this binary, in
                   MOTION_RENDER_ANGLE_DIR or ~/.cache/motion-render/angle (native/scripts/fetch-angle.sh)
@@ -71,7 +73,13 @@ struct Plan {
     stream: Option<String>,
     workers: usize,
     stats: bool,
+    /// The command line, for worker processes
+    argv: Vec<String>,
+    /// Set in a worker process: render frames k, k+n, k+2n… of the plan and stream them framed
+    shard: Option<(usize, usize)>,
 }
+
+type Frame = Result<(usize, i32, i32, Vec<u8>)>;
 
 #[derive(Default, Clone, Copy)]
 struct Timing {
@@ -103,23 +111,130 @@ fn x264(quality: &str) -> (&'static str, &'static str) {
     }
 }
 
-/// The WebGL backend for `workers` threads when MOTION_RENDER_GL is unset or auto. ANGLE's GPU
-/// backend does not scale across threads: one context per worker contends for the same device
-/// (Apple M5 Pro, Metal: 72 ms/frame on 1 worker, 779 on 8), while SwiftShader runs each worker
-/// on its own core (30 ms/frame on 8). An explicit backend, gpu included, is kept.
-fn auto_gl_for_workers(gl: Option<&str>, workers: usize) -> Option<&'static str> {
-    let auto = matches!(gl.unwrap_or_default().trim().to_ascii_lowercase().as_str(), "" | "auto");
-    (auto && workers > 1).then_some("swiftshader")
+/// Whether `workers` run as processes (MOTION_RENDER_GL `gl`, MOTION_RENDER_PROCESSES `force`,
+/// `webgl`: the page asks for a WebGL context). ANGLE's GPU backends do not scale across the
+/// threads of one process (Apple M5 Pro, Metal: a three.js film 45 ms/frame on 1 thread, 318 on
+/// 2; a raymarched WebGL2 terrain 115 and 227), while processes, one display each, do (14 and
+/// 47 ms/frame on 8). A 2D page stays on threads, which skip the pipe (1.3 against 1.6 ms/frame),
+/// and so do SwiftShader and no WebGL.
+fn use_processes(gl: Option<&str>, force: Option<&str>, webgl: bool, workers: usize) -> bool {
+    match force.map(str::trim) {
+        Some("0") => return false,
+        Some("1") => return workers > 1,
+        _ => {}
+    }
+    let gl = gl.unwrap_or_default().trim().to_ascii_lowercase();
+    workers > 1 && webgl && !matches!(gl.as_str(), "swiftshader" | "cpu" | "software" | "off" | "none")
+}
+
+/// Whether a script names a WebGL context type as a string ("webgl2", 'webgl', three.js's
+/// `let D="webgl2"`), the way getContext is asked for one.
+fn asks_for_webgl(code: &str) -> bool {
+    ["webgl", "webgl2", "experimental-webgl"].iter().any(|n| ['"', '\'', '`'].iter().any(|q| code.contains(&format!("{q}{n}{q}"))))
+}
+
+/// The command line for worker process k of n: this one, rendering every nth frame from k to
+/// stdout (framed) when the caller wants frames back, else into the same --out.
+fn shard_args(argv: &[String], k: usize, n: usize, want_frames: bool) -> Vec<String> {
+    let mut out = vec![];
+    let mut i = 0;
+    while i < argv.len() {
+        match argv[i].as_str() {
+            "--workers" | "--ffmpeg" | "--quality" | "--stream" | "--shard" => i += 2,
+            "--stats" => i += 1,
+            a => {
+                out.push(a.to_string());
+                i += 1;
+            }
+        }
+    }
+    out.extend(["--workers".into(), "1".into(), "--shard".into(), format!("{}/{}", k, n), "--stats".into()]);
+    if want_frames {
+        out.extend(["--stream".into(), "-".into()]);
+    }
+    out
+}
+
+/// Start worker process k of n. Its frames (indices k, k+n…, `count` of them) go into `tx`; the
+/// thread returned waits for it and hands back its timing, or its error.
+fn spawn_shard(argv: &[String], k: usize, n: usize, count: usize, want_frames: bool, tx: mpsc::SyncSender<Frame>) -> Result<std::thread::JoinHandle<Result<Timing>>> {
+    use std::io::{BufRead, Read};
+    let exe = std::env::current_exe().context("finding motion-render for its worker processes")?;
+    let mut child = std::process::Command::new(exe)
+        .args(shard_args(argv, k, n, want_frames))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("starting a render process")?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    // the last stderr line is the stats JSON; anything else is passed on (and kept for an error)
+    let errs = std::thread::spawn(move || {
+        let (mut text, mut stats) = (String::new(), None);
+        for line in std::io::BufReader::new(stderr).lines().map_while(|l| l.ok()) {
+            match serde_json::from_str::<Value>(&line) {
+                Ok(v) if v.is_object() => stats = Some(v),
+                _ => {
+                    eprintln!("{}", line);
+                    text.push_str(line.trim_start_matches("motion-render: "));
+                    text.push('\n');
+                }
+            }
+        }
+        (text, stats)
+    });
+    Ok(std::thread::Builder::new().name(format!("render-proc-{}", k)).spawn(move || -> Result<Timing> {
+        let mut rd = std::io::BufReader::with_capacity(1 << 20, stdout);
+        let mut short = false;
+        if want_frames {
+            for j in 0..count {
+                let mut head = [0u8; 8];
+                if rd.read_exact(&mut head).is_err() {
+                    short = true;
+                    break;
+                }
+                let w = u32::from_le_bytes(head[..4].try_into().unwrap()) as i32;
+                let h = u32::from_le_bytes(head[4..].try_into().unwrap()) as i32;
+                let mut frame = vec![0u8; (w as usize) * (h as usize) * 4];
+                if rd.read_exact(&mut frame).is_err() {
+                    short = true;
+                    break;
+                }
+                if tx.send(Ok((k + j * n, w, h, frame))).is_err() {
+                    // the caller stopped (its encoder failed)
+                    let _ = child.kill();
+                    break;
+                }
+            }
+        }
+        let st = child.wait()?;
+        let (text, stats) = errs.join().unwrap_or_default();
+        if !st.success() || short {
+            let _ = child.kill();
+            let why = if text.trim().is_empty() { format!("exited with {}", st) } else { text.trim().to_string() };
+            let e = anyhow!("render process {} of {}: {}", k + 1, n, why);
+            let _ = tx.send(Err(anyhow!("{:#}", e)));
+            return Err(e);
+        }
+        let s = stats.unwrap_or_default();
+        let f = |key: &str| s[key].as_f64().unwrap_or(0.0);
+        let frames = s["frames"].as_u64().unwrap_or(0) as usize;
+        Ok(Timing { setup_ms: f("setup_ms"), draw_ms: f("draw_ms_per_frame") * frames as f64, write_ms: f("write_ms_per_frame") * frames as f64, frames })
+    })?)
 }
 
 /// Render `times` across workers. Worker k takes frames k, k+n, k+2n…; with ffmpeg the main
-/// thread pulls them back in order through one small queue per worker.
+/// thread pulls them back in order through one small queue per worker. Workers are threads, or
+/// processes (use_processes) that each run this with one thread and a shard.
 fn run(plan: Plan) -> Result<Value> {
-    let n = plan.workers.max(1).min(plan.times.len().max(1));
-    if let Some(backend) = auto_gl_for_workers(std::env::var("MOTION_RENDER_GL").ok().as_deref(), n) {
-        // set before any worker thread starts, like --gl
-        std::env::set_var("MOTION_RENDER_GL", backend);
-    }
+    // a worker process renders frames first, first+step… of the whole plan on one thread
+    let (first, step) = plan.shard.unwrap_or((0, 1));
+    let order: Vec<usize> = (first..plan.times.len()).step_by(step).collect();
+    let n = if plan.shard.is_some() { 1 } else { plan.workers.max(1).min(plan.times.len().max(1)) };
+    let webgl = plan.page.scripts.iter().any(|s| asks_for_webgl(&s.code));
+    let procs = plan.shard.is_none() && use_processes(std::env::var("MOTION_RENDER_GL").ok().as_deref(), std::env::var("MOTION_RENDER_PROCESSES").ok().as_deref(), webgl, n);
+    let framed = plan.shard.is_some();
     let t0 = Instant::now();
     let page = Arc::new(plan.page);
     let times = Arc::new(plan.times);
@@ -127,8 +242,13 @@ fn run(plan: Plan) -> Result<Value> {
     let mut handles = vec![];
     let mut receivers = vec![];
     for k in 0..n {
-        let (tx, rx) = mpsc::sync_channel::<Result<(usize, i32, i32, Vec<u8>)>>(3);
+        let (tx, rx) = mpsc::sync_channel::<Frame>(3);
         receivers.push(rx);
+        if procs {
+            let count = (k..times.len()).step_by(n).count();
+            handles.push(spawn_shard(&plan.argv, k, n, count, want_frames, tx)?);
+            continue;
+        }
         let page = page.clone();
         let times = times.clone();
         let sink = plan.sink.clone();
@@ -157,7 +277,7 @@ fn run(plan: Plan) -> Result<Value> {
                     };
                     tm.setup_ms = s0.elapsed().as_secs_f64() * 1000.0;
                     let mut buf = Vec::new();
-                    let mut i = k;
+                    let mut i = first + k * step;
                     while i < times.len() {
                         let d0 = Instant::now();
                         let (w, h) = match engine.render(times[i], &mut buf) {
@@ -183,7 +303,7 @@ fn run(plan: Plan) -> Result<Value> {
                                 break;
                             }
                         }
-                        i += n;
+                        i += n * step;
                     }
                     Ok(tm)
                 })?,
@@ -195,8 +315,8 @@ fn run(plan: Plan) -> Result<Value> {
         // Frames in order, straight RGBA, to a file / FIFO / stdout. Opening a FIFO blocks until
         // its reader (the caller's encoder) is there, so open only once the first frame is drawn.
         let mut sink: Option<Box<dyn Write>> = None;
-        for i in 0..times.len() {
-            let (_, _, _, frame) = match receivers[i % n].recv() {
+        for (j, &i) in order.iter().enumerate() {
+            let (_, w, h, frame) = match receivers[j % n].recv() {
                 Ok(Ok(v)) => v,
                 Ok(Err(e)) => {
                     ff_error = Some(e);
@@ -209,13 +329,15 @@ fn run(plan: Plan) -> Result<Value> {
             };
             if sink.is_none() {
                 sink = Some(if target == "-" {
-                    Box::new(std::io::stdout().lock())
+                    Box::new(std::io::BufWriter::with_capacity(1 << 20, std::io::stdout().lock()))
                 } else {
                     Box::new(std::fs::OpenOptions::new().write(true).open(target).with_context(|| format!("opening stream {}", target))?)
                 });
             }
             let e0 = Instant::now();
-            if let Err(e) = sink.as_mut().unwrap().write_all(&frame) {
+            // a worker process tells its parent each frame's size
+            let head = if framed { [(w as u32).to_le_bytes(), (h as u32).to_le_bytes()].concat() } else { vec![] };
+            if let Err(e) = sink.as_mut().unwrap().write_all(&head).and_then(|_| sink.as_mut().unwrap().write_all(&frame)) {
                 ff_error = Some(anyhow!("writing frame {} to the stream: {} (did the encoder stop?)", i, e));
                 break;
             }
@@ -230,8 +352,8 @@ fn run(plan: Plan) -> Result<Value> {
         }
     } else if let Some((out, quality, fps)) = &plan.ffmpeg {
         let mut child: Option<std::process::Child> = None;
-        for i in 0..times.len() {
-            let msg = receivers[i % n].recv();
+        for j in 0..order.len() {
+            let msg = receivers[j % n].recv();
             let (_, w, h, frame) = match msg {
                 Ok(Ok(v)) => v,
                 Ok(Err(e)) => {
@@ -305,6 +427,7 @@ fn run(plan: Plan) -> Result<Value> {
     Ok(json!({
         "frames": frames,
         "workers": n,
+        "processes": procs,
         "wall_ms": wall,
         "setup_ms": setup,
         "draw_ms_per_frame": if frames > 0 { draw / frames as f64 } else { 0.0 },
@@ -364,7 +487,7 @@ fn real_main() -> Result<()> {
     let mut flags: std::collections::HashSet<String> = Default::default();
     let mut pos: Vec<String> = vec![];
     let mut i = 0;
-    let valued = ["--gl", "--job", "--at", "--frames", "--fps", "--out", "--format", "--ffmpeg", "--quality", "--workers", "--size", "--stream", "--times"];
+    let valued = ["--gl", "--job", "--at", "--frames", "--fps", "--out", "--format", "--ffmpeg", "--quality", "--workers", "--size", "--stream", "--times", "--shard"];
     while i < args.len() {
         let a = &args[i];
         if valued.contains(&a.as_str()) {
@@ -381,6 +504,14 @@ fn real_main() -> Result<()> {
     }
     let workers: usize = opts.get("--workers").map(|w| w.parse()).transpose()?.unwrap_or(1);
     let stats = flags.contains("--stats");
+    // --shard k/n: this is worker process k of n (spawn_shard), its frames framed on stdout
+    let shard = opts
+        .get("--shard")
+        .map(|s| -> Result<(usize, usize)> {
+            let (k, n) = s.split_once('/').ok_or_else(|| anyhow!("--shard takes k/n"))?;
+            Ok((k.parse()?, n.parse::<usize>()?.max(1)))
+        })
+        .transpose()?;
     let job_path = opts.get("--job").cloned().or_else(|| std::env::var("MOTION_USE_JOB").ok());
 
     if pos.first().map(|s| s.as_str()) == Some("probe") {
@@ -441,9 +572,12 @@ fn real_main() -> Result<()> {
             stream: opts.get("--stream").cloned(),
             workers,
             stats,
+            argv: args.clone(),
+            shard,
         };
         let stats_on = plan.stats;
-        let to_stdout = plan.stream.as_deref() == Some("-");
+        // a worker process keeps stdout for frames (spawn_shard reads stats from stderr)
+        let to_stdout = plan.stream.as_deref() == Some("-") || plan.shard.is_some();
         let r = run(plan)?;
         if stats_on {
             if to_stdout {
@@ -507,7 +641,18 @@ fn real_main() -> Result<()> {
             std::thread::available_parallelism().map(|n| n.get().min(8)).unwrap_or(4)
         },
         stats,
+        argv: args.clone(),
+        shard,
     };
+    if shard.is_some() {
+        // a worker process: frames to its parent on stdout (not job.stream, the parent's FIFO),
+        // stats on stderr
+        let to_parent = plan.stream.is_some();
+        let plan = Plan { stream: to_parent.then(|| "-".to_string()), ..plan };
+        let r = run(plan)?;
+        eprintln!("{}", r);
+        return Ok(());
+    }
     let r = run(plan)?;
     eprintln!("motion-render: {} frames ({}–{}) in {:.0} ms, {:.1} ms/frame wall, {} workers", r["frames"], from, to, r["wall_ms"].as_f64().unwrap_or(0.0), r["wall_ms_per_frame"].as_f64().unwrap_or(0.0), r["workers"]);
     if stats {
@@ -518,20 +663,37 @@ fn real_main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::auto_gl_for_workers;
+    use super::{asks_for_webgl, shard_args, use_processes};
 
     #[test]
-    fn auto_with_several_workers_uses_swiftshader() {
-        assert_eq!(auto_gl_for_workers(None, 8), Some("swiftshader"));
-        assert_eq!(auto_gl_for_workers(Some(""), 2), Some("swiftshader"));
-        assert_eq!(auto_gl_for_workers(Some(" Auto "), 4), Some("swiftshader"));
+    fn webgl_on_the_gpu_uses_processes() {
+        for gl in [None, Some(""), Some(" Auto "), Some("gpu"), Some("metal"), Some("vulkan"), Some("d3d11")] {
+            assert!(use_processes(gl, None, true, 8), "{gl:?}");
+            assert!(!use_processes(gl, None, true, 1), "{gl:?}");
+            assert!(!use_processes(gl, None, false, 8), "{gl:?}");
+        }
+        for gl in ["swiftshader", "cpu", "software", "off", "none"] {
+            assert!(!use_processes(Some(gl), None, true, 8), "{gl}");
+        }
+        assert!(!use_processes(None, Some("0"), true, 8));
+        assert!(use_processes(Some("swiftshader"), Some("1"), false, 8));
+        assert!(!use_processes(Some("swiftshader"), Some("1"), false, 1));
     }
 
     #[test]
-    fn one_worker_or_an_explicit_backend_is_kept() {
-        assert_eq!(auto_gl_for_workers(None, 1), None);
-        for gl in ["gpu", "metal", "vulkan", "d3d11", "swiftshader", "off"] {
-            assert_eq!(auto_gl_for_workers(Some(gl), 8), None, "{gl}");
-        }
+    fn webgl_pages_are_recognised() {
+        assert!(asks_for_webgl(r#"c.getContext("webgl2", {antialias: false})"#));
+        assert!(asks_for_webgl("N===null){let D=\"webgl2\";if(N=We(D"));
+        assert!(asks_for_webgl("getContext('experimental-webgl')"));
+        assert!(!asks_for_webgl("// A WebGL author can draw its offscreen renderer into ctx"));
+        assert!(!asks_for_webgl(r#"c.getContext("2d")"#));
+    }
+
+    #[test]
+    fn a_worker_process_gets_one_thread_and_its_shard() {
+        let argv: Vec<String> = ["render", "p.html", "--frames", "0-9", "--workers", "4", "--ffmpeg", "o.mp4", "--quality", "looks", "--stats", "--gl", "metal"].map(String::from).into();
+        assert_eq!(shard_args(&argv, 2, 4, true), ["render", "p.html", "--frames", "0-9", "--gl", "metal", "--workers", "1", "--shard", "2/4", "--stats", "--stream", "-"]);
+        let argv: Vec<String> = ["render", "p.html", "--frames", "0-9", "--out", "d", "--workers", "4"].map(String::from).into();
+        assert_eq!(shard_args(&argv, 0, 4, false), ["render", "p.html", "--frames", "0-9", "--out", "d", "--workers", "1", "--shard", "0/4", "--stats"]);
     }
 }
