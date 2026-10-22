@@ -315,6 +315,12 @@ impl GlCtx {
 
     /// The drawing buffer as top-down RGBA (premultiplied when premultipliedAlpha is on).
     pub fn read_back(&mut self, egl: &Egl, out: &mut Vec<u8>) {
+        out.resize((self.w * self.h * 4) as usize, 0);
+        self.read_back_into(egl, out);
+    }
+
+    /// read_back into `out`, exactly w*h*4 bytes, every byte written.
+    pub fn read_back_into(&mut self, egl: &Egl, out: &mut [u8]) {
         let (w, h) = (self.w, self.h);
         if self.samples > 0 && self.version >= 2 {
             self.resolve();
@@ -323,7 +329,7 @@ impl GlCtx {
         Saved::neutral(self.version);
         let n = (w * h * 4) as usize;
         let row = (w * 4) as usize;
-        out.resize(n, 0);
+        debug_assert_eq!(out.len(), n);
         // GL rows run bottom-up
         let flip = |src: &[u8], out: &mut [u8]| {
             for y in 0..h as usize {
@@ -348,7 +354,9 @@ impl GlCtx {
                 }
                 gl::ReadPixels(0, 0, w, h, gl::RGBA, gl::UNSIGNED_BYTE, std::ptr::null_mut());
                 let p = gl::MapBufferRange(gl::PIXEL_PACK_BUFFER, 0, n as isize, gl::MAP_READ_BIT) as *const u8;
-                if !p.is_null() {
+                if p.is_null() {
+                    out.fill(0);
+                } else {
                     flip(std::slice::from_raw_parts(p, n), out);
                 }
                 gl::UnmapBuffer(gl::PIXEL_PACK_BUFFER);
