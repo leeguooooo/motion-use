@@ -38,9 +38,11 @@ Text check (motion-use's probe, run in this page's V8):
   motion-render probe <index.html> --times <t,t,...|times.json>   prints the probe's JSON
 
 Options:
-  --workers <n>   render on n workers, each with its own V8 isolate and Skia canvases: processes
-                  when WebGL may run on the GPU (ANGLE's GPU backends do not scale across the
-                  threads of one process), threads with --gl swiftshader or off;
+  --workers <n>   at most n workers, each with its own V8 isolate and Skia canvases. It starts at
+                  the performance cores, adds one while the frame rate rises 5%, and remembers the
+                  count per page (~/.cache/motion-render/workers.json); MOTION_RENDER_ADAPT=0 uses
+                  exactly n. Processes when the page asks for WebGL on the GPU (ANGLE's GPU
+                  backends do not scale across the threads of one process), else threads;
                   MOTION_RENDER_PROCESSES=0|1 overrides
   --format        png (fast zlib level, default) or rgba (raw straight RGBA, w*h*4 bytes per frame)
   --ffmpeg <mp4>  pipe raw RGBA into ffmpeg (libx264, yuv420p, bt709, motion-use's settings)
