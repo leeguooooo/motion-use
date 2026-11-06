@@ -5,7 +5,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { findStopSlop, stopSlopNarration, STOP_SLOP_INSTALL } from "../src/stop-slop.mjs";
+import { findStopSlop, stopSlopCandidates, stopSlopNarration, STOP_SLOP_INSTALL } from "../src/stop-slop.mjs";
+import { reviewScript } from "../src/script-review.mjs";
 
 const entry = fileURLToPath(new URL("../bin/motion-use.mjs", import.meta.url));
 const fixtureFile = (name) => fileURLToPath(new URL(`./fixtures/narration-${name}.json`, import.meta.url));
@@ -31,6 +32,12 @@ function mockStopSlop(t, version = "1.2.0") {
 const fs = require("node:fs");
 const a = process.argv.slice(2);
 if (a[0] === "--version") { console.log("stop-slop ${version}"); process.exit(0); }
+if (a.join(" ") === "candidates --shots -") {
+  const shots = JSON.parse(fs.readFileSync(0, "utf8"));
+  const cohesion = shots.slice(1).map((s, i) => ({ type: "cohesion", prev_shot: shots[i].id, prev_tail: shots[i].text.slice(-6), shot: s.id, next_head: s.text.slice(0, 6), label: "", confidence: "", reason: "" }));
+  console.log(JSON.stringify({ meta: { mode: "spoken", version: "${version}" }, rename: [], cohesion, colon: [], iso3: [] }));
+  process.exit(0);
+}
 if (a.join(" ") !== "detect --shots - --json") { console.error("bad args " + a.join(" ")); process.exit(2); }
 fs.writeFileSync(${JSON.stringify(input)}, fs.readFileSync(0, "utf8"));
 console.log(JSON.stringify({ version: "${version}", meta: { mode: "spoken" }, items: ${JSON.stringify(items)}, structure: {} }));
@@ -109,4 +116,38 @@ test("only Chinese narration is sent; a failing run is reported, not thrown", (t
   assert.equal(stopSlopNarration([{ id: "a" }], "zh", tool), null);
   const broken = stopSlopNarration([{ id: "a", narration: "你好。" }], "zh", { installed: true, bin: process.execPath, version: "1.2.0" });
   assert.ok(broken.error && broken.findings.length === 0);
+});
+
+test("script review hands the voice pass stop-slop's shot-to-shot joins (1.3.0+) and its findings", (t) => {
+  const { bin } = mockStopSlop(t, "1.3.0");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mu-stop-slop-review-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const ai = fixture("ai");
+  fs.writeFileSync(path.join(dir, "film.json"), JSON.stringify({ ...ai, brief: { audience: "内部开发" } }));
+  fs.writeFileSync(path.join(dir, "SCRIPT.md"), `| Shot | 口播（zh） |\n|---|---|\n${ai.shots.map((s) => `| ${s.id} | ${s.narration.zh} |`).join("\n")}\n`);
+  const env = { ...process.env, MOTION_USE_STOP_SLOP: bin };
+  const voice = reviewScript(dir, { reviewer: "gemini", plan: true, focus: "voice", out: path.join(dir, "r", "voice.md"), env });
+  return voice.then((r) => {
+    assert.equal(r.stop_slop.version, "1.3.0");
+    assert.equal(r.stop_slop.cohesion, ai.shots.length - 1);
+    const prompt = fs.readFileSync(r.prompt, "utf8");
+    assert.match(prompt, /镜头衔接候选/);
+    assert.match(prompt, new RegExp(`\\[${ai.shots[0].id} → ${ai.shots[1].id}\\]`));
+    assert.match(prompt, /semantic\.md 第 2 节/);
+    assert.match(prompt, /stop-slop\/F2 \[abuse\]/);
+    return reviewScript(dir, { reviewer: "gemini", plan: true, focus: "facts", out: path.join(dir, "r", "facts.md"), env });
+  }).then((r) => {
+    assert.equal(r.stop_slop.cohesion, null, "the facts pass does not ask for joins");
+    assert.doesNotMatch(fs.readFileSync(r.prompt, "utf8"), /镜头衔接候选/);
+  });
+});
+
+test("joins need stop-slop 1.3.0; 1.2.0 still gives findings but no candidates", (t) => {
+  const { bin } = mockStopSlop(t, "1.2.0");
+  const shots = fixture("ai").shots;
+  assert.equal(stopSlopCandidates(shots, "zh", { installed: true, bin, version: "1.2.0" }), null);
+  const { bin: newer } = mockStopSlop(t, "1.3.0");
+  const c = stopSlopCandidates(shots, "zh", { installed: true, bin: newer, version: "1.3.0" });
+  assert.equal(c.cohesion.length, shots.length - 1);
+  assert.equal(stopSlopCandidates(shots.slice(0, 1), "zh", { installed: true, bin: newer, version: "1.3.0" }), null, "one shot has no joins");
 });

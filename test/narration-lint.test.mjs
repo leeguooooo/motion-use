@@ -7,6 +7,9 @@ import { lintNarration, lintFilmNarration, narrationText } from "../src/narratio
 import { scriptReviewPrompt, requestScriptReview, parseScriptReview, reviewScript, reviewCommand } from "../src/script-review.mjs";
 import { initFilm, validateFilm } from "../src/film.mjs";
 
+// Keep these tests independent of a stop-slop installed on this machine (test/stop-slop.test.mjs mocks it).
+process.env.MOTION_USE_STOP_SLOP = path.join(os.tmpdir(), "mu-no-stop-slop");
+
 const fixture = (name) => JSON.parse(fs.readFileSync(new URL(`./fixtures/narration-${name}.json`, import.meta.url), "utf8"));
 const rules = (r) => r.findings.reduce((m, f) => ({ ...m, [f.rule]: (m[f.rule] ?? 0) + 1 }), {});
 

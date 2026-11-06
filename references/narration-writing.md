@@ -112,6 +112,11 @@ curl -fsSL https://raw.githubusercontent.com/leeguooooo/stop-slop-zh/main/instal
 
 Its X (change with care) and H (human judgement) items are never reported as problems. Read them as a guard rail against over-correcting (above): a question in the narration, a metaphor, items joined inside one sentence, a sentence length kept for rhythm. Leave those alone unless the line is wrong for another reason (stop-slop-zh `SKILL.md`, section 8). `stop-slop compare before.txt after.txt` shows whether a rewrite only moved the fingerprints around.
 
-For the voice review, `stop-slop candidates <file>` (narration exported one paragraph per shot) extracts the joins between neighbouring shots. Paste them into `script review --focus voice` and ask the reviewer to judge whether each shot hands over to the next, or whether every shot restarts the subject. The criteria are in stop-slop-zh `references/semantic.md`, section 2.
+`script review` uses it too. Its findings join the lint evidence the reviewer sees, and with stop-slop 1.3.0 or later the voice pass (`--focus voice` or `both`) also gets the joins between neighbouring shots from `stop-slop candidates --shots -`: the end of one shot and the start of the next. The reviewer is asked whether each shot picks up the one before it or restarts the subject, using the criteria in stop-slop-zh `references/semantic.md`, section 2. The evidence file records the stop-slop version and how many joins were sent. To look at them yourself:
+
+```sh
+node -e 'const f=require("./film.json");console.log(JSON.stringify(f.shots.map(s=>({id:s.id,text:s.narration?.zh?.say??s.narration?.zh??s.narration})).filter(x=>typeof x.text==="string")))' \
+  | stop-slop candidates --shots -
+```
 
 Sources: two independent reviews of that film (Claude and Codex); the author's Chinese anti-slop checklist (程度副词、排比三件套、金句收尾、名词化); interview-first drafting ([Make AI interview you before it writes anything](https://mediacopilot.substack.com/p/make-ai-interview-you-before-it-writes)); Poynter's mouth edit (read it aloud and revise what sounds read); Wikipedia's [Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing) for the sentence-level layer; [Verbalized Sampling](https://arxiv.org/abs/2510.01171) for asking a reviewer for several openings ranked by how typical they are.
