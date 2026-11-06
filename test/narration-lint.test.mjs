@@ -200,7 +200,7 @@ test("script lint <dir>, validate and the CLI report drift between SCRIPT.md and
   fs.writeFileSync(path.join(dir, "SCRIPT.md"), tableOf(used.map((s) => ({ id: s.id, narration: "我先说一句人话。" }))));
 
   const r = spawnSync(process.execPath, [new URL("../bin/motion-use.mjs", import.meta.url).pathname, "script", "lint", dir, "--json"], {
-    encoding: "utf8", env: { ...process.env, MOTION_USE_NO_UPDATE_CHECK: "1" },
+    encoding: "utf8", env: { ...process.env, MOTION_USE_NO_UPDATE_CHECK: "1", MOTION_USE_STOP_SLOP: path.join(dir, "no-stop-slop") },
   });
   assert.equal(r.status, 0, r.stderr);
   const out = JSON.parse(r.stdout);
