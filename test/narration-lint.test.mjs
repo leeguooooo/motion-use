@@ -83,7 +83,7 @@ test("script review asks for a separate voice pass carrying the lint evidence", 
   const voice = scriptReviewPrompt("稿子", {}, { focus: "voice", lint });
   assert.doesNotMatch(voice, /## 事实轮/);
   assert.doesNotMatch(scriptReviewPrompt("稿子", {}, { focus: "facts" }), /## 口语轮/);
-  assert.throws(() => scriptReviewPrompt("稿子", {}, { focus: "tone" }), /--focus/);
+  assert.throws(() => scriptReviewPrompt("稿子", {}, { focus: "style" }), /--focus/);
 });
 
 test("command reviewers run without a shell, get the prompt on stdin, and may print a preamble", async () => {

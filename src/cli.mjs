@@ -98,6 +98,7 @@ Usage: motion-use <command> [options]
   list                List projects under ~/motion-use (override: MOTION_USE_PROJECTS)
   init [name|path]    Start a directed film (film.json + composition/draw.js + DIRECTOR.md); fill the brief
                       fields up front: --subject --purpose --audience --tone --palette --length (seconds)
+                      --setting feed-short|launch|meeting-explainer|course (where it is heard; opening rules) --speaker
                       --mode tutorial generates screenshot steps; --mode template keeps the scene-template workflow; --style/--story also select it
   script lint [film|SCRIPT.md]  Spoken-copy fingerprints (name reveals, moral tails, spoken lists, written
                       register, a rule or number as the first line) in the SCRIPT.md shot table and in film.json,
@@ -106,7 +107,9 @@ Usage: motion-use <command> [options]
                       Chinese copy also goes through stop-slop (1.2.0+, on PATH or MOTION_USE_STOP_SLOP) when installed
   script review <film> --reviewer gemini|chatgpt|claude [--transport browser|api --model <id>]
                       --transport command --command '["codex","exec","-"]' sends the prompt on stdin
-                      --focus voice|facts|both (default both: two separate passes in one report)
+                      --focus voice|facts|both|tone (default both; tone: wording only, facts and paragraph lengths locked)
+                      --facts-from <file> (repeatable) attaches source excerpts so the fact pass can check
+                      details missing from brief.facts; brief.sources does the same from the film
                       --plan writes the request only; --response <json> imports a saved review
   redact <image> --box x,y,w,h [--box ...] --out <new.png>  Blur private screenshot regions
   validate [brief]    Check a brief: fields, files, voiceover lengths, characters the fonts cannot draw
@@ -244,6 +247,9 @@ export async function main(argv) {
         reviewer: { type: "string" },
         transport: { type: "string" },
         focus: { type: "string" },
+        setting: { type: "string" },
+        speaker: { type: "string" },
+        "facts-from": { type: "string", multiple: true },
         film: { type: "boolean" },
         command: { type: "string" },
         model: { type: "string" },
@@ -2597,7 +2603,8 @@ async function scriptCmd(o, [action, project, ...extra]) {
     return 0;
   }
   if(action!=="review"||!project||extra.length)return fail("script lint [film] | script review <film> --reviewer gemini|chatgpt|claude|<label>",o.json);
-  const result=await reviewScript(project,o);
+  const result=await reviewScript(project,{...o,factsFrom:o["facts-from"]});
+  if(!o.json)for(const w of result.warnings??[])console.error(`warning: ${w}`);
   console.log(o.json?JSON.stringify(result,null,2):`${result.status}: ${result.file??result.prompt}`); return 0;
 }
 async function redactCmd(o, [file,...extra]) {

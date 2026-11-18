@@ -7,6 +7,20 @@
 // (the same fictional facts written as a summary and as a colleague speaking).
 
 const GUIDE = "references/narration-writing.md";
+
+/**
+ * Where the film is heard (brief.setting). The opening rules differ: a feed clip has three seconds
+ * and opens on the picture; a person presenting in a review meeting, a talk or a lesson opens by
+ * saying what today is about and why, never with a hook and a self-answered question.
+ * Absent setting keeps the feed rules (the historical default).
+ */
+export const SETTINGS = ["feed-short", "launch", "meeting-explainer", "course"];
+export const DEFAULT_SETTING = "feed-short";
+export const PICTURE_OPENING = new Set(["feed-short", "launch"]);
+export function settingOf(brief) {
+  const s = brief?.setting;
+  return SETTINGS.includes(s) ? s : DEFAULT_SETTING;
+}
 const ZH_NUM = "[零一二两三四五六七八九十百千万\\d]";
 const RULES = {
   zh: {
@@ -65,7 +79,7 @@ const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
  * lintNarration(shots, lang) → {lang, findings:[{rule, shot, path, text, message}], stats}
  * `shots` are film.json shots (id + narration). Only languages with a rule table are linted.
  */
-export function lintNarration(shots, lang, { pathOf = (i) => `$.shots[${i}].narration` } = {}) {
+export function lintNarration(shots, lang, { pathOf = (i) => `$.shots[${i}].narration`, setting = DEFAULT_SETTING } = {}) {
   const base = String(lang ?? "").toLowerCase().split("-")[0];
   const R = RULES[base];
   if (!R) return { lang, findings: [], stats: null, skipped: `no narration rules for ${lang}` };
@@ -74,12 +88,23 @@ export function lintNarration(shots, lang, { pathOf = (i) => `$.shots[${i}].narr
   const add = (rule, x, text, message) => findings.push({ rule, shot: x?.id ?? null, path: x ? pathOf(x.i) : "$.shots", text, message: `${message} (${GUIDE})` });
   if (!lines.length) return { lang, findings, stats: null };
 
-  // 1. The opening line: speakable while pointing at the picture, not a clause of the rules.
+  // 1. The opening line. Feed and launch films: speakable while pointing at the picture, not a
+  //    clause of the rules. Meetings and lessons: say what today is about; no hook, at most one
+  //    self-answered question in the whole script.
   const first = lines[0], head = sentencesOf(first.text, R)[0] ?? first.text;
   const headSpan = [...head].slice(0, R.headChars).join("");
-  if (R.quantity.test(headSpan))
+  const pictureOpening = PICTURE_OPENING.has(setting);
+  if (!pictureOpening) {
+    const q = /[？?]/;
+    if (q.test(first.text))
+      add("opening-hook", first, first.text, `a ${setting} opening asks a question; a person presenting says what today is about, where people are stuck and how it will be explained, then starts`);
+    const asks = lines.flatMap((x) => sentencesOf(x.text, R).filter((s) => q.test(s)).map((s) => ({ x, s })));
+    if (asks.length >= 2)
+      for (const { x, s } of asks) add("rhetorical-question", x, s, `${asks.length} questions in a ${setting} script; a presenter answers at most one of their own questions, say the rest plainly`);
+  }
+  if (pictureOpening && R.quantity.test(headSpan))
     add("opening-quantity", first, head, "the first line carries a number or unit before the viewer knows what they are looking at; open on the thing in the picture and give the number later or on screen");
-  if (R.rule.test(head))
+  if (pictureOpening && R.rule.test(head))
     add("opening-rule", first, head, "the first line is a rule (every…/whenever…); open on one concrete thing happening in the picture, then let the rule follow");
 
   // 2. Describe-then-name tags across the script.
@@ -229,11 +254,12 @@ export function scriptDrift(table, film, lang) {
  */
 export function lintScriptAndFilm({ script = null, film = null, lang } = {}) {
   const table = script == null ? null : scriptTable(script);
+  const setting = settingOf(film?.brief);
   const filmResults = (only) => lintFilmNarration(film).filter((r) => !only || only(r.lang)).map((r) => ({ ...r, source: "film.json" }));
   if (!table) return film ? filmResults() : [];
   const langs = Array.isArray(film?.languages) && film.languages.length ? film.languages : null;
   const tableLang = table.lang ?? lang ?? langs?.[0] ?? "zh";
-  const results = [{ ...lintNarration(table.shots, tableLang, { pathOf: (i) => `SCRIPT.md row ${i + 1}` }), source: "SCRIPT.md" }];
+  const results = [{ ...lintNarration(table.shots, tableLang, { pathOf: (i) => `SCRIPT.md row ${i + 1}`, setting }), source: "SCRIPT.md" }];
   if (!film) return results;
   // A spoken column with no language tag in a multi-language film may hold every language in one cell.
   if (!table.lang && langs && langs.length > 1) {
@@ -248,5 +274,5 @@ export function lintScriptAndFilm({ script = null, film = null, lang } = {}) {
 /** Lint every narrated language of a film.json object. */
 export function lintFilmNarration(film) {
   const langs = Array.isArray(film?.languages) && film.languages.length ? film.languages : ["en"];
-  return langs.map((lang) => lintNarration(film?.shots, lang));
+  return langs.map((lang) => lintNarration(film?.shots, lang, { setting: settingOf(film?.brief) }));
 }

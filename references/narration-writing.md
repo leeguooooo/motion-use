@@ -12,6 +12,25 @@ So the order is:
 
 No framework or fill-in structure replaces step 1. A script built from a template sounds like the template.
 
+## Where the film is heard (`brief.setting`)
+
+The opening depends on where people hear it. Set `brief.setting` (`motion-use init --setting …`):
+
+| Setting | Who is talking | Opening |
+|---|---|---|
+| `feed-short` (default when absent) | a clip in a feed, three seconds to earn attention | the first line is said while pointing at the picture |
+| `launch` | a product film for people seeing it the first time | also opens on the picture |
+| `meeting-explainer` | a colleague presenting in a review meeting or an internal walkthrough | say what today is about, where people are stuck, how you will explain it; no hook |
+| `course` | a lesson | say what the listener will be able to do, then start |
+
+**"The first line points at the picture" is a short-video rule, not a rule for every film.** In a review meeting nobody opens with a hook and answers their own question. For `meeting-explainer` and `course`, `script lint` drops `opening-quantity` / `opening-rule` and instead reports `opening-hook` (a question in the first shot) and `rhetorical-question` (two or more questions in the script); `script review` swaps the reviewer persona and the opening rule. `brief.speaker` (for example 「团队里的资深同事」) names who is talking; the review prompt speaks as that person with `brief.tone`.
+
+Same content, two openings:
+
+> feed-short: 你看这颗骰子。点下去，点数当场就出，棋子跟着就走。
+>
+> meeting-explainer: 今天讲对局的校验方案。大家最常问的是：客户端先出结果，服务端怎么还能定名次。我先讲开局那一步，再讲每一步怎么对账。
+
 ## How a script turns into a machine voice
 
 The usual cause is not a word choice. It is the process:
@@ -39,7 +58,7 @@ Line by line:
 
 | Rule | Instead of | Write |
 |---|---|---|
-| The first line is said while pointing at the picture: one thing, one thing happening | a rule, a number, a coined term | 「你看这辆车，轮子正好压在白线里面。」 |
+| (`feed-short`, `launch`) The first line is said while pointing at the picture: one thing, one thing happening | a rule, a number, a coined term | 「你看这辆车，轮子正好压在白线里面。」 |
 | Name a thing once, without a reveal | 「……，这叫有效停车。」「……，这叫连停奖励。」 again and again | the term the team uses, said in passing: 「连着七天都停对，再送五十分。」 |
 | Stop when the information stops | 「所以停得越规范，骑得越便宜。」 at the end of shot after shot | let the picture land it, or say the consequence as a fact once |
 | Two items in speech; the rest on screen | 「推荐区、普通区、禁停区」「同一辆车……；同一个账号……；照片重复……」 | two in speech, the full list as screen text (`【屏幕字：…】` in review rewrites) |
@@ -78,14 +97,20 @@ motion-use script review my-film --reviewer codex --transport command \
 motion-use script review my-film --reviewer gemini --focus facts --out my-film/reviews/03-facts.md
 ```
 
-`--focus both` (the default) runs both passes in one request and tags each issue 【事实】 or 【口语】.
+`--focus both` (the default) runs both passes in one request and tags each issue 【事实】 or 【口语】. `--focus tone` changes only the wording: facts, names and numbers are locked, each paragraph stays within ±15% of its length (it has to fit the shot), at most two spoken items per sentence and one rhetorical question, and the lint's written-register and filler words plus common marketing words (居然、严丝合缝、底气、瞬间…) are listed as banned. It returns the script paragraph by paragraph so you can compare and merge; paragraphs that drift beyond ±15% are listed as `length-drift` risks.
+
+The fact pass can only check what it is shown. `brief.facts` is a summary; when a detail in the script is not on it, the reviewer marks it 【请作者核对】 (check it), and only a contradiction is 【必须改】 (must change). Attach the source text with `brief.sources: ["material/doc.txt"]` (paths relative to the film) or `--facts-from <file>` (repeatable); each file is cut to 6000 characters, 24000 in total. With no facts and no sources the command warns that the fact pass can only check the script against itself.
+
+`--transport browser` sends with `chrome-use site <reviewer>/ask … --new true --timeout 400`, then reads the conversation back. "The prompt was not delivered" (no user message from this request; retrying is safe) and "delivered but no reply was captured" (do not resend; copy the reply from the conversation) are different errors. Either way the exact request is in `<out>.prompt.txt`: send it by hand and import the reply with `--response <file>` and a fresh `--out`.
 
 ## What the lint counts
 
 | Rule | Fires when |
 |---|---|
-| `opening-quantity` | the first sentence of the first narrated shot has a number or unit in its opening characters |
-| `opening-rule` | the first sentence is a rule (每…就, 只要…就, 一旦 / every time, whenever) |
+| `opening-quantity` | (`feed-short`, `launch`) the first sentence of the first narrated shot has a number or unit in its opening characters |
+| `opening-rule` | (`feed-short`, `launch`) the first sentence is a rule (每…就, 只要…就, 一旦 / every time, whenever) |
+| `opening-hook` | (`meeting-explainer`, `course`) the first narrated shot asks a question |
+| `rhetorical-question` | (`meeting-explainer`, `course`) two or more questions in the script |
 | `name-reveal` | 「这叫 / 叫做 / 这就是所谓」 ("this is called", "known as") appears twice or more |
 | `moral-tail` | two or more shots end on 「所以 / 这就是 / 总之」 ("so", "that's why", "in short") |
 | `definition-open` | two or more shots (or the first shot) open with 「这是…」 ("this is…") |
