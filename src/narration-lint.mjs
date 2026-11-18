@@ -14,11 +14,13 @@ const GUIDE = "references/narration-writing.md";
  * saying what today is about and why, never with a hook and a self-answered question.
  * Absent setting keeps the feed rules (the historical default).
  */
-export const SETTINGS = ["feed-short", "launch", "meeting-explainer", "course"];
+export const SETTINGS = ["feed-short", "launch", "meeting-explainer", "tech-review", "course"];
 export const DEFAULT_SETTING = "feed-short";
 export const PICTURE_OPENING = new Set(["feed-short", "launch"]);
 /** Settings where announcing structure (setup-question, outline-preview, signpost, count-frame) is high priority. */
-export const HIGH_SETUP = new Set(["meeting-explainer", "course"]);
+export const HIGH_SETUP = new Set(["meeting-explainer", "tech-review", "course"]);
+/** Settings organised as numbered chapters that follow the source document (#121). */
+export const CHAPTERED = new Set(["tech-review"]);
 export function settingOf(brief) {
   const s = brief?.setting;
   return SETTINGS.includes(s) ? s : DEFAULT_SETTING;
@@ -54,6 +56,8 @@ const RULES = {
     unit: (s) => (s.match(/[⺀-鿿豈-﫿]|[A-Za-z0-9]+/g) ?? []).length,
     listSep: "、",
     headChars: 16,
+    chapterOpen: /^第\s*[一二三四五六七八九十\d]+\s*(部分|节|章|块)/,
+    chapterExample: (ch) => `「第${ch?.n ?? "N"}部分，${ch?.title ?? "节名"}。」`,
   },
   en: {
     define: /\b(this is called|that's called|which is called|known as|this is what we call)\b/gi,
@@ -75,6 +79,8 @@ const RULES = {
     unit: (s) => (s.match(/[A-Za-z0-9']+/g) ?? []).length,
     listSep: ",",
     headChars: 60,
+    chapterOpen: /^(part|section|chapter)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i,
+    chapterExample: (ch) => `"Part ${ch?.n ?? "N"}, ${ch?.title ?? "title"}."`,
   },
 };
 
@@ -116,6 +122,16 @@ export function lintNarration(shots, lang, { pathOf = (i) => `$.shots[${i}].narr
     const asks = lines.flatMap((x) => sentencesOf(x.text, R).filter((s) => q.test(s)).map((s) => ({ x, s })));
     if (asks.length >= 2)
       for (const { x, s } of asks) add("rhetorical-question", x, s, `${asks.length} questions in a ${setting} script; a presenter answers at most one of their own questions, say the rest plainly`);
+  }
+  // Chaptered talks (tech-review): the chapter number is the structure. Each chapter opens by
+  // naming it (「第二部分，整体架构。」) and then says the content; no other spoken scaffolding.
+  if (CHAPTERED.has(setting) && R.chapterOpen) {
+    const byId = new Map((Array.isArray(shots) ? shots : []).map((s) => [s?.id, s]));
+    for (const x of lines) {
+      const s = byId.get(x.id);
+      if (s?.chapterStart && !R.chapterOpen.test(x.text.trim()))
+        add("chapter-open", x, sentencesOf(x.text, R)[0] ?? x.text, `chapter ${s.chapter?.n ?? "?"} starts here; open with the chapter itself (${R.chapterExample(s.chapter)}), then say the content`);
+    }
   }
   if (pictureOpening && R.quantity.test(headSpan))
     add("opening-quantity", first, head, "the first line carries a number or unit before the viewer knows what they are looking at; open on the thing in the picture and give the number later or on screen");

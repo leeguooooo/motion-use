@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
-import { lintScriptAndFilm, scriptTable, settingOf, PICTURE_OPENING, SETTINGS } from './narration-lint.mjs';
+import { lintScriptAndFilm, scriptTable, settingOf, PICTURE_OPENING, SETTINGS, CHAPTERED } from './narration-lint.mjs';
 import { findStopSlop, stopSlopCandidates, stopSlopNarration } from './stop-slop.mjs';
 import { promisify } from 'node:util';
 const exec = promisify(execFile);
@@ -19,10 +19,12 @@ const PERSONA = {
   'feed-short': '你是短视频编导。',
   launch: '你是产品发布片的撰稿人，写给第一次看到这个产品的人。',
   'meeting-explainer': '你是团队里的资深同事，正在评审会上指着示意图给开发、产品、QA、运营讲方案；你审的是一份要当面讲给同事听的稿子，不是投放短视频。',
+  'tech-review': '你是团队里的资深同事，正在技术方案评审会上按方案文档的章节，指着文档里的架构图、时序图一节一节给开发、产品、QA、运营讲方案；你审的是一份要当面讲的方案讲解稿，不是投放短视频。',
   course: '你是一位讲课的老师，审的是一节课的讲稿，听众要学会，不是被吸引点击。',
 };
 const OPENING = {
   picture: '第一句必须能指着画面说出来：从画面里一个具体的东西和它正在发生的事开口。第一句不放数字和单位，不用规则连词（每…就、只要…就、一旦），不为躲术语临时造名词。',
+  chapter: '稿子按方案文档的章节一节一节讲，章节号本身就是结构：每节开口先说章节，例如「第二部分，整体架构。」，然后直接讲这一节的内容，第一句就说做法本身。不要提纲预告（我先讲…再讲…、接下来讲…、最后总结一下），不要「这里有个细节要注意」「X 是这样走的」这种只预告不带信息的句子，不要在节内数「N 件事 / 两处 / 第一…第二…」，不要设问、抛问题再自答，不要短视频钩子。进度和状态（已部署、开发中、方案阶段）只说源文档或事实清单核实过的，没核实的标【请作者核对】。不要求第一句指着画面。',
   meeting: '开头像当面讲话的人那样开口：先说今天讲什么、为什么要讲（大家卡在哪、要做什么决定），然后直接讲第一件事的做法。不要提纲预告（我先讲…再讲…、接下来讲…、最后总结一下），不要「这里有个细节要注意」「X 是这样走的」这种只预告不带信息的句子，不要「N 件事 / 两处 / 第一…第二…」数件数，不要抛问题再自答（大家问得最多的是…问题：）。不要设问钩子，不要「你信吗」「凭什么」「答案就在…」这类悬念，整份稿自问自答最多一次。不要求第一句指着画面。',
 };
 // Marketing / feed-clip wording a reviewer tends to bring into a colleague's talk (#110).
@@ -31,13 +33,13 @@ const WRITTEN = ['一律','前提是','细则','进行','予以','相应','此�
 const FILLER = ['这块','记住…就行','说白了','简单来说','其实','那问题来了'];
 const voiceChecklist = setting => [
   '先定说话的人和听众（看 brief.speaker、brief.audience）。用这个人的口吻改，内部讲解可以说「我们 / 咱们」；稿里的「你」若指玩家或用户，别和看片的人混。',
-  PICTURE_OPENING.has(setting) ? OPENING.picture : OPENING.meeting,
+  PICTURE_OPENING.has(setting) ? OPENING.picture : CHAPTERED.has(setting) ? OPENING.chapter : OPENING.meeting,
   '删掉「这叫 X / 这就是所谓的 X」这种先描述后命名；术语用团队已经在用的叫法，第一次出现顺口带出即可。',
   '段尾不要用「所以 / 这就是 / 总之」总结这一段，信息讲完就停，让画面收尾。',
   '一段旁白最多两个并列项、一两个数字；多出来的放屏幕字，在 rewrite 里用【屏幕字：…】标出，不要删掉事实。',
   '书面词换成口头说法（一律、前提是、细则、进行、予以、相应、此外）。句子长短要交错，允许出现两三个字的短句。',
   '删掉只宣布「下面有内容」的句子：提纲预告、「这里有个…要注意」「…是这样走的」、「N 件事 / 第一…第二…」、抛问题再回答。直接从内容说起。',
-  '按听众听懂的顺序讲，不按源文档的章节顺序；每句只推进一件事。',
+  CHAPTERED.has(setting) ? '章节顺序跟方案文档走，节内按听众听懂的顺序讲；每句只推进一件事。' : '按听众听懂的顺序讲，不按源文档的章节顺序；每句只推进一件事。',
   '先看内容再看句子：稿子里有没有只有作者才说得出的话（取舍、理由、反直觉的地方、态度）？每条规则有没有说为什么这么设计、会带来什么？没有的话直接指出「这是摘要稿」，句子再顺也不算过。',
   '准确性审稿加进来的限定语（部分、最多、前提是、未被…）优先挪到屏幕字，旁白保留能听懂的说法。',
   '每个镜头的旁白不必长成同一个形状（主题句 → 细节 → 收束），相邻镜头换开头方式。',
@@ -91,7 +93,7 @@ export function scriptReviewPrompt(script, brief = {}, { focus = 'both', lint = 
   const basis = facts.length || sources.length
     ? `依据：事实清单${sources.length ? '和下方 <SOURCES> 源文档摘录' : ''}。分两种情况：稿子与清单或源文档矛盾，标「【必须改】」；稿子里的内容清单和摘录都没有提到，标「【请作者核对】」，不要判成编造、不要要求删除，清单只是摘要，作者手上有完整的源文档。`
     : '依据：brief.facts 为空、也没有附源文档，本轮只能检查稿子内部是否自相矛盾和夸张承诺；不要把任何细节判成编造或要求删除，需要核对的统一标「【请作者核对】」。';
-  const factsPass = `## 事实轮\n${picture ? '审查开头三秒、步骤、节奏、结尾与目标时长' : '审查开头是否交代了讲什么和为什么、步骤、节奏、结尾与目标时长'}；核对数字与规则。${basis}不得增加未经核实的事实，不得为了吸引点击改动事实。\n编辑清单：\n${checklist.join('\n')}`;
+  const factsPass = `## 事实轮\n${picture ? '审查开头三秒、步骤、节奏、结尾与目标时长' : CHAPTERED.has(setting) ? '审查章节是否与源文档的章节对应、每节是否先说章节再直接讲内容、进度和状态是否经过核实（时长不设目标，不要为了压时长删内容）' : '审查开头是否交代了讲什么和为什么、步骤、节奏、结尾与目标时长'}；核对数字与规则。${basis}不得增加未经核实的事实，不得为了吸引点击改动事实。\n编辑清单：\n${checklist.join('\n')}`;
   const passes = focus === 'voice' ? [voice] : focus === 'facts' ? [factsPass] : focus === 'tone' ? [tone] : [factsPass, voice];
   const tag = focus === 'both' ? 'issues 里每条以【事实】或【口语】开头。' : '';
   const shape = focus === 'tone'

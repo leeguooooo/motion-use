@@ -930,6 +930,211 @@ window.__filmKit = function (view, film) {
     c.restore();
   }
 
+  // ---------------------------------------------------------------- diagrams (#121)
+  // A source document's own architecture / sequence diagram is the base layer; animation adds what
+  // a still picture cannot show (a message moving, a box lighting up, the camera walking a sequence).
+  // Coordinates are source-image pixels; `motion-use diagram boxes file.svg` lists every box.
+  // view = [cx, cy, w, h?]: the image region to show, centred on (cx, cy); h defaults to the rect's
+  // aspect. The region is fitted by width and height together, so a tall view never runs under the
+  // subtitles.
+  const imageOf = (image, who) => {
+    const img = typeof image === "string" ? window.filmAssets?.[image] : image;
+    if (!img) throw new Error(`${who}: no image "${image}"; declare it under film.json assets`);
+    return img;
+  };
+  const sizeOf = (img) => [img.naturalWidth || img.videoWidth || img.width, img.naturalHeight || img.videoHeight || img.height];
+  const rectOf = (r) => (Array.isArray(r) ? { x: r[0], y: r[1], w: r[2], h: r[3] } : r);
+  const fullView = (img, r) => {
+    const [iw, ih] = sizeOf(img);
+    return [iw / 2, ih / 2, Math.max(iw, (ih * r.w) / r.h), Math.max(ih, (iw * r.h) / r.w)];
+  };
+  const viewFix = (v, r) => (v.length >= 4 ? v.slice(0, 4) : [v[0], v[1], v[2], (v[2] * r.h) / r.w]);
+  // Boxes: [x, y, w, h], {x, y, w, h}, or an id from film.data.boxes / film.data.diagrams.<name>.boxes
+  // ("name:id" picks one diagram).
+  function boxOf(b) {
+    if (Array.isArray(b) && b.length === 4) return { x: b[0], y: b[1], w: b[2], h: b[3] };
+    if (b && typeof b === "object" && [b.x, b.y, b.w, b.h].every(Number.isFinite)) return b;
+    if (typeof b === "string") {
+      const [name, id] = b.includes(":") ? b.split(":") : [null, b];
+      const found = name
+        ? film.data?.diagrams?.[name]?.boxes?.[id]
+        : film.data?.boxes?.[id] ?? Object.values(film.data?.diagrams ?? {}).map((d) => d?.boxes?.[id]).find(Boolean);
+      if (found) return found;
+      throw new Error(`diagram box "${b}" is not in film.data.boxes or film.data.diagrams; run motion-use diagram boxes <svg>`);
+    }
+    throw new Error("diagram box: [x, y, w, h], {x, y, w, h} or a box id");
+  }
+  const pointOf = (q) => {
+    if (Array.isArray(q) && q.length === 2) return q;
+    const b = boxOf(q);
+    return [b.x + b.w / 2, b.y + b.h / 2];
+  };
+  function diagram(c, image, viewBox, { rect = tutorialLayout(), alpha = 1 } = {}) {
+    const img = imageOf(image, "diagram"), r = rectOf(rect);
+    const v = viewFix(viewBox ?? fullView(img, r), r);
+    if (!(v[2] > 0 && v[3] > 0)) throw new Error("diagram: view [cx, cy, w, h?] needs a positive width and height");
+    const s = Math.min(r.w / v[2], r.h / v[3]), cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+    const p = (q) => { q = pointOf(q); return [cx + (q[0] - v[0]) * s, cy + (q[1] - v[1]) * s]; };
+    const box = (b) => { b = boxOf(b); const a = p([b.x, b.y]); return { x: a[0], y: a[1], w: b.w * s, h: b.h * s }; };
+    if (alpha > 0) {
+      // Only the part of the image that lands on the canvas is drawn (9-argument drawImage on the
+      // visible source region): a deeply zoomed diagram never asks for pixels far off screen.
+      const [iw, ih] = sizeOf(img), tl = p([0, 0]);
+      const sx0 = Math.max(0, -tl[0] / s), sy0 = Math.max(0, -tl[1] / s);
+      const sx1 = Math.min(iw, (view.width - tl[0]) / s), sy1 = Math.min(ih, (view.height - tl[1]) / s);
+      if (sx1 > sx0 && sy1 > sy0) {
+        c.save();
+        c.globalAlpha *= clamp(alpha);
+        c.drawImage(img, sx0, sy0, sx1 - sx0, sy1 - sy0, tl[0] + sx0 * s, tl[1] + sy0 * s, (sx1 - sx0) * s, (sy1 - sy0) * s);
+        c.restore();
+      }
+    }
+    return { s, view: v, rect: r, p, box, image: img };
+  }
+  // Camera on a diagram: keys = [[t, view], …]; each change eases over `dur` seconds.
+  function viewAt(t, keys, { dur = 0.7, ease = "cubicOut", rect = tutorialLayout() } = {}) {
+    if (!Array.isArray(keys) || !keys.length) throw new Error("viewAt: keys [[t, [cx, cy, w, h?]], …]");
+    const r = rectOf(rect);
+    let v = viewFix(keys[0][1], r);
+    for (let i = 1; i < keys.length; i++) {
+      const k = easeOf(ease)(clamp((t - keys[i][0]) / dur)), b = viewFix(keys[i][1], r);
+      if (k > 0) v = v.map((x, j) => lerp(x, b[j], k));
+    }
+    return v;
+  }
+  const along = (pts, k) => {
+    let tot = 0;
+    const seg = [];
+    for (let i = 1; i < pts.length; i++) {
+      const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      seg.push(d);
+      tot += d;
+    }
+    let d = clamp(k) * tot;
+    for (let i = 0; i < seg.length; i++) {
+      if (d <= seg[i]) return lerp2(pts[i], pts[i + 1], seg[i] ? d / seg[i] : 0);
+      d -= seg[i];
+    }
+    return pts[pts.length - 1];
+  };
+  function tag(c, text, x, y, size, fill, color) {
+    c.save();
+    c.font = fontOf(700, size, false);
+    const w = c.measureText(text).width + size * 1.1, h = size * 1.6;
+    rounded(c, x - w / 2, y - h / 2, w, h, h / 2, fill);
+    label(c, text, x, y, { size, color, weight: 700 });
+    c.restore();
+    return w;
+  }
+  // A token travelling along a polyline on the diagram (points in image px, or box ids = centres);
+  // the travelled path is highlighted behind it. k is progress 0–1; hold keeps it at the end.
+  function token(c, map, points, k, text, { color = ink().accent, size = 24 * unit, hold = false, trail = true } = {}) {
+    if (!(k > 0) || (k >= 1 && !hold)) return null;
+    const sp = points.map((q) => map.p(q));
+    if (sp.length < 2) throw new Error("token: at least two points");
+    if (trail) {
+      c.save();
+      c.strokeStyle = color;
+      c.globalAlpha *= 0.55;
+      c.lineWidth = 9 * unit;
+      c.lineCap = "round";
+      c.lineJoin = "round";
+      c.beginPath();
+      c.moveTo(sp[0][0], sp[0][1]);
+      for (let i = 1; i <= 40; i++) { const q = along(sp, (clamp(k) * i) / 40); c.lineTo(q[0], q[1]); }
+      c.stroke();
+      c.restore();
+    }
+    const q = along(sp, clamp(k));
+    if (text) tag(c, text, q[0], q[1], size, color, "#FFFFFF");
+    else {
+      c.save();
+      c.beginPath();
+      c.arc(q[0], q[1], 13 * unit, 0, Math.PI * 2);
+      c.fillStyle = color;
+      c.fill();
+      c.lineWidth = 4 * unit;
+      c.strokeStyle = "#FFFFFF";
+      c.stroke();
+      c.restore();
+    }
+    return q;
+  }
+  // Outline one box of the diagram (k = 0–1 fades it in).
+  function glow(c, map, box, k = 1, { color = ink().accent, width = 8 * unit, pad = 10 * unit } = {}) {
+    if (!(k > 0)) return;
+    const b = map.box(box);
+    c.save();
+    c.globalAlpha *= clamp(k);
+    c.lineWidth = width;
+    c.strokeStyle = color;
+    c.beginPath();
+    c.roundRect(b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2, 18 * unit);
+    c.stroke();
+    c.restore();
+  }
+  // Grey out one box: the part of the diagram this design does not use.
+  function dim(c, map, box, k = 1, { amount = 0.72, color = ink().bg, pad = 6 * unit } = {}) {
+    if (!(k > 0)) return;
+    const b = map.box(box);
+    c.save();
+    c.globalAlpha *= amount * clamp(k);
+    rounded(c, b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2, 14 * unit, color);
+    c.restore();
+  }
+  // Chapters: a card with the big number and title at the start of each chapter's first shot, then
+  // "3 · 一局怎么走" pinned top-left for every shot of the chapter. Call before M.captions.
+  function chapters(c, t, { card = 1.5, fade = 0.35, color = ink().accent, fill = ink().bg } = {}) {
+    const shot = (film.shots ?? []).find((s) => t >= s.start && t < s.end);
+    const ch = shot?.chapter;
+    if (!ch) return null;
+    const lt = t - shot.start, safe = view.safe ?? { x: view.width * 0.02, y: view.height * 0.03 };
+    if (!shot.chapterStart || lt > card + 0.1) {
+      const size = 26 * unit, text = `${ch.n} · ${ch.title}`;
+      c.save();
+      c.font = fontOf(700, size, false);
+      const w = c.measureText(text).width + size * 1.1;
+      c.restore();
+      tag(c, text, safe.x + 16 * unit + w / 2, safe.y + 22 * unit + size, size, ink().ink, ink().surface);
+    }
+    if (shot.chapterStart) {
+      const a = 1 - easings.cubicInOut(clamp((lt - card) / fade));
+      if (a > 0) {
+        c.save();
+        c.globalAlpha *= a;
+        c.fillStyle = fill;
+        c.fillRect(0, 0, view.width, view.height);
+        label(c, String(ch.n), view.width / 2, view.height * 0.38, { size: 200 * unit, color, weight: 800 });
+        label(c, ch.title, view.width / 2, view.height * 0.53, { size: 72 * unit, color: ink().ink, weight: 800, maxWidth: view.width * 0.86 });
+        c.restore();
+      }
+    }
+    return ch;
+  }
+  // When a phrase of a shot's narration is said (absolute seconds, like t). Measured word timing
+  // when the voice service gave it; otherwise estimated from the phrase's position in the text over
+  // the voiced part of the shot. A phrase the narration does not contain returns Infinity, so the
+  // action it drives never appears instead of appearing at a wrong time.
+  function when(phrase, { shot: id, off = 0, tail = 1.3 } = {}) {
+    const shot = id ? (film.shots ?? []).find((s) => s.id === id) : view.shot;
+    if (!shot) throw new Error(`when: no shot${id ? ` "${id}"` : ""}`);
+    const needle = String(phrase).replace(/\s+/gu, "");
+    const words = (film.words ?? []).filter((w) => w.id === shot.id);
+    for (let i = 0; i < words.length; i++) {
+      let said = "";
+      for (let j = i; j < words.length; j++) {
+        said += words[j].text.replace(/\s+/gu, "");
+        if (said.startsWith(needle)) return words[i].start + off;
+        if (!needle.startsWith(said)) break;
+      }
+    }
+    const n = shot.narration, text = typeof n === "string" ? n : n?.[film.lang] ?? "";
+    const i = text.indexOf(phrase);
+    if (i < 0) return Infinity;
+    const voiced = Math.max(1, shot.end - shot.start - tail);
+    return shot.start + 0.1 + (voiced * i) / Math.max(1, text.length) + off;
+  }
+
   return {
     shotTime,
     rhythmPhase,
@@ -1064,6 +1269,7 @@ window.__filmKit = function (view, film) {
     cursor,
     cover,
     focusShot, steps, tutorialLayout,
+    diagram, viewAt, token, glow, dim, chapters, when, box: boxOf,
     grade,
     grain,
     vignette,
