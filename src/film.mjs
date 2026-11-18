@@ -17,6 +17,7 @@ import { composeMusic } from "./compose.mjs";
 import { peakTime } from "./beats.mjs";
 import { esc } from "./html.mjs";
 import { BriefError } from "./brief.mjs";
+import { SETTINGS } from "./narration-lint.mjs";
 import { resolveNarration } from "./film-voiceover.mjs";
 import { buildNarrationStem } from "./verify.mjs";
 import { readVoManifest, estimateCues } from "./voiceover.mjs";
@@ -116,7 +117,9 @@ export function validateFilm(
           if (!finite(v, 1, 3600)) error("$.brief.length", "target seconds, 1–3600");
           else if (finite(data.duration, 1, 3600) && Math.abs(v - data.duration) > 0.5)
             warnings.push({ path: "$.brief.length", message: `the brief asks for ${v} s but the shots cover ${data.duration} s: re-plan the shots and set duration` });
-        } else if (["facts", "platforms"].includes(k)) {
+        } else if (k === "setting") {
+          if (!SETTINGS.includes(v)) error("$.brief.setting", `one of: ${SETTINGS.join(", ")} (where the film is heard; sets the opening rules)`);
+        } else if (["facts", "platforms", "sources"].includes(k)) {
           if (!Array.isArray(v) || v.length > 100 || v.some(x => typeof x !== "string" || !x.trim() || x.length > 500)) error(`$.brief.${k}`, "up to 100 nonempty text entries");
         } else if (typeof v !== "string" || v.length > 500)
           error(`$.brief.${k}`, "text, at most 500 characters");
@@ -850,6 +853,11 @@ export function initFilm(o, dir) {
   // Every part a user changes first is a field: fill the brief from flags, keep TODOs for the rest.
   for (const k of ["subject", "purpose", "audience", "tone"])
     if (typeof o[k] === "string" && o[k].trim()) data.brief[k] = o[k].trim();
+  if (o.setting !== undefined) {
+    if (!SETTINGS.includes(o.setting)) throw new BriefError(`--setting: ${SETTINGS.join(", ")}`);
+    data.brief.setting = o.setting;
+  }
+  if (typeof o.speaker === "string" && o.speaker.trim()) data.brief.speaker = o.speaker.trim();
   if (o.length !== undefined) {
     const n = Number(o.length);
     if (!finite(n, 1, 3600)) throw new BriefError("--length: seconds, 1–3600");
