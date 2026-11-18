@@ -42,7 +42,7 @@ import {
   generateVoiceover,
   ENGINES as VO_ENGINE_NAMES,
 } from "./voiceover.mjs";
-import { PROVIDERS, PROVIDER_NAMES, PREVIEW_NOTE, chooseEngine, configureHint, discoverProviders, readUserConfig, userConfigPath, validateProvider, writeUserVoice } from "./tts-providers.mjs";
+import { PROVIDERS, PROVIDER_NAMES, PREVIEW_NOTE, chooseEngine, configureHint, credentialsFor, discoverProviders, getProfile, listProfiles, readUserConfig, removeProfile, saveProfile, useProfile, userConfigPath, validateProvider, writeUserVoice } from "./tts-providers.mjs";
 import {
   FILM_FORMATS,
   buildFilm,
@@ -100,6 +100,7 @@ Usage: motion-use <command> [options]
   init [name|path]    Start a directed film (film.json + composition/draw.js + DIRECTOR.md); fill the brief
                       fields up front: --subject --purpose --audience --tone --palette --length (seconds)
                       --setting feed-short|launch|meeting-explainer|course (where it is heard; opening rules) --speaker
+                      --voice-profile <name>|none (default: the user's default voice profile, referenced in film.json)
                       --mode tutorial generates screenshot steps; --mode template keeps the scene-template workflow; --style/--story also select it
   script lint [film|SCRIPT.md]  Spoken-copy fingerprints (name reveals, moral tails, spoken lists, written
                       register, a rule or number as the first line) in the SCRIPT.md shot table and in film.json,
@@ -118,6 +119,11 @@ Usage: motion-use <command> [options]
   voiceover providers  List the voice services configured on this machine (env, keychain, user config) and verify each key
   voiceover use <provider> --voice <id> [--lang zh] [--model m]  Remember the voice service and voice for every project
   voiceover audition <plan.json> --out <fresh-dir>  Compare same-script samples; listening remains UNREVIEWED
+  voice list|show [name]  Named voice profiles at user level (* = default; show verifies the key)
+  voice set <name> --provider <p> --voice <id> [--lang zh] [--model m] [--rate +12%] [--instructions …]
+                      [--key-env NAME | --key-keychain SERVICE] [--default]  The key itself is never stored
+  voice save <audition-dir> <candidate-id> --name <n>  Keep an audition pick as a profile (becomes the default)
+  voice use <name> | voice remove <name>  Choose the default profile every project speaks with
   voiceover check     Transcribe every narration clip (whisper via uv) and compare it with its script:
                       catches misread acronyms ("AI" as "A-A-I") and polyphones (重试 heard as 重视)
   still [brief]       Render keyframes as PNGs plus a contact sheet (--at 1.5,4 for exact seconds, --shot id,
@@ -217,6 +223,7 @@ export async function main(argv) {
     review: reviewCmd,
     validate,
     voiceover,
+    voice: voiceCmd,
     still,
     render,
     verify,
@@ -257,6 +264,13 @@ export async function main(argv) {
         command: { type: "string" },
         model: { type: "string" },
         voice: { type: "string" },
+        provider: { type: "string" },
+        rate: { type: "string" },
+        instructions: { type: "string" },
+        "key-env": { type: "string" },
+        "key-keychain": { type: "string" },
+        default: { type: "boolean" },
+        "voice-profile": { type: "string" },
         offline: { type: "boolean" },
         response: { type: "string" },
         box: { type: "string", multiple: true },
@@ -421,6 +435,10 @@ async function init(o, [input]) {
         "--story/--style select templates; omit them for a film",
         o.json,
       );
+    if (o["voice-profile"] !== undefined) {
+      o.voiceProfile = o["voice-profile"] === "none" ? null : o["voice-profile"];
+      if (o.voiceProfile) try { getProfile(o.voiceProfile); } catch (e) { return fail(e.message, o.json); }
+    }
     const result = initFilm(o, dir);
     if (o.json) console.log(JSON.stringify(result, null, 2));
     else
@@ -2227,6 +2245,96 @@ async function voiceoverUse(o, [provider]) {
   return 0;
 }
 
+const describeProfile = (name, p, def) =>
+  `${name === def ? "* " : "  "}${name.padEnd(14)} ${p.provider}${p.model ? ` ${p.model}` : ""} ${JSON.stringify(p.voices ?? {})}${p.rate ? ` rate ${typeof p.rate === "string" ? p.rate : JSON.stringify(p.rate)}` : ""}${p.key ? ` key from ${p.key.env ? `env ${p.key.env}` : `keychain ${p.key.keychain}`}` : ""}`;
+
+/** Check one profile's key with a no-cost request. */
+async function checkProfileKey(p, o = {}) {
+  if (p.provider === "edge") return { ok: true, detail: `edge preview voice — ${PREVIEW_NOTE}` };
+  let cred;
+  try { cred = credentialsFor(p.provider, { keySource: p.key }); }
+  catch (e) { return { ok: false, detail: e.message }; }
+  if (o.offline) return { ok: true, verified: false, detail: "key found; not verified (--offline)" };
+  const v = await validateProvider(p.provider, cred);
+  return { ok: v.ok, verified: v.ok, ...(v.keyInvalid ? { keyInvalid: true } : {}), detail: v.detail };
+}
+
+// `motion-use voice`: named voice profiles at user level; the default one speaks every project
+// that does not choose its own voice.
+async function voiceCmd(o, [sub, ...rest]) {
+  const print = (obj, text) => (o.json ? console.log(JSON.stringify({ ok: true, ...obj }, null, 2)) : console.log(text));
+  try {
+    if (!sub || sub === "list") {
+      const l = listProfiles();
+      const names = Object.keys(l.profiles);
+      print(l, names.length ? `${names.map((n) => describeProfile(n, l.profiles[n], l.default)).join("\n")}\n(${l.file}; * = default)` : `no voice profiles yet (${l.file}); save one with motion-use voice set <name> --provider <p> --voice <id>, or motion-use voice save <audition-dir> <candidate>`);
+      return 0;
+    }
+    if (sub === "show") {
+      const p = getProfile(rest[0] ?? null);
+      if (!p) return fail("no default voice profile; motion-use voice list", o.json);
+      const key = await checkProfileKey(p, o);
+      print({ profile: p, key }, `${describeProfile(p.name, p, listProfiles().default)}\nkey: ${key.ok ? "ok" : key.keyInvalid ? "BAD" : "--"} ${key.detail}`);
+      return key.ok ? 0 : 1;
+    }
+    if (sub === "set") {
+      const [name] = rest;
+      if (!name) return fail("voice set <name> --provider <p> --voice <id> [--lang zh] [--model m] [--rate +12%] [--instructions …] [--key-env NAME | --key-keychain SERVICE] [--default]", o.json);
+      const prev = (() => { try { return getProfile(name); } catch { return null; } })();
+      const provider = o.provider ?? prev?.provider;
+      if (!provider) return fail("--provider is required for a new profile", o.json);
+      const lang = o.lang ?? "zh";
+      const same = prev?.provider === provider;
+      const profile = {
+        ...(same ? prev : {}), provider,
+        voices: { ...(same ? prev.voices : {}), ...(o.voice ? { [lang]: o.voice } : {}) },
+        ...(o.model ? { model: o.model } : {}), ...(o.rate ? { rate: o.rate } : {}),
+        ...(o.instructions !== undefined ? { instructions: o.instructions } : {}),
+        ...(o["key-env"] ? { key: { env: o["key-env"] } } : o["key-keychain"] ? { key: { keychain: o["key-keychain"] } } : {}),
+      };
+      delete profile.name;
+      if (provider !== "edge" && provider !== "azure" && !Object.keys(profile.voices).length && !PROVIDERS[provider]?.voices)
+        return fail(`--voice <id> is required for ${provider}`, o.json);
+      const res = saveProfile(name, profile, { makeDefault: Boolean(o.default) });
+      print(res, `voice profile ${name} saved in ${res.file}${res.default === name ? " (default for every project)" : ""}`);
+      return 0;
+    }
+    if (sub === "save") {
+      const [dir, id] = rest;
+      if (!dir || !id || !o.name) return fail("voice save <audition-dir> <candidate-id> --name <profile> [--key-env NAME | --key-keychain SERVICE] [--default]", o.json);
+      const report = JSON.parse(fs.readFileSync(path.join(dir, "audition.json"), "utf8"));
+      const c = report.candidates?.find((x) => x.id === id);
+      if (!c) return fail(`no candidate "${id}" in ${path.join(dir, "audition.json")}; one of: ${(report.candidates ?? []).map((x) => x.id).join(", ")}`, o.json);
+      if (c.status === "error") return fail(`candidate ${id} failed in the audition (${c.error}); pick one that produced a sample`, o.json);
+      if (c.engine === "command") return fail("a command-bridge candidate cannot become a profile; use a built-in provider (elevenlabs, minimax, openai, azure)", o.json);
+      const profile = {
+        provider: c.engine, voices: { [report.lang]: c.voice },
+        ...(c.model ? { model: c.model } : {}), ...(c.rate && c.rate !== "+0%" ? { rate: c.rate } : {}),
+        ...(c.instructions ? { instructions: c.instructions } : {}),
+        ...(o["key-env"] ? { key: { env: o["key-env"] } } : o["key-keychain"] ? { key: { keychain: o["key-keychain"] } } : {}),
+      };
+      const res = saveProfile(o.name, profile, { makeDefault: o.default !== false });
+      print({ ...res, from: { audition: path.resolve(dir), candidate: id } }, `voice profile ${o.name} saved from ${id} (${c.label}) in ${res.file}${res.default === o.name ? "; now the default for every project" : ""}`);
+      return 0;
+    }
+    if (sub === "use") {
+      if (!rest[0]) return fail("voice use <name>", o.json);
+      const res = useProfile(rest[0]);
+      print(res, `default voice profile: ${rest[0]} (${res.file})`);
+      return 0;
+    }
+    if (sub === "remove") {
+      if (!rest[0]) return fail("voice remove <name>", o.json);
+      const res = removeProfile(rest[0]);
+      print(res, `removed voice profile ${rest[0]}${res.default ? `; default stays ${res.default}` : "; no default profile now"}`);
+      return 0;
+    }
+  } catch (e) {
+    return fail(e.message, o.json);
+  }
+  return fail("voice list|show [name]|set <name>|save <audition-dir> <candidate> --name <n>|use <name>|remove <name>", o.json);
+}
+
 async function doctor(o) {
   const checks = [];
   const disk = diskSpace(o.out ?? process.cwd());
@@ -2291,6 +2399,10 @@ async function doctor(o) {
   const native = findRenderer();
   // Voiceover engines are optional: reported, never a failure. Each configured key is verified.
   const voice = await providerReport(o);
+  try {
+    const p = getProfile(null);
+    if (p) voice.profile = { ...p, key: await checkProfileKey(p, o) };
+  } catch {}
   const optional = [
     {
       name: "renderer native",
@@ -2299,6 +2411,7 @@ async function doctor(o) {
         ? `not installed (optional; films render in Chrome): ${native.missing}`
         : `motion-render ${native.version} (${native.bin})${native.caps.webgl ? `; WebGL on ANGLE (${native.caps.gl?.backend ?? "?"})` : `; WebGL films render in Chrome${native.caps.webgl_error ? ` (${native.caps.webgl_error})` : ""}`}${native.note ? `; ${native.note}` : ""}`,
     },
+    ...(voice.profile ? [{ name: `voice profile ${voice.profile.name}`, ok: voice.profile.key.ok, detail: `default for every project: ${voice.profile.provider}${voice.profile.model ? ` ${voice.profile.model}` : ""} ${JSON.stringify(voice.profile.voices ?? {})}; ${voice.profile.key.detail}`, ...(voice.profile.key.keyInvalid ? { keyInvalid: true } : {}) }] : []),
     ...voice.rows.map((p) => ({ name: `voiceover ${p.provider}`, ok: p.ok, detail: p.detail, ...(p.keyInvalid ? { keyInvalid: true } : {}) })),
     {
       name: "voiceover edge",
@@ -2319,6 +2432,7 @@ async function doctor(o) {
           checks,
           optional,
           voiceover_default_engine: defaultEngine,
+          voice_profile: voice.profile ?? null,
           disk,
         },
         null,

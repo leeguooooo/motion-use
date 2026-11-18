@@ -68,7 +68,8 @@ export function resolveNarration(
     if (real !== base && !contained(base, real))
       error("$.voiceover.dir", "directory symlink escapes the project");
   }
-  const config = { ...checked.brief.voiceover, dir };
+  // baseRates: before pace, so a pinned snapshot does not apply pace twice.
+  const config = { ...checked.brief.voiceover, dir, baseRates: checked.brief.voiceover?.rates ?? {} };
   if (film.pace !== undefined && Number.isFinite(film.pace) && film.pace >= 0.5 && film.pace <= 2) {
     config.rates = Object.fromEntries(languages.map((lang) => {
       const base = parseFloat(config.rates[lang] ?? "+0%");

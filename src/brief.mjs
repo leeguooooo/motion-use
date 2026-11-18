@@ -2,6 +2,7 @@
 // human or an agent can fix the brief without reading this file.
 import fs from "node:fs";
 import path from "node:path";
+import { applyVoiceProfile } from "./tts-providers.mjs";
 
 export const STYLES = ["promo", "explainer"];
 export const FORMATS = { landscape: [1920, 1080], vertical: [1080, 1920] };
@@ -297,7 +298,10 @@ export function validateBrief(data, baseDir) {
   const sfx = data.sfx ?? true;
   if (typeof sfx !== "boolean") r.error("$.sfx", "true or false");
 
-  const vo = data.voiceover ?? null;
+  // A voice profile (user level, `motion-use voice`) fills whatever the project leaves out.
+  const fromProfile = applyVoiceProfile(data.voiceover ?? null);
+  if (fromProfile.error) r.error("$.voiceover.profile", fromProfile.error);
+  const vo = fromProfile.vo ?? null;
   let voiceover = null;
   if (vo !== null) {
     if (!isObj(vo)) r.error("$.voiceover", 'an object like {"dir": "voiceover"}');
@@ -362,7 +366,7 @@ export function validateBrief(data, baseDir) {
       }
       const required=vo.required ?? (Array.isArray(data.scenes)&&data.scenes.some(s=>s?.narration));
       if(typeof required!=="boolean")r.error("$.voiceover.required","true or false; false is only for deliberately unnarrated output");
-      voiceover = { dir, volume, engine, voices, rates, required, ...extra };
+      voiceover = { dir, volume, engine, voices, rates, required, ...extra, ...(fromProfile.profile ? { profile: fromProfile.profile } : {}), ...(fromProfile.keySource ? { keySource: fromProfile.keySource } : {}) };
     }
   }
 

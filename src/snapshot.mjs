@@ -79,13 +79,16 @@ export function createSnapshot(film, filmFile, out, { version, renderOptions } =
     return { role: x.role, path: inside ? rel : x.file, sha256: sha, bytes, stored, ...(x.lang ? { lang: x.lang } : {}), ...(x.id ? { id: x.id } : {}) };
   });
   files.sort((a, b) => a.path.localeCompare(b.path));
+  // A voice profile lives outside the project and can change: record the settings it resolved to.
+  const voice = resolvedVoice(film.narrationConfig);
   const id = crypto
     .createHash("sha256")
     .update(JSON.stringify(files.map((f) => [f.path, f.sha256])))
     .update(renderOptions && Object.values(renderOptions).some(Boolean) ? JSON.stringify(renderOptions) : "")
+    .update(voice ? JSON.stringify(voice) : "")
     .digest("hex")
     .slice(0, 12);
-  const record = { id, film: path.relative(base, filmFile), created: new Date().toISOString(), motion_use: version, project: base, ...(renderOptions ? { renderOptions } : {}), ...(film.engine ? { engine: { command: film.engine.command, cwd: film.engine.cwd } } : {}), files };
+  const record = { id, film: path.relative(base, filmFile), created: new Date().toISOString(), motion_use: version, project: base, ...(renderOptions ? { renderOptions } : {}), ...(film.engine ? { engine: { command: film.engine.command, cwd: film.engine.cwd } } : {}), ...(voice ? { voiceover: voice } : {}), files };
   const file = path.join(store, `${id}.json`);
   if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify(record, null, 2) + "\n");
   return record;
@@ -141,5 +144,21 @@ export function restoreSnapshot({ record, store }) {
         fs.copyFileSync(source, target);
       }
   }
+  if (record.voiceover?.profile) pinVoice(path.join(dir, record.film), record.voiceover);
   return path.join(dir, record.film);
+}
+
+/** The voiceover settings a profile-driven film actually spoke with (null without a profile). */
+export function resolvedVoice(vo) {
+  if (!vo?.profile) return null;
+  return { profile: vo.profile, engine: vo.engine, voices: vo.voices ?? {}, rates: vo.baseRates ?? vo.rates ?? {}, ...(vo.model ? { model: vo.model } : {}), ...(vo.instructions ? { instructions: vo.instructions } : {}) };
+}
+
+// A restored film speaks with the recorded settings, not with whatever the profile says today.
+function pinVoice(filmFile, voice) {
+  const data = JSON.parse(fs.readFileSync(filmFile, "utf8"));
+  if (!data.voiceover || typeof data.voiceover !== "object") return;
+  const { profile, ...rest } = data.voiceover;
+  data.voiceover = { ...rest, profile: false, engine: voice.engine, voices: voice.voices, ...(Object.keys(voice.rates).length ? { rate: voice.rates } : {}), ...(voice.model ? { model: voice.model } : {}), ...(voice.instructions ? { instructions: voice.instructions } : {}) };
+  fs.writeFileSync(filmFile, JSON.stringify(data, null, 2) + "\n");
 }
