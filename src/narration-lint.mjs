@@ -17,6 +17,8 @@ const GUIDE = "references/narration-writing.md";
 export const SETTINGS = ["feed-short", "launch", "meeting-explainer", "course"];
 export const DEFAULT_SETTING = "feed-short";
 export const PICTURE_OPENING = new Set(["feed-short", "launch"]);
+/** Settings where announcing structure (setup-question, outline-preview, signpost, count-frame) is high priority. */
+export const HIGH_SETUP = new Set(["meeting-explainer", "course"]);
 export function settingOf(brief) {
   const s = brief?.setting;
   return SETTINGS.includes(s) ? s : DEFAULT_SETTING;
@@ -40,6 +42,13 @@ const RULES = {
     frame: /^.{0,10}?(有|一共|多了|分成?|就)\s*[一两二三四五六几](个|样|件|条|块|点|步|种)(事|东西|条件|部分|活)?[。：:，]|^.{0,10}?(一共|分成?)\s*[两二三四五六几](个|样|件|条|块|点|步|种)|^第[一二三四五六]\s*(样|个|点|条|步|块)/,
     // Colloquial-looking filler that locates nothing: 「这块」「记住…就行」「说白了」.
     filler: /这块|记住[^，。]{0,8}就行|说白了|简单来说|其实/g,
+    // Second-order setups (#115): content announced before it is said.
+    setupQuestion: /问得最多的(?:是|就是)|(?:同一个|一个|这个)问题[：:]|(?:那么?|于是)?问题来了|大家(?:最)?关心的(?:是|就是)/,
+    answerOpen: /^(答案|原因|其实|很简单|因为|说穿了)/,
+    outline: /(?:我|我们|咱们)(?:先|会先)[^。？！]{0,20}(?:讲|说|介绍|聊)[^。？！]{0,30}(?:再|然后|接着)|接下来(?:我们?)?(?:来)?(?:讲|说|聊|介绍)|(?:最后|下面)(?:来)?(?:总结|回顾)一下|分(?:成)?[两二三四五几](?:个)?部分(?:来)?(?:讲|说)|今天(?:主要)?(?:讲|说)[两二三四五几](?:件|个|块|点)/,
+    signpost: /^这里有(?:个|一个|一处|一点)[^。，]{0,10}(?:要|需要|得)(?:注意|说|讲|堵|小心|提)|^(?:这里|这儿)?(?:有个|有一个)细节(?:要|需要)?注意|^[^。，]{1,12}是这样(?:走|做|算|跑|工作|处理)?的$|^(?:下面|接下来)(?:我们)?(?:来)?(?:看|说|讲)(?:一下)?[^。，]{0,8}$|^要注意的是$/,
+    countFrame: /[两二三四五六七八九几]\s*(?:件事|块|处|个问题|个地方|个坑|个要点)(?=[：:。，]|要|需要|得|值得)/,
+    ordinal: /第一[^。]{2,}第二/,
     speaker: { first: /我|咱们|咱|我们/g, you: /你(?!们)/g, role: /玩家|用户|观众/g },
     sentence: /[^。！？!?；;\n]+[。！？!?；;]?/g,
     unit: (s) => (s.match(/[⺀-鿿豈-﫿]|[A-Za-z0-9]+/g) ?? []).length,
@@ -55,6 +64,12 @@ const RULES = {
     quantity: /\d|\b(one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|hundred)\b\s+(seconds?|minutes?|levels?|times?|percent)/i,
     frame: /^(there are|we have|here are)\s+(two|three|four|five|several)\b|^(first|second|third|number (one|two|three))\b/i,
     filler: /\b(basically|simply put|at the end of the day|just remember)\b/gi,
+    setupQuestion: /\b(the question (everyone|people) (asks?|keeps? asking)|here's the (question|thing)|so the question is|which raises the question)\b/i,
+    answerOpen: /^(the answer|the reason|because|simple)\b/i,
+    outline: /\b(first,? I'll (cover|explain|talk|walk)|I'll start (with|by)[^.]{0,40}then|next,? (we'll|I'll|let's) (cover|talk about|look at)|to sum up|let me (sum|wrap) (it )?up|in (two|three|four) parts)\b/i,
+    signpost: /^(here's (a|one) (detail|thing|catch)( to| you need to| worth)? ?(note|watch|know|keep in mind)?|there's (a|one) (detail|catch|thing) (to watch|to note|you need to know)|here's how [^.,]{1,30} works|let's look at [^.,]{1,20})$/i,
+    countFrame: /\b(two|three|four|five|a few) (things|parts|places|points|pitfalls)\b(?=\s*(to|you|worth|:|\.))/i,
+    ordinal: /\bfirst,[^.]{2,}\bsecond\b/i,
     speaker: { first: /\b(I|we|let's|us)\b/gi, you: /\byou\b/gi, role: /\b(players?|users?|viewers?)\b/gi },
     sentence: /[^.!?;\n]+[.!?;]?/g,
     unit: (s) => (s.match(/[A-Za-z0-9']+/g) ?? []).length,
@@ -97,7 +112,7 @@ export function lintNarration(shots, lang, { pathOf = (i) => `$.shots[${i}].narr
   if (!pictureOpening) {
     const q = /[？?]/;
     if (q.test(first.text))
-      add("opening-hook", first, first.text, `a ${setting} opening asks a question; a person presenting says what today is about, where people are stuck and how it will be explained, then starts`);
+      add("opening-hook", first, first.text, `a ${setting} opening asks a question; a person presenting says what today is about, then says the approach itself`);
     const asks = lines.flatMap((x) => sentencesOf(x.text, R).filter((s) => q.test(s)).map((s) => ({ x, s })));
     if (asks.length >= 2)
       for (const { x, s } of asks) add("rhetorical-question", x, s, `${asks.length} questions in a ${setting} script; a presenter answers at most one of their own questions, say the rest plainly`);
@@ -160,6 +175,29 @@ export function lintNarration(shots, lang, { pathOf = (i) => `$.shots[${i}].narr
   }
   if (pairs.length >= 2)
     for (const p of pairs) add("symmetric-pair", p.x, p.text, `${pairs.length} matched clause pairs; symmetry reads as copywriting. Say the rule once in one plain clause`);
+
+  // 6c. Announcing instead of saying (#115): set up a question to answer it, preview the outline,
+  //     signpost "here is something", count the items. Each one costs a line that carries nothing.
+  //     High priority where a person presents (meeting-explainer, course): that is where a script
+  //     slides into them after the short-video hook is removed.
+  const high = HIGH_SETUP.has(setting);
+  const addSetup = (rule, x, text, message) => {
+    add(rule, x, text, message);
+    findings.at(-1).priority = high ? "high" : "warn";
+  };
+  for (const x of lines) {
+    const ss = sentencesOf(x.text, R);
+    ss.forEach((s, k) => {
+      const plain = s.replace(/[。！？!?；;.:：]+$/, "").trim();
+      if (R.setupQuestion.test(s) || (/[？?]$/.test(s) && R.answerOpen.test(ss[k + 1] ?? "")))
+        addSetup("setup-question", x, s, "the line poses a question so the next one can answer it; state the answer first: say how it works, not what people ask");
+      if (R.outline.test(s)) addSetup("outline-preview", x, s, "the line previews the outline (first…then…, next…, to sum up); drop it and start with the first point itself");
+      if (R.signpost.test(plain) && R.unit(plain) <= (base === "zh" ? 16 : 12))
+        addSetup("signpost", x, s, "the sentence only announces that something follows and carries no information; delete it and say the detail directly");
+      if (R.countFrame.test(s)) addSetup("count-frame", x, s, "the line counts items before giving them (N things / two places); drop the count and say the first item");
+    });
+    if (R.ordinal.test(x.text)) addSetup("count-frame", x, x.text.match(R.ordinal)[0], "first…second… numbers spoken points; say them as connected sentences, or put the numbered list on screen");
+  }
 
   // 6b. Who "you" is: the same person named two ways reads as a script stitched from sources.
   const count = (re) => lines.reduce((n, x) => n + (x.text.match(re) ?? []).length, 0);

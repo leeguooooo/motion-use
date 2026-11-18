@@ -2639,7 +2639,7 @@ async function scriptCmd(o, [action, project, ...extra]) {
         if(r.skipped){console.log(`${label}: ${r.skipped}`);continue;}
         if(r.source==="drift")console.log(`${label}: ${r.findings.length?`${r.findings.length} shot(s) differ — the voiceover reads film.json`:"film.json says what SCRIPT.md says"}`);
         else console.log(`${label}: ${r.findings.length} finding(s) · ${r.stats?.sentences??0} sentences, mean ${r.stats?.meanUnits??0} units, first person ${r.stats?.firstPerson??0}`);
-        for(const f of r.findings)console.log(`  ${f.rule}${f.shot?` [${f.shot}]`:""}: "${[...f.text].slice(0,40).join("")}"\n    ${f.message}`);
+        for(const f of r.findings)console.log(`  ${f.priority==="high"?"[high] ":""}${f.rule}${f.shot?` [${f.shot}]`:""}: "${[...f.text].slice(0,40).join("")}"\n    ${f.message}`);
       }
       if(stopSlop&&!stopSlop.installed)console.log(`stop-slop second-layer check skipped (${stopSlop.reason}); install: ${stopSlop.install}`);
       for(const run of stopSlop?.runs??[])if(run.error)console.log(`stop-slop ${run.source} ${run.lang} skipped: ${run.error}`);
