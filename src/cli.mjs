@@ -56,6 +56,7 @@ import { auditionVoices } from "./voice-audition.mjs";
 import { generateFilmNarration } from "./film-voiceover.mjs";
 import { composeMusic, evaluateScore, isStarterScore, INSTALL_HINT } from "./compose.mjs";
 import { recordRelease } from "./music-index.mjs";
+import { musicPlan, addTrack, auditionMusic, chooseMusic, readMusicSources, writeMusicPreference, isExplainer } from "./music-library.mjs";
 import { loadInstruments, packDir, packInstalled, PACK_VERSION } from "./sampler.mjs";
 import { breakdownVideo } from "./breakdown.mjs";
 import { fetchReference } from "./reference.mjs";
@@ -159,6 +160,14 @@ Usage: motion-use <command> [options]
                       --keep-captions shifts cues contained in one shot; --scale-timing records authoredDuration
   music [film]        Play the film's own score (composition/score.js) into a WAV without rendering picture:
                       why, key, tempo, instruments, notes per shot and score warnings (--lang, --out file.wav)
+  music plan [film]   Licensed-track search plan for the film's setting: styles, queries, licence checks
+                      (--setting overrides; explainer films default to a licensed track, not the score)
+  music add <file> --url <detail-page> --author <name> --license <licence> [--title t] [film]
+                      Copy a downloaded track into assets/music, hash it and record it in SOURCES.md
+  music audition [film] <track>... --out <fresh-dir> [--seconds 40] [--narration <audio>]
+                      The film's own narration mixed over each candidate (ducked as the film will be)
+  music choose <audition-dir> <id> [film] [--remember]  Write the picked track into film.json music
+  music prefer [--style s] [--track none]  Remember a preferred style at user level (music plan lists it first)
   instruments [list|install]  The recorded instrument pack the scores play (CC0); install fetches it
                       (--from <tarball> installs a local copy)
   handoff [film]      Export declared sources, separate audio, SRT, shot timeline and provenance hashes
@@ -308,6 +317,14 @@ export async function main(argv) {
         rate: { type: "string" },
         instructions: { type: "string" },
         "key-env": { type: "string" },
+        url: { type: "string" },
+        author: { type: "string" },
+        license: { type: "string" },
+        title: { type: "string" },
+        track: { type: "string" },
+        narration: { type: "string" },
+        seconds: { type: "string" },
+        remember: { type: "boolean" },
         "key-keychain": { type: "string" },
         default: { type: "boolean" },
         "voice-profile": { type: "string" },
@@ -407,7 +424,9 @@ export async function main(argv) {
   let unlock;
   let journalFile = args.values.journal ?? process.env.MOTION_USE_JOURNAL_FILE;
   if (!journalFile && !(cmd === "voiceover" && args.positionals[0] === "audition") && ["render", "still", "voiceover", "retime", "music", "validate", "teaching"].includes(cmd)) {
-    const projectArg = cmd === "voiceover" && args.positionals[0] === "check" ? args.positionals[1] : args.positionals[0];
+    const projectArg = cmd === "voiceover" && args.positionals[0] === "check" ? args.positionals[1]
+      : cmd === "music" && ["plan", "prefer", "add", "audition", "choose"].includes(args.positionals[0]) ? "."
+      : args.positionals[0];
     const project = resolveProject(projectArg);
     if (fs.existsSync(project)) journalFile = path.join(path.dirname(project), ".motion-use", "events.jsonl");
   }
@@ -839,6 +858,9 @@ async function render(o, [briefPath]) {
       const m = JSON.parse(fs.readFileSync(resolveProject(briefPath), "utf8")).music;
       if (m === "builtin" || (m && typeof m === "object" && m.builtin !== undefined && !m.why))
         return fail('--release: the music is a built-in bed that every film of this mood shares. Write composition/score.js for this film ("music": {"score": "composition/score.js"}), or record why the bed is right in music.why', o.json);
+      const setting = JSON.parse(fs.readFileSync(resolveProject(briefPath), "utf8")).brief?.setting;
+      if (isExplainer(setting) && (m === "none" || m === undefined || ((m?.score || m?.builtin) && !m.why)))
+        console.error(`warning: [high] --release: a ${setting} film is narrated end to end; ${m === "none" || m === undefined ? "it has no music bed" : "its music is synthesized"}. Deliver a licensed track (motion-use music plan / add / audition / choose) or record why in music.why`);
       if (m?.score && fs.existsSync(path.resolve(path.dirname(resolveProject(briefPath)), m.score)) && isStarterScore(path.resolve(path.dirname(resolveProject(briefPath)), m.score)))
         return fail("--release: composition/score.js is still the starter score every new film begins with; write this film's own music first", o.json);
     }
@@ -2592,7 +2614,103 @@ async function concatCmd(o,[file,...extra]) {
   console.log(o.json?JSON.stringify(r,null,2):`${r.file}\n${r.report}${r.release_manifest?`\n${r.release_manifest}`:""}`);return r.ok?0:1;
 }
 
-async function musicCmd(o, [input, ...extra]) {
+async function musicCmd(o, args) {
+  if (["plan", "add", "audition", "choose", "prefer"].includes(args[0])) return musicLibraryCmd(o, args);
+  return musicScoreCmd(o, args);
+}
+
+function filmDirOf(input) {
+  const file = resolveProject(input ?? ".");
+  return { file, dir: path.dirname(file) };
+}
+
+function mediaChannels(file) {
+  try {
+    return Number(execFileSync("ffprobe", ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels", "-of", "csv=p=0", file], { encoding: "utf8" }).trim()) || 2;
+  } catch {
+    return 2;
+  }
+}
+
+async function musicLibraryCmd(o, [action, ...rest]) {
+  const print = (obj, text) => (o.json ? console.log(JSON.stringify({ ok: true, ...obj }, null, 2)) : console.log(text));
+  try {
+    if (action === "plan") {
+      let setting = o.setting;
+      if (!setting) try { setting = JSON.parse(fs.readFileSync(filmDirOf(rest[0]).file, "utf8")).brief?.setting; } catch {}
+      const plan = musicPlan(setting ?? "feed-short");
+      print(plan, [
+        `setting: ${plan.setting} → ${plan.route}`, plan.why, "", "search:",
+        ...plan.queries.map((q) => `  ${q.style}: ${q.query}\n    ${q.routes[0]}`),
+        "", plan.candidates, "", "licence checks:", ...plan.checks.map((c) => `  - ${c}`),
+        ...(plan.preferred ? ["", `remembered track: ${plan.preferred.title} (${plan.preferred.url})`] : []),
+        "", "next:", ...plan.next.map((n) => `  ${n}`),
+      ].join("\n"));
+      return 0;
+    }
+    if (action === "add") {
+      const [file, film] = rest;
+      if (!file) return fail("music add <file> --url <detail-page> --author <name> --license <licence> [--title t] [film]", o.json);
+      const { dir } = filmDirOf(film);
+      const rec = addTrack(dir, path.resolve(file), { url: o.url, author: o.author, license: o.license, title: o.title, probe: audioSeconds });
+      print(rec, `added ${rec.file} (${rec.seconds == null ? "?" : rec.seconds.toFixed(1)} s, sha256 ${rec.sha256.slice(0, 12)}…)\nrecorded in SOURCES.md and assets/music/sources.json; listening UNREVIEWED`);
+      return 0;
+    }
+    if (action === "audition") {
+      let film = null, tracks = rest;
+      if (rest[0] && (isFilm(rest[0]) || (fs.existsSync(rest[0]) && fs.statSync(rest[0]).isDirectory()))) [film, ...tracks] = rest;
+      if (!tracks.length || !o.out) return fail("music audition [film] <track>... --out <fresh-dir> [--seconds 40] [--narration <audio>]", o.json);
+      const seconds = o.seconds ? Number(o.seconds) : 40;
+      if (!(seconds >= 5 && seconds <= 180)) return fail("--seconds: 5–180", o.json);
+      let voices;
+      if (o.narration) {
+        const file = path.resolve(o.narration);
+        voices = [{ file, start: 0, offset: 0, length: Math.min(seconds, audioSeconds(file)) }];
+      } else {
+        const c = checkFilm(film ?? ".", o);
+        if (!c.ok) return fail(c.report.errors.map((e) => `${e.path}: ${e.message}`).join("\n"), o.json);
+        const lang = c.langs[0] ?? c.film.languages?.[0];
+        voices = c.film.tracks
+          .filter((a) => a.role === "voiceover" && (!a.lang || a.lang === lang) && a.start < seconds && fs.existsSync(a.file))
+          .map((a) => ({ file: a.file, start: a.start, offset: a.offset ?? 0, length: Math.min(a.length, seconds - a.start) }));
+      }
+      const dir = filmDirOf(film).dir;
+      const sources = readMusicSources(dir).tracks;
+      const candidates = tracks.map((t) => {
+        const abs = path.resolve(t);
+        const rel = path.relative(dir, abs).split(path.sep).join("/");
+        return { file: abs, source: sources.find((s) => s.file === rel) ?? null };
+      });
+      const r = auditionMusic({ voices: voices.map((v) => ({ ...v, channels: mediaChannels(v.file) })), seconds, candidates, out: o.out, probe: audioSeconds });
+      print(r, `${r.review}\n${r.candidates.map((c) => `  ${c.id}: ${c.status === "ok" ? c.sample + (c.loops ? ` (loops ${c.loops}×)` : "") : c.error}${c.source ? "" : "  — no source record (music add)"}`).join("\n")}\nlistening UNREVIEWED; choose with motion-use music choose ${r.out} <id> [film]`);
+      return r.ok ? 0 : 1;
+    }
+    if (action === "choose") {
+      const [dir, id, film] = rest;
+      if (!dir || !id) return fail("music choose <audition-dir> <id> [film] [--remember]", o.json);
+      const r = chooseMusic(path.resolve(dir), id, filmDirOf(film).file, { remember: Boolean(o.remember) });
+      print(r, `music → ${r.music.file} in ${r.film}${r.remembered ? `\nremembered in ${r.remembered}` : ""}`);
+      return 0;
+    }
+    if (action === "prefer") {
+      const patch = {};
+      if (o.style !== undefined) patch.style = o.style || null;
+      if (o.track === "none") patch.track = null;
+      if (!Object.keys(patch).length) {
+        const m = readUserConfig().music ?? {};
+        print({ music: m }, m.style || m.track ? `style: ${m.style ?? "-"}\ntrack: ${m.track ? `${m.track.title} (${m.track.url})` : "-"}` : 'no music preference (motion-use music prefer --style "cafe jazz")');
+        return 0;
+      }
+      const r = writeMusicPreference(patch);
+      print(r, `music preference saved in ${r.file}`);
+      return 0;
+    }
+  } catch (e) {
+    return fail(e.message, o.json);
+  }
+}
+
+async function musicScoreCmd(o, [input, ...extra]) {
   if (extra.length) return fail("music [film] --allow-code [--lang zh] [--out music.wav]", o.json);
   const c = checkFilm(input ?? ".", o);
   if (!c.ok) return fail(c.report.errors.map((e) => `${e.path}: ${e.message}`).join("\n"), o.json);

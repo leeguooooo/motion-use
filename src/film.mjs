@@ -13,6 +13,7 @@ import { claimDir, audioSeconds, mediaInfo } from "./build.mjs";
 import { execFileSync } from "node:child_process";
 import { writeSubsets, missingGlyphs } from "./fonts.mjs";
 import { writeMusic, MOOD_NAMES, moodBpm } from "./music.mjs";
+import { isExplainer, duckPoints, loopPlan, shiftEnvelope, DUCK_DB, FILE_FADE } from "./music-library.mjs";
 import { composeMusic } from "./compose.mjs";
 import { peakTime } from "./beats.mjs";
 import { esc } from "./html.mjs";
@@ -442,11 +443,27 @@ export function validateFilm(
           if (music.from >= songSeconds)
             error("$.music.from", `the song is ${songSeconds.toFixed(2)} s long; from must start inside it`);
           else if (music.from + data.duration > songSeconds + 0.05)
-            warnings.push({ path: "$.music.from", message: `the song ends ${(music.from + data.duration - songSeconds).toFixed(2)} s before the film` });
+            warnings.push({ path: "$.music.from", message: `the song ends ${(music.from + data.duration - songSeconds).toFixed(2)} s before the film${music.loop === false ? "" : "; it repeats from music.from at a phrase boundary with a crossfade (listen to the join; music.loop:false turns this off)"}` });
         } catch (e) {
           error("$.music.file", e.message);
         }
     }
+  }
+  if (typeof music === "object" && music) {
+    if (music.duck !== undefined && !finite(music.duck, -40, 0))
+      error("$.music.duck", "dB the music drops under narration, -40–0");
+    if (music.loop !== undefined && typeof music.loop !== "boolean")
+      error("$.music.loop", "true (repeat a short song at phrase boundaries, the default) or false");
+  }
+  // A presenter talks from start to end: the bed under them is a licensed recorded track. A
+  // synthesized pad held for minutes is thin and tiring, so it is reported, not silently delivered.
+  const setting = data.brief?.setting;
+  if (isExplainer(setting) && phase === "complete") {
+    const synth = music === "builtin" || (typeof music === "object" && music && (music.score !== undefined || music.builtin !== undefined));
+    if (synth && !music.why)
+      warnings.push({ path: "$.music", message: `[high] explainer-synth-music: a ${setting} film is narrated end to end; the built-in synthesized music under it is not deliverable. Use a licensed track (motion-use music plan, music add, music audition), or record why synthesized music is right in music.why` });
+    else if (music === "none")
+      warnings.push({ path: "$.music", message: `[high] explainer-no-music: a ${setting} film still needs a low music bed; motion-use music plan lists styles and the licence checks` });
   }
   const bpm =
     data.bpm ??
@@ -883,6 +900,8 @@ function techReviewScaffold(data, o, dir) {
   data.copy = Object.fromEntries(langs.map((l) => [l, { brand: data.copy?.[l]?.brand ?? "TECH REVIEW" }]));
   data.formats = o.format ? data.formats : ["landscape"];
   data.brief.setting = "tech-review";
+  // Narrated end to end: a licensed track chosen by listening (motion-use music plan), not the starter score.
+  data.music = "none";
   // Length follows the document; no target duration to cut content for.
   delete data.brief.length;
   data.brief.sources = data.brief.sources ?? [];
@@ -953,6 +972,8 @@ export function initFilm(o, dir) {
   if (o.setting !== undefined) {
     if (!SETTINGS.includes(o.setting)) throw new BriefError(`--setting: ${SETTINGS.join(", ")}`);
     data.brief.setting = o.setting;
+    // Narrated end to end: the bed is a licensed track chosen by listening, not the starter score.
+    if (isExplainer(o.setting)) data.music = "none";
   }
   if (typeof o.speaker === "string" && o.speaker.trim()) data.brief.speaker = o.speaker.trim();
   // The machine's default voice profile (motion-use voice use): referenced by name, so every new
@@ -1153,29 +1174,30 @@ export async function buildFilm(film, lang, format, outDir, { range = null, guid
     }
     const volume =
       typeof film.music === "object" ? (film.music.volume ?? 0.6) : 0.6;
-    // Voiceover windows carve the music, with short ramps at both edges.
-    const points = [{ t: 0, v: volume }];
+    const isFile = Boolean(film.musicFile);
+    // Voiceover windows duck the music (a licensed track -20 dB, an authored score -12 dB by
+    // default; music.duck overrides); it rises again only in pauses longer than a breath.
     const voices = selectedTracks
       .filter((a) => a.role === "voiceover")
-      .sort((a, b) => a.start - b.start);
-    const windows = [];
-    for (const a of voices) {
-      const prev = windows.at(-1);
-      if (prev && a.start <= prev.end + 0.2)
-        prev.end = Math.max(prev.end, a.start + a.length);
-      else windows.push({ start: a.start, end: a.start + a.length });
+      .map((a) => ({ start: a.start, end: a.start + a.length }));
+    const db = film.music.duck ?? (isFile ? DUCK_DB.file : DUCK_DB.score);
+    const env = voices.length ? duckPoints(voices, volume, isFile ? { db, duration: film.duration } : { db, duration: film.duration, attack: 0.15, release: 0.2, hold: 0.2 }) : null;
+    // A licensed song shorter than the film repeats at a phrase boundary with a crossfade.
+    let pieces = [{ start: 0, mediaStart: film.music.from || 0, duration: film.duration, fadeIn: 0, fadeOut: 0 }];
+    if (isFile && film.music.loop !== false) {
+      let songSeconds = null;
+      try { songSeconds = audioSeconds(film.musicFile); } catch {}
+      if (songSeconds) pieces = loopPlan(songSeconds, film.duration, { from: film.music.from || 0, bpm: film.music.bpm });
     }
-    for (const a of windows)
-      points.push(
-        { t: Math.max(0, a.start - 0.15), v: volume },
-        { t: a.start, v: volume * 0.25 },
-        { t: a.end, v: volume * 0.25 },
-        { t: Math.min(film.duration, a.end + 0.2), v: volume },
-      );
-    const unique = [...new Map(points.map((p) => [p.t, p])).values()].sort(
-      (a, b) => a.t - b.t,
-    );
-    mix.push({ id: "film-music", rel, start: 0, mediaStart: film.music.from || 0, seek: Boolean(film.music.from), duration: film.duration, volume, fadeIn: 0, fadeOut: 0.3, track: 10, automation: voices.length ? unique : null });
+    pieces.forEach((p, i) => {
+      const last = i === pieces.length - 1;
+      mix.push({
+        id: i ? `film-music-${i}` : "film-music", rel, start: p.start, mediaStart: p.mediaStart, seek: Boolean(p.mediaStart), duration: p.duration, volume,
+        fadeIn: i ? p.fadeIn : isFile ? FILE_FADE.in : 0,
+        fadeOut: last ? (isFile ? FILE_FADE.out : 0.3) : p.fadeOut,
+        track: i ? 100 + i : 10, automation: env ? shiftEnvelope(env, p.start) : null,
+      });
+    });
   }
   selectedTracks.forEach((a, i) => {
     const rel = `assets/audio/clip-${i}${path.extname(a.file)}`;

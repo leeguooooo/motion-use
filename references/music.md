@@ -6,6 +6,35 @@ search, candidate comparison, licence records and auditioning with narration, re
 created one. Imported tracks use `music.file`; `motion-use beats <audio>` estimates
 the grid and source offset, and the final mix still needs listening review.
 
+## Which route: decided by where the film is heard
+
+| `brief.setting` | Default route | Why |
+|---|---|---|
+| `meeting-explainer`, `course`, `tech-review` | **licensed recorded track** | narration runs end to end and the music is a low bed for minutes; a synthesized pad that long is thin, dull and tiring. `init --setting` writes `"music": "none"`, and validation and `--release` report `[high] explainer-synth-music` / `explainer-no-music` until a licensed track is chosen or `music.why` says why synthesized music is right |
+| `feed-short`, `launch` | score or licensed track | short and cut to picture: an authored score can hit picture events |
+
+The licensed-track workflow:
+
+```bash
+motion-use music plan .                    # styles + search queries for the setting, licence checks (remembered style first)
+# search and download 3–5 candidates (no vocals, sparse drums; one long enough to cover the film avoids a loop)
+motion-use music add ~/Downloads/track.mp3 --url <detail-page> --author <creator> --license "<licence>" .
+motion-use music audition . assets/music/a.mp3 assets/music/b.mp3 --out review/music-1   # ~40 s of the film's own narration over each
+motion-use music choose review/music-1 a . --remember   # only after someone listened; writes music.file into film.json
+motion-use music prefer --style "cafe jazz"            # remembered in ~/.config/motion-use/config.json
+```
+
+`music add` refuses a track without a detail URL, creator and licence; it copies the
+file into `assets/music/`, records its SHA-256 in `assets/music/sources.json` and a
+row in SOURCES.md. `music choose` refuses a track without that record.
+
+### How an imported track is mixed
+
+- Under narration it drops **-20 dB** (an authored score keeps -12 dB); `music.duck` (dB, -40–0) overrides.
+- It stays down across breaths shorter than 0.8 s and rises in real pauses (0.25 s attack, 0.6 s release).
+- 1.5 s fade in, 2.5 s fade out.
+- A song shorter than the film repeats from `music.from` on a 4-bar phrase (`music.bpm`, else 8-second blocks) with a 2 s crossfade; `"loop": false` turns this off. Listen to the join.
+
 For authored music, `composition/score.js` decides the instruments, mode, where
 the music is sparse, where it peaks and which picture events it hits. A built-in
 mood is the same bed in every film of that mood: validation warns about it, and
