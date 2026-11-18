@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <!-- Placeholder container diagram. Replace it with the design document's own diagram (export the
+       whiteboard as SVG), then run motion-use diagram boxes on it with into film.json (see SCRIPT.md).
+       Style (C4 containers): dark blue = the user's side, blue = our services, grey dashed = not used by this design. -->
+  <rect width="1600" height="900" fill="#FFFFFF"/>
+  <g id="client">
+    <rect x="120" y="360" width="300" height="180" rx="18" fill="#1F3A68"/>
+    <text x="270" y="450" font-family="sans-serif" font-size="34" fill="#FFFFFF" text-anchor="middle">客户端</text>
+  </g>
+  <g id="gateway">
+    <rect x="650" y="360" width="300" height="180" rx="18" fill="#2F6FDE"/>
+    <text x="800" y="450" font-family="sans-serif" font-size="34" fill="#FFFFFF" text-anchor="middle">网关</text>
+  </g>
+  <g id="service">
+    <rect x="1180" y="200" width="300" height="180" rx="18" fill="#2F6FDE"/>
+    <text x="1330" y="290" font-family="sans-serif" font-size="34" fill="#FFFFFF" text-anchor="middle">业务服务</text>
+  </g>
+  <g id="storage">
+    <rect x="1180" y="560" width="300" height="180" rx="18" fill="#2F6FDE"/>
+    <text x="1330" y="650" font-family="sans-serif" font-size="34" fill="#FFFFFF" text-anchor="middle">存储</text>
+  </g>
+  <g id="legacy">
+    <rect x="650" y="660" width="300" height="140" rx="18" fill="#F2F4F7" stroke="#98A2B3" stroke-width="4" stroke-dasharray="14 10"/>
+    <text x="800" y="735" font-family="sans-serif" font-size="30" fill="#667085" text-anchor="middle">旧接口（不用）</text>
+  </g>
+  <path id="request" d="M420 450 L650 450 L800 450 L1180 290" fill="none" stroke="#475467" stroke-width="4"/>
+  <polyline id="write" points="1330,380 1330,560" fill="none" stroke="#475467" stroke-width="4"/>
+</svg>

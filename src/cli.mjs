@@ -62,6 +62,7 @@ import { fetchReference } from "./reference.mjs";
 import { analyzeBeats, decodeMono } from "./beats.mjs";
 import { compareVideos } from "./compare.mjs";
 import { measureMotion, gradeMotion } from "./motion-check.mjs";
+import { svgBoxesFile } from "./diagram.mjs";
 import { checkNarration, describeNarration, narrationItems, resolveNarrationCheckConfig, writeNarrationReview } from "./narration-check.mjs";
 import { probeText, describeText } from "./text-probe.mjs";
 import { createSnapshot, findSnapshot, restoreSnapshot } from "./snapshot.mjs";
@@ -99,8 +100,9 @@ Usage: motion-use <command> [options]
   list                List projects under ~/motion-use (override: MOTION_USE_PROJECTS)
   init [name|path]    Start a directed film (film.json + composition/draw.js + DIRECTOR.md); fill the brief
                       fields up front: --subject --purpose --audience --tone --palette --length (seconds)
-                      --setting feed-short|launch|meeting-explainer|course (where it is heard; opening rules) --speaker
+                      --setting feed-short|launch|meeting-explainer|tech-review|course (where it is heard; opening rules) --speaker
                       --voice-profile <name>|none (default: the user's default voice profile, referenced in film.json)
+                      --mode tech-review: a design-document walkthrough in numbered chapters on the document's own diagrams
                       --mode tutorial generates screenshot steps; --mode template keeps the scene-template workflow; --style/--story also select it
   script lint [film|SCRIPT.md]  Spoken-copy fingerprints (name reveals, moral tails, spoken lists, written
                       register, a rule or number as the first line) in the SCRIPT.md shot table and in film.json,
@@ -148,6 +150,10 @@ Usage: motion-use <command> [options]
   catalog recommend --product-type <type> --material <type>  Explain selection candidates, not quality scores
   study <id> <dir>    Create a renderable 6-second study from a catalog card (illustrative, intentionally silent)
   concat <parts.json> Join matching rendered parts, normalize the complete mix, check joins; --release makes a master
+  diagram boxes <file.svg> [--into film.json --name <asset>] [--out boxes.json]
+                      Read a diagram exported as SVG (Feishu/Lark whiteboard, draw.io, Figma …): every box's
+                      {x,y,w,h,label} by id or by its text label, and arrows with ids as paths; --into writes
+                      data.diagrams.<name> and assets.<name> into film.json for M.diagram / M.glow / M.token
   geo <json|world|china-provinces> Project/simplify map data (--out <new.json>); builtins include provenance
   retime [film]       Propose shot windows from actual narration; fresh numbered JSON each run (--out refuses conflicts)
                       --keep-captions shifts cues contained in one shot; --scale-timing records authoredDuration
@@ -196,6 +202,38 @@ Options for still/render:
 
 project defaults to ./film.json, otherwise ./brief.json. Docs: references/film.md`;
 
+// motion-use diagram boxes <file.svg> [--into film.json --name <asset>] [--out boxes.json]
+async function diagramCmd(o, [sub, file, ...extra]) {
+  if (sub !== "boxes" || !file || extra.length) return fail("diagram boxes <file.svg> [--into film.json [--name <asset>]] [--out boxes.json]", o.json);
+  let result;
+  try { result = svgBoxesFile(file); } catch (e) { return fail(`${file}: ${e.message}`, o.json); }
+  const count = Object.keys(result.boxes).length, arrows = Object.keys(result.paths).length;
+  if (o.out) {
+    if (fs.existsSync(o.out)) return fail(`${o.out} already exists; choose a fresh --out`, o.json);
+    fs.writeFileSync(o.out, JSON.stringify(result, null, 2) + "\n");
+  }
+  let into = null;
+  if (o.into) {
+    // Merge into film.json: data.diagrams.<name> = boxes and paths; assets.<name> = the file.
+    const filmFile = path.resolve(o.into), base = path.dirname(filmFile);
+    let data;
+    try { data = JSON.parse(fs.readFileSync(filmFile, "utf8")); } catch (e) { return fail(`--into ${o.into}: ${e.message}`, o.json); }
+    const name = o.name ?? path.basename(file).replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
+    if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(name)) return fail("--name: a lowercase asset name", o.json);
+    const rel = path.relative(base, path.resolve(file)).split(path.sep).join("/");
+    if (rel.startsWith("..")) return fail(`${file} is outside the project of ${o.into}; copy it into assets/ first`, o.json);
+    data.assets = { ...(data.assets ?? {}), [name]: data.assets?.[name] ?? rel };
+    data.data = { ...(data.data ?? {}), diagrams: { ...(data.data?.diagrams ?? {}), [name]: { file: rel, ...result } } };
+    fs.writeFileSync(filmFile, JSON.stringify(data, null, 2) + "\n");
+    into = { film: filmFile, name };
+  }
+  if (o.json) console.log(JSON.stringify({ ok: true, ...result, ...(o.out ? { out: path.resolve(o.out) } : {}), ...(into ? { into } : {}) }, null, 2));
+  else if (!o.out && !into) console.log(JSON.stringify(result, null, 2));
+  else console.log(`${count} box(es), ${arrows} path(s)${o.out ? ` → ${o.out}` : ""}${into ? ` → ${into.film} data.diagrams.${into.name}` : ""}`);
+  if (!count) console.error("warning: no boxes found; shapes need an id or a text label inside them");
+  return 0;
+}
+
 const fail = (msg, json) => {
   if (json) console.log(JSON.stringify({ ok: false, error: msg }, null, 2));
   else console.error(`motion-use: ${msg}`);
@@ -238,6 +276,7 @@ export async function main(argv) {
     music: musicCmd,
     instruments: instrumentsCmd,
     geo: geoCmd,
+    diagram: diagramCmd,
     concat: concatCmd,
     doctor,
     upgrade: upgradeCmd,
@@ -261,6 +300,7 @@ export async function main(argv) {
         speaker: { type: "string" },
         "facts-from": { type: "string", multiple: true },
         film: { type: "boolean" },
+        into: { type: "string" },
         command: { type: "string" },
         model: { type: "string" },
         voice: { type: "string" },
@@ -427,9 +467,9 @@ const STORIES = [
 async function init(o, [input]) {
   const dir = projectTarget(input ?? o.name ?? "film");
   if (!o.name && input && !input.includes("/") && !input.includes("\\") && input !== "." && input !== "..") o.name=input;
-  if (o.mode && !["film", "template", "tutorial"].includes(o.mode))
-    return fail("--mode must be film, tutorial or template", o.json);
-  if (["film", "tutorial"].includes(o.mode) || (!o.mode && !o.story && !o.style)) {
+  if (o.mode && !["film", "template", "tutorial", "tech-review"].includes(o.mode))
+    return fail("--mode must be film, tutorial, tech-review or template", o.json);
+  if (["film", "tutorial", "tech-review"].includes(o.mode) || (!o.mode && !o.story && !o.style)) {
     if (o.story || o.style)
       return fail(
         "--story/--style select templates; omit them for a film",
@@ -1762,7 +1802,9 @@ function projectNarration(briefPath, o) {
 function runNarrationCheck(briefPath, o) {
   const { items, dir, project } = projectNarration(briefPath, o);
   const config = o._frozenNarrationCheck ?? resolveNarrationCheckConfig(project, { model: o["asr-model"], fallbackModel: o["asr-fallback-model"] });
-  const result = o["no-asr"]
+  const result = config.enabled === false
+    ? { ok: true, status: "DISABLED", human_review: "NOT_REQUIRED", lines: [], config, skipped: `disabled in film.json narrationCheck: ${config.reason}`, disabled: { reason: config.reason } }
+    : o["no-asr"]
     ? { ok: true, status: "SKIPPED", human_review: "UNREVIEWED", lines: [], config, skipped: "--no-asr" }
     : checkNarration(items, { ...config, allowNarrationFlags: o["allow-narration-flags"], dir, force: Boolean(o._refreshAsr), log: o.json ? () => {} : (m) => console.error(m) });
   return { ...result, required: items.length > 0, ...(o["allow-asr-skip"]?.trim() ? { waiver: { reason: o["allow-asr-skip"].trim() } } : {}) };

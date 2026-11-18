@@ -18,6 +18,7 @@ import { peakTime } from "./beats.mjs";
 import { esc } from "./html.mjs";
 import { BriefError } from "./brief.mjs";
 import { SETTINGS } from "./narration-lint.mjs";
+import { svgBoxes } from "./diagram.mjs";
 import { resolveNarration } from "./film-voiceover.mjs";
 import { buildNarrationStem } from "./verify.mjs";
 import { readVoManifest, estimateCues } from "./voiceover.mjs";
@@ -361,7 +362,18 @@ export function validateFilm(
     if (s.holdReason !== undefined) text(s.holdReason, `${p}.holdReason`);
     if (s.cut !== undefined && typeof s.cut !== "boolean")
       error(`${p}.cut`, "true marks a deliberate hard cut into this shot");
+    // Chapters (#121): numbered sections that follow the source document; one chapter may span
+    // several shots, and chapterStart marks the shot that opens it (chapter card + spoken title).
+    if (s.chapter !== undefined) {
+      const ch = s.chapter;
+      if (!ch || typeof ch !== "object" || Array.isArray(ch) || !Number.isInteger(ch.n) || ch.n < 0 || ch.n > 99 || typeof ch.title !== "string" || !ch.title.trim() || ch.title.length > 40 || Object.keys(ch).some((k) => !["n", "title"].includes(k)))
+        error(`${p}.chapter`, "{n: 0–99, title: up to 40 characters}");
+    }
+    if (s.chapterStart !== undefined && typeof s.chapterStart !== "boolean")
+      error(`${p}.chapterStart`, "true on the shot that opens its chapter");
+    if (s.chapterStart && s.chapter === undefined) error(`${p}.chapterStart`, "chapterStart needs a chapter {n, title}");
   });
+  chapterChecks(shots, (p, message) => warnings.push({ path: p, message }));
   if (Math.abs(end - data.duration) > 0.001)
     error("$.shots", "last shot must end at duration");
   directingChecks(data, shots, error, (p, message) =>
@@ -691,6 +703,22 @@ export function bluePurpleHex(hex) {
 export const textUnits = (s) =>
   (String(s).match(/[\u2e80-\u9fff\uf900-\ufaff]|[A-Za-z0-9][A-Za-z0-9.%°']*/g) ?? []).length;
 
+/** Chapters run in order, each opened exactly once by its first shot. */
+function chapterChecks(shots, warn) {
+  let prev = null;
+  shots.forEach((s, i) => {
+    const ch = s?.chapter;
+    if (!ch || typeof ch !== "object" || !Number.isInteger(ch.n)) return;
+    const p = `$.shots[${i}]`;
+    const fresh = !prev || prev.n !== ch.n;
+    if (fresh && !s.chapterStart) warn(`${p}.chapterStart`, `first shot of chapter ${ch.n} "${ch.title}"; set chapterStart: true so the chapter card plays and the narration names the chapter`);
+    if (!fresh && s.chapterStart) warn(`${p}.chapterStart`, `chapter ${ch.n} already started in an earlier shot; a chapter spanning shots opens once`);
+    if (!fresh && prev.title !== ch.title) warn(`${p}.chapter`, `chapter ${ch.n} is titled "${prev.title}" in the previous shot`);
+    if (prev && ch.n < prev.n) warn(`${p}.chapter`, `chapter ${ch.n} after chapter ${prev.n}; chapters follow the source document in order`);
+    prev = ch;
+  });
+}
+
 function directingChecks(data, shots, error, warn) {
   const look = data.look;
   if (look === undefined)
@@ -836,6 +864,73 @@ export function checkFilm(input, o = {}) {
   };
 }
 
+// A technical design walkthrough (#121): the common chapters of a design document, one shot each.
+const TECH_CHAPTERS = [
+  ["background", "背景", "Background", "要解决的问题"],
+  ["architecture", "整体架构", "Architecture", "各个部分是谁、怎么连"],
+  ["flow", "一次请求怎么走", "One request, end to end", "一次请求经过哪些部分"],
+  ["design", "关键设计", "Key design", "方案里最关键的做法"],
+  ["failures", "异常处理", "Failures", "超时、断线、重试"],
+  ["consistency", "结算与一致性", "Consistency", "结果怎么保证对"],
+  ["risks", "风险", "Risks", "已知风险和应对"],
+  ["work", "各端要做的", "Work per team", "每一端要做的事"],
+  ["rollout", "上线方式和进度", "Rollout and status", "只说核实过的状态"],
+];
+const ZH_ORDINAL = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
+function techReviewScaffold(data, o, dir) {
+  const langs = o.lang ? data.languages : ["zh"];
+  data.languages = langs;
+  data.copy = Object.fromEntries(langs.map((l) => [l, { brand: data.copy?.[l]?.brand ?? "TECH REVIEW" }]));
+  data.formats = o.format ? data.formats : ["landscape"];
+  data.brief.setting = "tech-review";
+  // Length follows the document; no target duration to cut content for.
+  delete data.brief.length;
+  data.brief.sources = data.brief.sources ?? [];
+  data.brief.facts = data.brief.facts ?? [];
+  if (!data.brief.speaker) data.brief.speaker = "TODO: who presents (e.g. the engineer who wrote the design)";
+  if (/^\s*TODO\b/.test(data.brief.tone ?? "")) data.brief.tone = "资深同事拿着方案文档的图当面讲，清楚具体";
+  const seconds = 8, cams = ["push", "pan", "pull"];
+  const say = (l, i, zh, en, todo) => (l.startsWith("zh") ? `第${ZH_ORDINAL[i + 1]}部分，${zh}。TODO：${todo}` : `Part ${i + 1}, ${en}. TODO`);
+  data.shots = TECH_CHAPTERS.map(([id, zh, en, todo], i) => ({
+    id,
+    start: i * seconds,
+    end: (i + 1) * seconds,
+    duration: "narration",
+    purpose: `Chapter ${i + 1}: ${en}`,
+    action: i < 3 ? "The design document's container diagram; animation follows the narration on it" : "TODO: the document's diagram for this chapter, and what the animation adds",
+    chapter: { n: i + 1, title: langs[0].startsWith("zh") ? zh : en },
+    chapterStart: true,
+    narration: Object.fromEntries(langs.map((l) => [l, say(l, i, zh, en, todo)])),
+    camera: cams[i % cams.length],
+  }));
+  data.duration = TECH_CHAPTERS.length * seconds;
+  // A review meeting listens to the voice; no score under it (add music.score back if wanted).
+  delete data.rhythm;
+  delete data.music;
+  // The placeholder diagram: boxes read from the SVG the same way an exported document diagram is.
+  fs.mkdirSync(path.join(dir, "assets"), { recursive: true });
+  const svg = path.join(ROOT, "templates", "film", "tech-review", "architecture.svg");
+  fs.copyFileSync(svg, path.join(dir, "assets", "architecture.svg"));
+  const { boxes, paths, width, height } = svgBoxes(fs.readFileSync(svg, "utf8"));
+  data.assets = { ...(data.assets ?? {}), architecture: "assets/architecture.svg" };
+  const zh = langs[0].startsWith("zh");
+  data.data = {
+    ...(data.data ?? {}),
+    diagrams: { architecture: { file: "assets/architecture.svg", width, height, boxes, paths } },
+    walk: {
+      background: { diagram: "architecture", dim: ["legacy"] },
+      architecture: { diagram: "architecture", dim: ["legacy"], views: [["", [800, 470, 1500]]], glow: [[zh ? "整体架构" : "Architecture", "client"]] },
+      flow: { diagram: "architecture", dim: ["legacy"], views: [["", [800, 450, 1500]]], tokens: [[zh ? "请求" : "request", "request", zh ? "请求" : "request", 1.8]] },
+    },
+  };
+  const table = [
+    `| Shot ID | Ch | Chapter title | Spoken copy (${langs[0]}) | Diagram (asset, view) | What the animation adds | Screen text |`,
+    "|---|---|---|---|---|---|---|",
+    ...data.shots.map((s, i) => `| ${s.id} | ${i + 1} | ${s.chapter.title} | ${s.narration[langs[0]]} | ${i < 3 ? "architecture" : "TODO"} | ${i < 3 ? "see film.data.walk" : "TODO"} | TODO |`),
+  ].join("\n");
+  return fs.readFileSync(path.join(ROOT, "templates", "film", "tech-review", "SCRIPT.md"), "utf8").replace("{{CHAPTERS}}", table);
+}
+
 export function initFilm(o, dir) {
   dir = path.resolve(dir);
   const target = path.join(dir, "film.json");
@@ -900,8 +995,18 @@ export function initFilm(o, dir) {
     fs.mkdirSync(path.join(dir,"assets"),{recursive:true});
     fs.copyFileSync(path.join(ROOT,"templates","film","evidence.svg"),path.join(dir,"assets","evidence.svg"));
   }
+  let script = null;
+  if (o.mode === "tech-review") script = techReviewScaffold(data, o, dir);
   fs.mkdirSync(path.dirname(draw), { recursive: true });
   fs.writeFileSync(target, JSON.stringify(data, null, 2) + "\n");
+  if (o.mode === "tech-review") {
+    fs.copyFileSync(path.join(ROOT, "templates", "film", "tech-review", "draw.js"), draw);
+    fs.copyFileSync(path.join(ROOT, "templates", "film", "DIRECTOR.md"), director);
+    fs.writeFileSync(path.join(dir, "SCRIPT.md"), script);
+    fs.copyFileSync(path.join(ROOT, "templates", "film", "SOURCES.md"), sources);
+    fs.mkdirSync(path.join(dir, "reviews"), { recursive: true });
+    return { ok: true, film: target, composition: draw, director, sources, script: path.join(dir, "SCRIPT.md"), mode: "tech-review" };
+  }
   fs.copyFileSync(path.join(ROOT, "templates", "film", o.mode === "tutorial" ? "tutorial.js" : "draw.js"), draw);
   fs.copyFileSync(path.join(ROOT, "templates", "film", "score.js"), path.join(path.dirname(draw), "score.js"));
   fs.copyFileSync(

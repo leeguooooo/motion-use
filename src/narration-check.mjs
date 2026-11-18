@@ -314,8 +314,16 @@ export function resolveNarrationCheckConfig(project = {}, overrides = {}, env = 
   };
   const supplied = Object.hasOwn(project, "narrationCheck") ? project.narrationCheck : project.narrationConfig?.check;
   const cfg = supplied === undefined ? {} : object(supplied, "narrationCheck");
-  const allowedConfig = new Set(["model", "fallbackModel", "params", "terms", "accent"]);
+  const allowedConfig = new Set(["model", "fallbackModel", "params", "terms", "accent", "enabled", "reason"]);
   for (const key of Object.keys(cfg)) if (!allowedConfig.has(key)) throw new Error(`unsupported narrationCheck option: ${key}`);
+  // Project-level opt-out (#121): the author decided speech recognition adds nothing for this film.
+  // Release is not blocked, and every report records the check as explicitly disabled, with why.
+  if (Object.hasOwn(cfg, "enabled") && typeof cfg.enabled !== "boolean") throw new Error("narrationCheck.enabled must be true or false");
+  if (cfg.enabled === false) {
+    if (typeof cfg.reason !== "string" || !cfg.reason.trim()) throw new Error('narrationCheck.enabled false needs narrationCheck.reason: why speech recognition is off for this film');
+    return { enabled: false, reason: cfg.reason.trim(), comparatorVersion: COMPARATOR_VERSION };
+  }
+  if (Object.hasOwn(cfg, "reason") && cfg.enabled !== false) throw new Error("narrationCheck.reason only goes with enabled: false");
   if (Object.hasOwn(cfg, "params")) object(cfg.params, "narrationCheck.params");
   if (Object.hasOwn(overrides, "params")) object(overrides.params, "narrationCheck.params");
   const out = {
@@ -499,6 +507,7 @@ const FIX = {
 
 /** One line per flagged script line, for terminal output. */
 export function describeNarration(check) {
+  if (check.status === "DISABLED") return [`narration check disabled in film.json: ${check.config?.reason ?? check.skipped}`];
   if (check.skipped) return [`narration check skipped: ${check.skipped}`];
   return check.lines
     .filter((l) => l.flagged)

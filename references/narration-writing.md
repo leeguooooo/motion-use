@@ -21,15 +21,32 @@ The opening depends on where people hear it. Set `brief.setting` (`motion-use in
 | `feed-short` (default when absent) | a clip in a feed, three seconds to earn attention | the first line is said while pointing at the picture |
 | `launch` | a product film for people seeing it the first time | also opens on the picture |
 | `meeting-explainer` | a colleague presenting in a review meeting or an internal walkthrough | say what today is about, then the approach itself; no hook, no outline preview |
+| `tech-review` | a colleague walking a design review through the design document, chapter by chapter | each chapter opens by naming itself (「第二部分，整体架构。」), then the content; no other spoken scaffolding |
 | `course` | a lesson | say what the listener will be able to do, then start |
 
-**"The first line points at the picture" is a short-video rule, not a rule for every film.** In a review meeting nobody opens with a hook and answers their own question. For `meeting-explainer` and `course`, `script lint` drops `opening-quantity` / `opening-rule` and instead reports `opening-hook` (a question in the first shot) and `rhetorical-question` (two or more questions in the script); `script review` swaps the reviewer persona and the opening rule. `brief.speaker` (for example 「团队里的资深同事」) names who is talking; the review prompt speaks as that person with `brief.tone`.
+**"The first line points at the picture" is a short-video rule, not a rule for every film.** In a review meeting nobody opens with a hook and answers their own question. For `meeting-explainer`, `tech-review` and `course`, `script lint` drops `opening-quantity` / `opening-rule` and instead reports `opening-hook` (a question in the first shot) and `rhetorical-question` (two or more questions in the script); `script review` swaps the reviewer persona and the opening rule. `brief.speaker` (for example 「团队里的资深同事」) names who is talking; the review prompt speaks as that person with `brief.tone`.
 
 Same content, two openings:
 
 > feed-short: 你看这颗骰子。点下去，点数当场就出，棋子跟着就走。
 >
 > meeting-explainer: 今天讲对局的校验方案。人机局整局由客户端在本地算完；开局时服务端发种子，打完服务端用同一个种子重算，名次以重算为准。
+>
+> tech-review: 第一部分，背景。人机局整局由客户端在本地算完，服务端只在开局发种子、打完重算，所以名次和奖励要靠重算才能定。
+
+### Technical design walkthrough (`tech-review`, `init --mode tech-review`)
+
+A design review walks the design document's own sections in order — usually background, architecture, one request (or one match) end to end, key designs, failures (timeouts, disconnects, retries), settlement/consistency, risks, what each team does, rollout and status. The chapter number is the structure, so nothing else has to announce it:
+
+- Each chapter opens with its name — 「第二部分，整体架构。」 — and the next sentence is the content. `script lint` reports `chapter-open` when a shot with `chapterStart` does not.
+- No hook, no question to the room, no outline preview, no 「这里有个细节要注意」, no 「N 件事」 inside a chapter; these are `high` priority in this setting.
+- Progress and status only as verified: 「已部署到测试环境」「在某分支开发中、还没合进测试环境」. Never guess 「还在方案阶段」; put unverified status in `brief.facts` only after checking, and the review marks the rest 【请作者核对】.
+- At most two items in one sentence; a longer list goes on screen.
+- No target length. The film is as long as the document needs (two shipped ones ran 5½ and 6 minutes); `init --mode tech-review` leaves `brief.length` out.
+
+The picture is the document's diagrams, not illustrations: export them (SVG preferred; a Feishu/Lark whiteboard exports SVG), run `motion-use diagram boxes <file.svg> --into film.json --name <name>`, and animate on top with `M.diagram`, `M.viewAt`, `M.token`, `M.glow`, `M.dim`, `M.chapters` and `M.when` ([film.md](film.md#diagrams-and-chapters)). Animation adds what a still diagram cannot show — a message travelling an arrow, a deadline being computed, a stand-in move or a forfeit, a late message withdrawn and recomputed, a replay window, a counter when something is voided. A chapter without a diagram in the document gets one drawn in the same style (C4 containers: dark blue = the user's side, blue = our services, grey dashed = not used by this design).
+
+Workflow that works in one pass: export diagrams and their boxes → write SCRIPT.md chapter by chapter (what is said, which diagram, what the animation adds) → self-review → `script review --focus facts` with the document attached (`brief.sources`) → `--focus tone` with the colleague's voice → `script lint` → voiceover with the user's chosen voice profile → retime → stills per chapter → render. If the author finds speech recognition useless for the film, set `narrationCheck: {"enabled": false, "reason": "…"}`; release then records the check as disabled instead of refusing.
 
 ## How a script turns into a machine voice
 
@@ -81,7 +98,7 @@ A script rewritten only to avoid the patterns above tends to grow new ones. In t
 | A conclusion stronger than the rule | 「停错就没积分了」 when it only halves them, 「全看自觉」 when photos are checked | say what the rule does: 「停错了积分减半」 |
 | Switching who "you" is | 「用户要做的是…」 then 「你停好拍一张」 then 「我们出接口」 | one name for the player throughout; "we" only for the team |
 
-Removing the short-video hook tends to produce the presenter's templates instead. `script lint` reports each one (high priority for `meeting-explainer` and `course`, a warning elsewhere):
+Removing the short-video hook tends to produce the presenter's templates instead. `script lint` reports each one (high priority for `meeting-explainer`, `tech-review` and `course`, a warning elsewhere):
 
 | Rule | Example | Instead |
 |---|---|---|
@@ -124,8 +141,9 @@ The fact pass can only check what it is shown. `brief.facts` is a summary; when 
 |---|---|
 | `opening-quantity` | (`feed-short`, `launch`) the first sentence of the first narrated shot has a number or unit in its opening characters |
 | `opening-rule` | (`feed-short`, `launch`) the first sentence is a rule (每…就, 只要…就, 一旦 / every time, whenever) |
-| `opening-hook` | (`meeting-explainer`, `course`) the first narrated shot asks a question |
-| `rhetorical-question` | (`meeting-explainer`, `course`) two or more questions in the script |
+| `opening-hook` | (`meeting-explainer`, `tech-review`, `course`) the first narrated shot asks a question |
+| `rhetorical-question` | (`meeting-explainer`, `tech-review`, `course`) two or more questions in the script |
+| `chapter-open` | (`tech-review`) a shot with `chapterStart` does not open by naming its chapter (「第二部分，整体架构。」 / "Part 2, Architecture.") |
 | `name-reveal` | 「这叫 / 叫做 / 这就是所谓」 ("this is called", "known as") appears twice or more |
 | `moral-tail` | two or more shots end on 「所以 / 这就是 / 总之」 ("so", "that's why", "in short") |
 | `definition-open` | two or more shots (or the first shot) open with 「这是…」 ("this is…") |
