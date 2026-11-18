@@ -131,7 +131,7 @@ The installer downloads the release archive and its `.sha256` from GitHub, verif
 |---|---|
 | `init [dir]` | Directed film by default; `--mode template` selects a starter brief: `--style`, `--name`, `--lang zh,en`, `--format landscape,vertical` |
 | `validate [brief]` | Check the brief, files, voiceover lengths and glyph coverage; print timelines |
-| `voiceover [brief]` | Speak each scene's `narration`: `--engine azure\|elevenlabs\|minimax\|openai` (keys from env or the macOS keychain), `edge` (preview) or `command`; `voiceover providers` verifies keys, `voiceover use` remembers your voice; `voiceover check` transcribes the clips and flags misreads |
+| `voiceover [brief]` | Speak each scene's `narration`: `--engine azure\|elevenlabs\|minimax\|openai` (keys from env or the macOS keychain), `edge` (preview) or `command`; `voiceover providers` verifies keys, `voice save/set/use` keeps named voice profiles used by every project; `voiceover check` transcribes the clips and flags misreads |
 | `still [brief]` | Keyframes and a contact sheet; `--at 1.5,4` for exact seconds, `--beats 4` one frame per bar; `--onion 1.2-2` stacks a move's frames into one PNG to judge its spacing; warns when film drawing keeps state between frames |
 | `render [brief]` | MP4 per language × format, plus a cover PNG; `--quality draft\|standard\|high`, `--target github` / `--max-size 9MB`; `--release` platform masters + manifest, `--snapshot <id>` re-render an earlier cut, `--gate` fail on flagged narration, off-frame text or overlapping text |
 | `verify <mp4>` | Decode and measure a delivered video: review frames, audio, motion lights; `--gate` fails on red, `--loop` checks the loop seam, `--manifest` checks a file is the current release master |

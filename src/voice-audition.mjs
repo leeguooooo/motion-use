@@ -39,7 +39,7 @@ export async function auditionVoices(planFile, out, options = {}) {
       scenes: [{ id: "sample", narration: { [plan.lang]: plan.text } }] }, options);
     const row = result.rows[0];
     const entry = { id: c.id, label: c.label, engine: result.engine, voice: row.voice,
-      model: row.model ?? null, instructions: row.instructions ?? null, status: row.status,
+      model: row.model ?? null, instructions: row.instructions ?? null, rate: c.config.rates?.[plan.lang] ?? "+0%", status: row.status,
       listeningReview: "UNREVIEWED", useRights: "needs-review" };
     if (row.status === "error") entry.error = row.error;
     else {

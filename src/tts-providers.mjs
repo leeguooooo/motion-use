@@ -9,8 +9,16 @@
 // ~/.config/motion-use/config.json:
 //   {"voiceover": {"provider": "elevenlabs", "voices": {"zh": "<voice id>"}, "model": "eleven_multilingual_v2",
 //                  "credentials": {"minimax": {"key": "…", "groupId": "…"}}}}
-// `provider`/`voices`/`model` are what `motion-use voiceover use` records; `credentials` is an
-// optional fallback for machines without a keychain (keep the file private, chmod 600).
+// `credentials` is an optional fallback for machines without a keychain (keep the file private,
+// chmod 600).
+//
+// Named voice profiles (`motion-use voice …`), one of them the default for every project:
+//   {"voiceProfile": "julia",
+//    "voiceProfiles": {"julia": {"provider": "elevenlabs", "model": "eleven_v4", "voices": {"zh": "<id>"},
+//                                "rate": "+12%", "instructions": "", "key": {"keychain": "elevenlabs"}}}}
+// `key` names where the key is read from ({"env": NAME} or {"keychain": SERVICE}), never the key.
+// A legacy {"voiceover": {provider, voices, model}} from older `voiceover use` is read as a
+// profile named "default".
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -55,20 +63,149 @@ export const PREVIEW_NOTE = "预览声音，不能交付 (edge-tts preview voice
 export function userConfigPath(env = process.env) {
   return env.MOTION_USE_CONFIG || path.join(env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "motion-use", "config.json");
 }
-export function readUserConfig(env = process.env) {
+function readRaw(env) {
   try { return JSON.parse(fs.readFileSync(userConfigPath(env), "utf8")); } catch { return {}; }
 }
+/** Profiles in the file, with a legacy `voiceover` selection migrated to a profile named "default". */
+function profilesOf(raw) {
+  const profiles = { ...(raw.voiceProfiles ?? {}) };
+  let def = raw.voiceProfile ?? null;
+  const legacy = raw.voiceover;
+  if (legacy?.provider && !profiles.default && !def) {
+    profiles.default = { provider: legacy.provider, voices: legacy.voices ?? {}, ...(legacy.model ? { model: legacy.model } : {}) };
+    def = "default";
+  }
+  return { profiles, def: def && profiles[def] ? def : null };
+}
+/**
+ * The user config. `voiceover.provider/voices/model` always mirror the default profile, so
+ * callers that predate profiles keep seeing the user's chosen voice.
+ */
+export function readUserConfig(env = process.env) {
+  const raw = readRaw(env);
+  const { profiles, def } = profilesOf(raw);
+  const cfg = { ...raw, voiceProfiles: profiles, voiceProfile: def };
+  const credentials = raw.voiceover?.credentials;
+  const p = def ? profiles[def] : null;
+  if (p) cfg.voiceover = { provider: p.provider, voices: p.voices ?? {}, ...(p.model ? { model: p.model } : {}), ...(credentials ? { credentials } : {}) };
+  else if (credentials) cfg.voiceover = { credentials };
+  else delete cfg.voiceover;
+  return cfg;
+}
+function writeRaw(raw, env) {
+  // The legacy selection now lives in profiles; keep only stored credentials there.
+  if (raw.voiceover) { const { credentials } = raw.voiceover; if (credentials) raw.voiceover = { credentials }; else delete raw.voiceover; }
+  const file = userConfigPath(env);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(raw, null, 2) + "\n", { mode: 0o600 });
+  return file;
+}
+export const PROFILE_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/;
+const RATE = /^[+-]\d{1,3}%$/;
+
+/** Check a profile's shape; returns a cleaned copy or throws. */
+export function checkProfile(p) {
+  if (!p || typeof p !== "object") throw new Error("a voice profile is an object");
+  if (!PROVIDER_NAMES.includes(p.provider) && p.provider !== "edge")
+    throw new Error(`unknown voiceover provider "${p.provider}"; one of: ${[...PROVIDER_NAMES, "edge"].join(", ")}`);
+  const out = { provider: p.provider, voices: {} };
+  for (const [l, v] of Object.entries(p.voices ?? {})) {
+    if (typeof v !== "string" || !v.trim() || v.length > 200) throw new Error(`voices.${l}: a voice ID`);
+    out.voices[l] = v;
+  }
+  if (p.model) out.model = String(p.model);
+  if (p.rate !== undefined && p.rate !== null) {
+    const ok = typeof p.rate === "string" ? RATE.test(p.rate) : p.rate && typeof p.rate === "object" && Object.values(p.rate).every((r) => RATE.test(r));
+    if (!ok) throw new Error('rate: a percentage like "+12%", or one per language');
+    out.rate = p.rate;
+  }
+  if (p.instructions) out.instructions = String(p.instructions).slice(0, 4000);
+  if (p.key) {
+    const k = p.key;
+    if (typeof k !== "object" || !!k.env === !!k.keychain) throw new Error('key: {"env": "NAME"} or {"keychain": "service"}; never the key itself');
+    const name = String(k.env ?? k.keychain);
+    if (!/^[A-Za-z0-9_.@ -]{1,80}$/.test(name)) throw new Error("key: the name of an environment variable or keychain entry, not the key itself");
+    out.key = k.env ? { env: name } : { keychain: name };
+  }
+  return out;
+}
+export function listProfiles(env = process.env) {
+  const { profiles, def } = profilesOf(readRaw(env));
+  return { profiles, default: def, file: userConfigPath(env) };
+}
+/** One profile by name, or the default (null when none). */
+export function getProfile(name, env = process.env) {
+  const { profiles, def } = profilesOf(readRaw(env));
+  const n = name ?? def;
+  if (!n) return null;
+  if (!profiles[n]) throw new Error(`no voice profile "${n}"; see motion-use voice list`);
+  return { name: n, ...profiles[n] };
+}
+/** Create or replace a profile; the first one saved, or `makeDefault`, becomes the default. */
+export function saveProfile(name, profile, { makeDefault = false } = {}, env = process.env) {
+  if (!PROFILE_RE.test(name ?? "")) throw new Error("profile names are lowercase slugs like julia or narrator-zh");
+  const raw = readRaw(env);
+  const { profiles, def } = profilesOf(raw);
+  profiles[name] = checkProfile(profile);
+  raw.voiceProfiles = profiles;
+  raw.voiceProfile = makeDefault || !def ? name : def;
+  const file = writeRaw(raw, env);
+  return { file, name, profile: profiles[name], default: raw.voiceProfile };
+}
+export function useProfile(name, env = process.env) {
+  const raw = readRaw(env);
+  const { profiles } = profilesOf(raw);
+  if (!profiles[name]) throw new Error(`no voice profile "${name}"; see motion-use voice list`);
+  raw.voiceProfiles = profiles;
+  raw.voiceProfile = name;
+  return { file: writeRaw(raw, env), default: name };
+}
+export function removeProfile(name, env = process.env) {
+  const raw = readRaw(env);
+  const { profiles, def } = profilesOf(raw);
+  if (!profiles[name]) throw new Error(`no voice profile "${name}"`);
+  delete profiles[name];
+  raw.voiceProfiles = profiles;
+  raw.voiceProfile = def === name ? null : def;
+  return { file: writeRaw(raw, env), default: raw.voiceProfile };
+}
+/** `voiceover use`: update (or create) the default profile's provider, voice and model. */
 export function writeUserVoice({ provider, voices = {}, model }, env = process.env) {
   if (!PROVIDER_NAMES.includes(provider) && provider !== "edge") throw new Error(`unknown voiceover provider "${provider}"; one of: ${[...PROVIDER_NAMES, "edge"].join(", ")}`);
-  const file = userConfigPath(env);
-  const cfg = readUserConfig(env);
-  const prev = cfg.voiceover ?? {};
+  const { profiles, def } = profilesOf(readRaw(env));
+  const name = def ?? "default";
+  const prev = profiles[name] ?? {};
   const keep = prev.provider === provider;
-  cfg.voiceover = { ...prev, provider, voices: { ...(keep ? prev.voices : {}), ...voices } };
-  if (model) cfg.voiceover.model = model; else if (!keep) delete cfg.voiceover.model;
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n", { mode: 0o600 });
-  return { file, voiceover: cfg.voiceover };
+  const next = keep ? { ...prev } : { provider };
+  next.voices = { ...(keep ? prev.voices : {}), ...voices };
+  if (model) next.model = model;
+  const res = saveProfile(name, next, { makeDefault: true }, env);
+  return { file: res.file, profile: name, voiceover: { provider, voices: res.profile.voices, ...(res.profile.model ? { model: res.profile.model } : {}) } };
+}
+
+/**
+ * Fill a film/brief voiceover block from a voice profile. `profile: "<name>"` names one; a block
+ * that names no engine, voices or command takes the default profile; `profile: false` opts out.
+ * Fields the project sets win. Generation records the resolved settings, never the name.
+ */
+export function applyVoiceProfile(vo, env = process.env) {
+  if (!vo || typeof vo !== "object" || Array.isArray(vo)) return { vo };
+  const { profile: named, ...rest } = vo;
+  if (named === false) return { vo: rest };
+  let p = null;
+  if (named !== undefined) {
+    if (typeof named !== "string") return { vo: rest, error: "a voice profile name (motion-use voice list), or false" };
+    try { p = getProfile(named, env); } catch (e) { return { vo: rest, error: e.message }; }
+  } else if (!rest.engine && !Object.keys(rest.voices ?? {}).length && !rest.command) {
+    p = getProfile(null, env);
+  }
+  if (!p) return { vo: rest };
+  if (rest.engine && rest.engine !== p.provider) return { vo: rest, profile: p.name, error: `profile ${p.name} uses ${p.provider} but voiceover.engine is ${rest.engine}; drop one` };
+  const merged = { ...rest, engine: p.provider, voices: { ...(p.voices ?? {}), ...(rest.voices ?? {}) } };
+  if (rest.model === undefined && p.model) merged.model = p.model;
+  if (rest.rate === undefined && p.rate) merged.rate = p.rate;
+  if (rest.instructions === undefined && p.instructions) merged.instructions = p.instructions;
+  return { vo: merged, profile: p.name, keySource: p.key ?? null };
 }
 
 function keychainRead(service) {
@@ -111,8 +248,21 @@ export function discoverProviders({ env = process.env, keychain, config } = {}) 
   return out;
 }
 export function resetProviderCache() { cache = null; }
-export function credentialsFor(provider, opts) {
-  const p = discoverProviders(opts).find((d) => d.provider === provider);
+export function credentialsFor(provider, opts = {}) {
+  const { keySource, ...rest } = opts;
+  if (keySource) {
+    // A voice profile says where its key lives; other fields (region, group) come from discovery.
+    const env = rest.env ?? process.env;
+    const kc = rest.keychain ?? (keychainEnabled(env) ? keychainRead : null);
+    const key = keySource.env ? env[keySource.env] : kc?.(keySource.keychain);
+    const where = keySource.env ? `env ${keySource.env}` : `keychain ${keySource.keychain}`;
+    if (!key) throw new Error(`${provider}: the voice profile reads its key from ${where}, which is empty or missing`);
+    const cred = { ...(discoverProviders(rest).find((d) => d.provider === provider)?.cred ?? {}), key };
+    const missing = (PROVIDERS[provider]?.required ?? []).filter((f) => !cred[f]);
+    if (missing.length) throw new Error(`${provider} is missing ${missing.join(", ")}: ${configureHint(provider)}`);
+    return cred;
+  }
+  const p = discoverProviders(rest).find((d) => d.provider === provider);
   if (!p) throw new Error(`${provider} is not configured: ${configureHint(provider)}`);
   if (!p.complete) throw new Error(`${provider} is missing ${p.missing.join(", ")}: ${configureHint(provider)}`);
   return p.cred;
@@ -174,8 +324,8 @@ export function rateToSpeed(rate = "+0%", [lo, hi] = [0.5, 2]) {
 }
 
 /** Speak one line through a built-in bridge into `out` (MP3). */
-export async function bridgeSpeech(provider, { text, voice, model, instructions = "", rate, out }, { fetch: f = fetch, cred } = {}) {
-  cred ??= credentialsFor(provider);
+export async function bridgeSpeech(provider, { text, voice, model, instructions = "", rate, out }, { fetch: f = fetch, cred, keySource } = {}) {
+  cred ??= credentialsFor(provider, { keySource });
   const signal = AbortSignal.timeout(120000);
   model ||= PROVIDERS[provider].model;
   let res;

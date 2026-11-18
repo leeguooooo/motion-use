@@ -154,7 +154,7 @@ motion-use 是一个 Node.js 程序，带一个可选的原生渲染器：影片
 |---|---|
 | `init [dir]` | 默认创建导演模式项目；`--mode template` 选择模板 brief：`--style`、`--name`、`--lang zh,en`、`--format landscape,vertical` |
 | `validate [brief]` | 检查 brief、文件、旁白长度和字形覆盖；打印时间线 |
-| `voiceover [brief]` | 按场景的 `narration` 生成语音：`azure` / `elevenlabs` / `minimax` / `openai`（key 读环境变量或系统钥匙串）、`edge` 预览或 `command` 外部模型；`voiceover providers` 实测 key，`voiceover use` 记住选定的声音；`voiceover audition` 同稿试读，`voiceover check` 把旁白转成文字，标出读错的地方 |
+| `voiceover [brief]` | 按场景的 `narration` 生成语音：`azure` / `elevenlabs` / `minimax` / `openai`（key 读环境变量或系统钥匙串）、`edge` 预览或 `command` 外部模型；`voiceover providers` 实测 key，`voice save/set/use` 保存用户级配音角色，所有项目默认使用；`voiceover audition` 同稿试读，`voiceover check` 把旁白转成文字，标出读错的地方 |
 | `still [brief]` | 关键帧和联系表；`--at 1.5,4` 指定秒数，`--beats 4` 每小节一帧；`--onion 1.2-2` 把一段动作的若干帧叠成一张图，看间距判断缓动；绘制代码在帧之间留了状态时会警告 |
 | `render [brief]` | 每种语言 × 画幅一个 MP4，外加封面 PNG；`--quality draft\|standard\|high`、`--target github` / `--max-size 9MB`；`--release` 出平台母版和清单，`--snapshot <id>` 原样重渲染之前的版本，`--gate` 旁白被标出、文字出画或叠字时失败 |
 | `verify <mp4>` | 解码并测量交付的视频：检查帧、音频、运动指标；`--gate` 红灯时失败，`--loop` 检查循环接缝，`--manifest` 确认文件就是当前发布母版 |

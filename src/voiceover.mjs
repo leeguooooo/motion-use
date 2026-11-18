@@ -39,8 +39,8 @@ export function pickEngine(requested, options) {
   return chooseEngine(options).engine;
 }
 
-async function azure(text, voice, rate, out) {
-  const { key, region } = credentialsFor("azure");
+async function azure(text, voice, rate, out, keySource) {
+  const { key, region } = credentialsFor("azure", { keySource });
   const res = await fetch(`https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`, {
     method: "POST",
     headers: {
@@ -58,12 +58,12 @@ async function azure(text, voice, rate, out) {
 }
 
 // Word boundaries require the Speech SDK; the audio-only REST endpoint supplies none.
-function azureTimed(text, voice, rate, out) {
+function azureTimed(text, voice, rate, out, keySource) {
   const script = new URL("../scripts/azure-word-timing.py", import.meta.url);
   const r = spawnSync("uv", ["run", "--quiet", "--no-project", "--python", "3.12", "--with", "azure-cognitiveservices-speech==1.52.0", fileURLToPath(script)], {
     input: JSON.stringify({ ssml: ssml(text, voice, rate), out }), encoding: "utf8", timeout: 120000,
     maxBuffer: 8 * 1024 * 1024,
-    env: (({ key, region }) => ({ ...process.env, AZURE_SPEECH_KEY: key, AZURE_SPEECH_REGION: region }))(credentialsFor("azure")),
+    env: (({ key, region }) => ({ ...process.env, AZURE_SPEECH_KEY: key, AZURE_SPEECH_REGION: region }))(credentialsFor("azure", { keySource })),
   });
   if (r.error || r.status !== 0) throw new Error(r.error?.code === "ENOENT" ? "--word-timing needs uv (and the optional pinned Azure Speech SDK)" : "Azure word timing failed; check the resource, voice, SDK and connection");
   return JSON.parse(r.stdout).words;
@@ -200,8 +200,8 @@ export async function generateVoiceover(brief, { langs = brief.languages, engine
         log(`${lang}/${scene.id}: ${engine} ${voice}`);
         const generate = async () => {
           fs.rmSync(tmp, { force: true });
-          if (engine === "azure") { if (wordTiming) words = azureTimed(text, voice, rate, tmp); else await azure(text, voice, rate, tmp); }
-          else if (BRIDGED.includes(engine)) await bridgeSpeech(engine, { text, voice, model, instructions: vo.instructions ?? "", rate, out: tmp });
+          if (engine === "azure") { if (wordTiming) words = azureTimed(text, voice, rate, tmp, vo.keySource); else await azure(text, voice, rate, tmp, vo.keySource); }
+          else if (BRIDGED.includes(engine)) await bridgeSpeech(engine, { text, voice, model, instructions: vo.instructions ?? "", rate, out: tmp }, { keySource: vo.keySource });
           else if (engine === "command") commandSpeech(vo, { text, lang, voice, model: vo.model, instructions: vo.instructions ?? "", rate, output: tmp }, { allowCode });
           else cues = edge(text, voice, rate, tmp);
         };
@@ -221,7 +221,7 @@ export async function generateVoiceover(brief, { langs = brief.languages, engine
     }
   }
   fs.writeFileSync(path.join(vo.dir, MANIFEST), JSON.stringify(manifest, null, 2) + "\n");
-  return { engine, rows, ...(engine === "edge" ? { preview: true, note: PREVIEW_NOTE } : {}), ...(keyInvalid ? { keyInvalid } : {}) };
+  return { engine, ...(vo.profile ? { profile: vo.profile } : {}), rows, ...(engine === "edge" ? { preview: true, note: PREVIEW_NOTE } : {}), ...(keyInvalid ? { keyInvalid } : {}) };
 }
 
 /** Voiceover files in use that came from the edge engine (for the publish warning in render). */

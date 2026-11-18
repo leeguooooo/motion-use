@@ -21,6 +21,8 @@ import { SETTINGS } from "./narration-lint.mjs";
 import { resolveNarration } from "./film-voiceover.mjs";
 import { buildNarrationStem } from "./verify.mjs";
 import { readVoManifest, estimateCues } from "./voiceover.mjs";
+import { listProfiles } from "./tts-providers.mjs";
+const defaultProfileName = () => { try { return listProfiles().default; } catch { return null; } };
 import { readingSeconds, READING_RULE } from "./text-probe.mjs";
 import crypto from "node:crypto";
 import { validateTiming } from "./timing.mjs";
@@ -858,6 +860,10 @@ export function initFilm(o, dir) {
     data.brief.setting = o.setting;
   }
   if (typeof o.speaker === "string" && o.speaker.trim()) data.brief.speaker = o.speaker.trim();
+  // The machine's default voice profile (motion-use voice use): referenced by name, so every new
+  // project speaks with it; generation still records the resolved engine, voice and rate.
+  const voiceProfile = o.voiceProfile === undefined ? defaultProfileName() : o.voiceProfile;
+  if (voiceProfile && data.voiceover && typeof data.voiceover === "object") data.voiceover.profile = voiceProfile;
   if (o.length !== undefined) {
     const n = Number(o.length);
     if (!finite(n, 1, 3600)) throw new BriefError("--length: seconds, 1–3600");

@@ -24,11 +24,33 @@ film.json, briefs, manifests or reports; only their source is printed. A 401/403
 reported as `key invalid`: doctor marks it `BAD`, and `voiceover` stops at the first
 line instead of failing every scene.
 
-Engine choice when film.json names none: the service recorded with
-`motion-use voiceover use <engine> --voice <id> [--lang zh] [--model m]` (remembered
-for every new project), else the only configured service, else (several configured,
-none chosen) voiceover stops and lists them so the agent asks the user. edge-tts is
-used only when nothing is configured, and every such output says “预览声音，不能交付”.
+Voice profiles (user level, chosen once per machine). A profile records provider,
+model, per-language voices, rate, performance instructions and where the key is read
+from (`--key-env NAME` or `--key-keychain SERVICE`; never the key itself):
+
+```sh
+motion-use voiceover audition plan.json --out auditions/narrator   # listen, pick
+motion-use voice save auditions/narrator a --name julia             # becomes the default
+motion-use voice set julia --provider elevenlabs --voice <id> --model eleven_v4 --rate +12%
+motion-use voice list | voice show [name] | voice use <name> | voice remove <name>
+```
+
+`init` writes `"voiceover": {"dir": "voiceover", "profile": "<default>"}` into
+film.json (`--voice-profile <name>|none`). A voiceover block that names no engine,
+voices or command also takes the default profile; `"profile": false` opts out. Fields
+the project sets (engine, voices, rate, model, instructions) win over the profile.
+The voiceover manifest records the resolved engine, voice, rate and model, and a
+render snapshot records the settings the profile resolved to and pins them on
+restore, so editing a profile never silently changes a delivered film's voice: its
+clips become stale and must be regenerated on purpose. `doctor` shows the default
+profile and verifies its key. `motion-use voiceover use <engine> --voice <id>` still
+works: it edits the default profile (an older `voiceover` selection in config.json is
+read as a profile named `default`).
+
+Engine choice when film.json names none and no profile is set: the only configured
+service, else (several configured, none chosen) voiceover stops and lists them so the
+agent asks the user. edge-tts is used only when nothing is configured, and every such
+output says “预览声音，不能交付”.
 
 Built-in bridge mapping: `voices.<lang>` is the provider voice ID; `model` defaults
 to `eleven_multilingual_v2` / `speech-02-hd` / `gpt-4o-mini-tts`; `rate` becomes
