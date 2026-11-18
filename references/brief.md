@@ -18,7 +18,7 @@ A brief is one JSON file. Paths inside it are relative to the brief's folder. Ru
 | `fonts` | bundled | `{ "sans": { "file": "Brand.ttf", "license": "OFL.txt" }, "mono": { … } }`: your own fonts (.ttf, .otf, .woff, .woff2), cut to the video's characters like the bundled ones. The license file is required and is copied next to the font in every build; make sure the font's license allows it. Characters a brand font lacks fall back to the bundled fonts |
 | `music` | `"builtin"` | `"builtin"` (original track synthesized to the video's length), `"none"`, or `{ "file": "song.mp3", "volume": 0.5 }` |
 | `sfx` | `true` | Small whooshes, clicks and dings on scene beats |
-| `voiceover` | none | `{ "dir": "voiceover", "volume": 1 }`: files at `<dir>/<lang>/<scene-id>.mp3` (.wav, .m4a, .aac, .ogg). For generated narration also `"engine": "azure"\|"edge"`, `"voices": { "zh": "zh-CN-YunxiNeural" }`, `"rate": "+8%"` or `{ "zh": "+8%", "en": "+5%" }` (see Voiceover below) |
+| `voiceover` | none | `{ "dir": "voiceover", "volume": 1 }`: files at `<dir>/<lang>/<scene-id>.mp3` (.wav, .m4a, .aac, .ogg). For generated narration also `"engine": "azure"\|"elevenlabs"\|"minimax"\|"openai"\|"edge"\|"command"`, `"voices": { "zh": "zh-CN-YunxiNeural" }` (provider voice IDs for elevenlabs/minimax/openai, optional `"model"`), `"rate": "+8%"` or `{ "zh": "+8%", "en": "+5%" }` (see Voiceover below) |
 | `scenes` | required | 1–20 scenes, played in order |
 
 ## Text
@@ -114,7 +114,9 @@ Narration can be recorded or generated. Either way it ends up at `<voiceover.dir
 
 - **Recorded:** put your files there. That's all.
 - **Generated:** write `narration` on the scenes, then run `motion-use voiceover <brief>`.
-  - `--engine azure` uses Azure AI Speech (`AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`): licensed for publishing. It is the default when those are set.
+  - `--engine azure` uses Azure AI Speech (`AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, or keychain `motion-use-azure` / `motion-use-azure-region`).
+  - `--engine elevenlabs|minimax|openai` use the built-in bridges; see [voice-casting.md](voice-casting.md) for keys and defaults.
+  - With no engine named: the service chosen with `motion-use voiceover use`, else the only configured service, else (several configured) voiceover stops and lists them; edge only when nothing is configured.
   - `--engine edge` uses the `edge-tts` CLI (`pip install edge-tts`): the same voices through Microsoft Edge's read-aloud service. Whether its audio may be published is not established, so treat it as a preview; `render` reminds you when a video uses it.
   - Default voices: `zh-CN-YunxiNeural` for `zh`, `en-US-AndrewMultilingualNeural` for `en`; set `voiceover.voices` for other languages or other voices.
   - Generated files are recorded in `<dir>/.motion-use-voiceover.json`. Running again regenerates only lines whose text, voice, rate or engine changed. A file motion-use did not generate (your own recording) is never replaced unless you pass `--force`.

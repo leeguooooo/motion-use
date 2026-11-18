@@ -15,6 +15,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { commandSpeech, speechCommandKey } from "./tts-command.mjs";
 import { splitSentences } from "./caption-plan.mjs";
+import { PROVIDER_NAMES, PREVIEW_NOTE, KeyInvalidError, bridgeSpeech, chooseEngine, credentialsFor, resolveModel, resolveVoice } from "./tts-providers.mjs";
+
+export const ENGINES = [...PROVIDER_NAMES, "edge", "command"];
+const BRIDGED = ["elevenlabs", "minimax", "openai"];
 
 export const DEFAULT_VOICES = { zh: "zh-CN-YunxiNeural", en: "en-US-AndrewMultilingualNeural" };
 export const MANIFEST = ".motion-use-voiceover.json";
@@ -28,16 +32,15 @@ export function ssml(text, voice, rate = "+0%") {
   return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${xml(lang)}"><voice name="${xml(voice)}"><prosody rate="${xml(rate)}">${xml(text)}</prosody></voice></speak>`;
 }
 
-export function pickEngine(requested) {
-  if (requested && !["azure", "edge", "command"].includes(requested)) throw new Error("unknown voiceover engine");
+/** The engine to use: the one asked for, else the user's choice / the configured provider / edge preview. */
+export function pickEngine(requested, options) {
+  if (requested && !ENGINES.includes(requested)) throw new Error(`unknown voiceover engine; one of: ${ENGINES.join(", ")}`);
   if (requested) return requested;
-  return process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION ? "azure" : "edge";
+  return chooseEngine(options).engine;
 }
 
 async function azure(text, voice, rate, out) {
-  const key = process.env.AZURE_SPEECH_KEY;
-  const region = process.env.AZURE_SPEECH_REGION;
-  if (!key || !region) throw new Error("the azure engine needs AZURE_SPEECH_KEY and AZURE_SPEECH_REGION");
+  const { key, region } = credentialsFor("azure");
   const res = await fetch(`https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`, {
     method: "POST",
     headers: {
@@ -49,6 +52,7 @@ async function azure(text, voice, rate, out) {
     body: ssml(text, voice, rate),
     signal: AbortSignal.timeout(60000),
   });
+  if (res.status === 401 || res.status === 403) throw new KeyInvalidError("azure", res.status);
   if (!res.ok) throw new Error(`Azure Speech returned ${res.status}${res.status === 429 ? "; rate limited: wait before retrying voiceover" : ""}`);
   fs.writeFileSync(out, Buffer.from(await res.arrayBuffer()));
 }
@@ -59,6 +63,7 @@ function azureTimed(text, voice, rate, out) {
   const r = spawnSync("uv", ["run", "--quiet", "--no-project", "--python", "3.12", "--with", "azure-cognitiveservices-speech==1.52.0", fileURLToPath(script)], {
     input: JSON.stringify({ ssml: ssml(text, voice, rate), out }), encoding: "utf8", timeout: 120000,
     maxBuffer: 8 * 1024 * 1024,
+    env: (({ key, region }) => ({ ...process.env, AZURE_SPEECH_KEY: key, AZURE_SPEECH_REGION: region }))(credentialsFor("azure")),
   });
   if (r.error || r.status !== 0) throw new Error(r.error?.code === "ENOENT" ? "--word-timing needs uv (and the optional pinned Azure Speech SDK)" : "Azure word timing failed; check the resource, voice, SDK and connection");
   return JSON.parse(r.stdout).words;
@@ -148,17 +153,23 @@ export async function generateVoiceover(brief, { langs = brief.languages, engine
   if (wordTiming && engine !== "azure") throw new Error("--word-timing currently requires --engine azure; imported cue timestamps remain available for other voices");
   const manifest = readVoManifest(vo.dir);
   const rows = [];
+  const model = BRIDGED.includes(engine) ? resolveModel(engine, vo) : vo.model;
+  let keyInvalid = null;
   for (const lang of langs) {
-    const voice = vo.voices[lang] ?? (engine === "command" ? null : DEFAULT_VOICES[lang]);
+    const voice = resolveVoice(engine, vo, lang);
     const rate = vo.rates[lang] ?? "+0%";
     for (const scene of brief.scenes) {
       const text = scene.narration?.[lang];
       if (!text) continue;
       const rel = path.join(lang, `${scene.id}.mp3`);
       const out = path.join(vo.dir, rel);
-      const row = { scene: scene.id, lang, file: out, engine, voice, ...(engine === "command" ? { model: vo.model, instructions: vo.instructions ?? "" } : {}) };
+      const row = { scene: scene.id, lang, file: out, engine, voice, ...(engine === "command" || BRIDGED.includes(engine) ? { model, instructions: vo.instructions ?? "" } : {}) };
+      if (keyInvalid) {
+        rows.push({ ...row, status: "error", error: keyInvalid, skipped: true });
+        continue;
+      }
       if (!voice) {
-        rows.push({ ...row, status: "error", error: `no voice for "${lang}"; set voiceover.voices.${lang}` });
+        rows.push({ ...row, status: "error", error: `no voice for "${lang}"; set voiceover.voices.${lang}${BRIDGED.includes(engine) ? ` or run motion-use voiceover use ${engine} --voice <id> --lang ${lang}` : ""}` });
         continue;
       }
       // Another recording for this scene (e.g. scene.wav) would be picked up instead of the mp3.
@@ -170,7 +181,7 @@ export async function generateVoiceover(brief, { langs = brief.languages, engine
       const rec = manifest[rel];
       const want = { text, engine, voice, rate, ...(engine === "command" ? {
         model: vo.model, instructions: vo.instructions ?? "", commandKey: speechCommandKey(vo.command ?? [], vo.commandCwd),
-      } : {}) };
+      } : BRIDGED.includes(engine) ? { model, instructions: vo.instructions ?? "" } : {}) };
       if (fs.existsSync(out)) {
         const mine = rec && rec.sha === sha(fs.readFileSync(out));
         if (!mine && !force) {
@@ -190,6 +201,7 @@ export async function generateVoiceover(brief, { langs = brief.languages, engine
         const generate = async () => {
           fs.rmSync(tmp, { force: true });
           if (engine === "azure") { if (wordTiming) words = azureTimed(text, voice, rate, tmp); else await azure(text, voice, rate, tmp); }
+          else if (BRIDGED.includes(engine)) await bridgeSpeech(engine, { text, voice, model, instructions: vo.instructions ?? "", rate, out: tmp });
           else if (engine === "command") commandSpeech(vo, { text, lang, voice, model: vo.model, instructions: vo.instructions ?? "", rate, output: tmp }, { allowCode });
           else cues = edge(text, voice, rate, tmp);
         };
@@ -199,7 +211,9 @@ export async function generateVoiceover(brief, { langs = brief.languages, engine
         fs.renameSync(tmp, out);
       } catch (e) {
         fs.rmSync(tmp, { force: true });
-        rows.push({ ...row, status: "error", error: sanitizeSpeechError(e.message), stale: fs.existsSync(out) });
+        // A rejected key fails every line the same way: stop at the first one.
+        if (e.keyInvalid) keyInvalid = e.message;
+        rows.push({ ...row, status: "error", error: sanitizeSpeechError(e.message), stale: fs.existsSync(out), ...(e.keyInvalid ? { keyInvalid: true } : {}) });
         continue;
       }
       manifest[rel] = { ...want, sha: sha(fs.readFileSync(out)), ...(cues?.length ? { cues } : {}), ...(words?.length ? { words } : {}) };
@@ -207,7 +221,7 @@ export async function generateVoiceover(brief, { langs = brief.languages, engine
     }
   }
   fs.writeFileSync(path.join(vo.dir, MANIFEST), JSON.stringify(manifest, null, 2) + "\n");
-  return { engine, rows };
+  return { engine, rows, ...(engine === "edge" ? { preview: true, note: PREVIEW_NOTE } : {}), ...(keyInvalid ? { keyInvalid } : {}) };
 }
 
 /** Voiceover files in use that came from the edge engine (for the publish warning in render). */
@@ -241,10 +255,13 @@ export function sanitizeSpeechError(message) {
 export function narrationFreshness(dir, file, text, config = {}, lang) {
   const record = readVoManifest(dir)[path.relative(dir, file)];
   if (!record) return { current: false, imported: true };
+  // With no engine named, any engine is current as long as its voice is the one it would use now.
+  const engine = config.engine ?? record.engine;
   const current = record.text === text && record.sha === sha(fs.readFileSync(file)) &&
-    record.voice === (config.voices?.[lang] ?? (config.engine === "command" ? null : DEFAULT_VOICES[lang])) &&
+    record.voice === resolveVoice(engine, config, lang) &&
     record.rate === (config.rates?.[lang] ?? "+0%") &&
     (!config.engine || record.engine === config.engine) &&
+    (!BRIDGED.includes(engine) || (record.model === resolveModel(engine, config) && record.instructions === (config.instructions ?? ""))) &&
     (config.engine !== "command" || (record.model === config.model && record.instructions === (config.instructions ?? "") && record.commandKey === speechCommandKey(config.command ?? [], config.commandCwd)));
   return { current, imported: false };
 }
@@ -253,7 +270,7 @@ export async function retrySpeech(run, { sleep = (ms) => new Promise((r) => setT
   for (let attempt = 0; ; attempt++) {
     try { return await run(); }
     catch (e) {
-      if (attempt >= 2 || !/\b429\b/.test(e.message)) throw e;
+      if (attempt >= 2 || e.keyInvalid || !/\b429\b/.test(e.message)) throw e;
       await sleep(1000 * 2 ** attempt);
     }
   }

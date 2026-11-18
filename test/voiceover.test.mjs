@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { validateBrief } from "../src/brief.mjs";
 import { parseSize } from "../src/cli.mjs";
 import { MANIFEST, generateVoiceover, pickEngine, ssml } from "../src/voiceover.mjs";
+import { discoverProviders } from "../src/tts-providers.mjs";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "motion-use-vo-"));
 fs.mkdirSync(path.join(tmp, "vo", "en"), { recursive: true });
@@ -55,15 +56,11 @@ test("generated audio whose text did not change is left alone", async () => {
 });
 
 test("azure is picked only when it is configured", () => {
-  const saved = { k: process.env.AZURE_SPEECH_KEY, r: process.env.AZURE_SPEECH_REGION };
-  delete process.env.AZURE_SPEECH_KEY;
-  assert.equal(pickEngine(), "edge");
-  process.env.AZURE_SPEECH_KEY = "k";
-  process.env.AZURE_SPEECH_REGION = "eastus";
-  assert.equal(pickEngine(), "azure");
+  const env = { MOTION_USE_KEYCHAIN: "0", MOTION_USE_CONFIG: "/nonexistent/motion-use.json" };
+  const opts = (e) => ({ providers: discoverProviders({ env: e, config: {} }), config: {} });
+  assert.equal(pickEngine(undefined, opts(env)), "edge");
+  assert.equal(pickEngine(undefined, opts({ ...env, AZURE_SPEECH_KEY: "k", AZURE_SPEECH_REGION: "eastus" })), "azure");
   assert.equal(pickEngine("edge"), "edge");
-  if (saved.k === undefined) delete process.env.AZURE_SPEECH_KEY; else process.env.AZURE_SPEECH_KEY = saved.k;
-  if (saved.r === undefined) delete process.env.AZURE_SPEECH_REGION; else process.env.AZURE_SPEECH_REGION = saved.r;
 });
 
 test("sizes parse in decimal megabytes", () => {
