@@ -127,7 +127,7 @@ brief 是一组场景：`title`、`terminal`、`steps`、`diagram`、`features`�
 ## 你能得到什么
 
 - **两种风格。** `promo`：深色、带光效，每个节拍有音效。`explainer`：浅色纸面、节奏平稳，步骤依次高亮，流程图的箭头逐条画出。`theme.accent` 设定品牌色。
-- **旁白。** 把录音放进 `voiceover/<语言>/<场景 id>.mp3`，或者给每个场景写 `narration`，再运行 `motion-use voiceover`（Azure AI Speech，或作为预览的 edge-tts）。场景会自动拉长以容纳旁白，旁白之间不会重叠。没有旁白也能出片，只有配乐。
+- **旁白。** 把录音放进 `voiceover/<语言>/<场景 id>.mp3`，或者给每个场景写 `narration`，再运行 `motion-use voiceover`（本机配置过的服务都能用：Azure AI Speech、ElevenLabs、MiniMax、OpenAI TTS；一个都没配时才退回 edge-tts 预览声音）。场景会自动拉长以容纳旁白，旁白之间不会重叠。没有旁白也能出片，只有配乐。
 - **像样的封面。** 第 0 帧就是做好的第一个场景，播放器和信息流显示的是缩略图而不是黑帧；`render` 也会单独输出封面 PNG。
 - **真实素材。** `video` 场景播放你自己的录屏（可剪切、加速）；`image` 场景展示截图或用 [image-use](https://github.com/leeguooooo/image-use) 生成的插图。两者都能高亮一个区域（其余部分压暗）并放大。
 - **你的品牌。** 封面、片尾和（可选）每个场景上的 logo；带对比度检查的完整配色；你自己的字体，按每个视频用到的字裁剪，附带许可证。
@@ -154,7 +154,7 @@ motion-use 是一个 Node.js 程序，带一个可选的原生渲染器：影片
 |---|---|
 | `init [dir]` | 默认创建导演模式项目；`--mode template` 选择模板 brief：`--style`、`--name`、`--lang zh,en`、`--format landscape,vertical` |
 | `validate [brief]` | 检查 brief、文件、旁白长度和字形覆盖；打印时间线 |
-| `voiceover [brief]` | 按场景的 `narration` 生成语音：`azure`、`edge` 预览或 `command` 外部模型；`voiceover audition` 同稿试读，`voiceover check` 把旁白转成文字，标出读错的地方 |
+| `voiceover [brief]` | 按场景的 `narration` 生成语音：`azure` / `elevenlabs` / `minimax` / `openai`（key 读环境变量或系统钥匙串）、`edge` 预览或 `command` 外部模型；`voiceover providers` 实测 key，`voiceover use` 记住选定的声音；`voiceover audition` 同稿试读，`voiceover check` 把旁白转成文字，标出读错的地方 |
 | `still [brief]` | 关键帧和联系表；`--at 1.5,4` 指定秒数，`--beats 4` 每小节一帧；`--onion 1.2-2` 把一段动作的若干帧叠成一张图，看间距判断缓动；绘制代码在帧之间留了状态时会警告 |
 | `render [brief]` | 每种语言 × 画幅一个 MP4，外加封面 PNG；`--quality draft\|standard\|high`、`--target github` / `--max-size 9MB`；`--release` 出平台母版和清单，`--snapshot <id>` 原样重渲染之前的版本，`--gate` 旁白被标出、文字出画或叠字时失败 |
 | `verify <mp4>` | 解码并测量交付的视频：检查帧、音频、运动指标；`--gate` 红灯时失败，`--loop` 检查循环接缝，`--manifest` 确认文件就是当前发布母版 |

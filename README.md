@@ -104,7 +104,7 @@ Full schema: [references/brief.md](references/brief.md). Examples: [examples/](e
 ## What you get
 
 - **Two looks.** `promo`: dark, glowing, a sound on every beat. `explainer`: light paper, calm, steps that highlight in turn and diagrams that draw their arrows. `theme.accent` sets your brand color.
-- **Voiceover.** Put recordings at `voiceover/<lang>/<scene-id>.mp3`, or write `narration` per scene and run `motion-use voiceover` (Azure AI Speech, or edge-tts as a preview). Each scene grows to fit its narration; narrations never overlap. Without any, the video still renders, with music.
+- **Voiceover.** Put recordings at `voiceover/<lang>/<scene-id>.mp3`, or write `narration` per scene and run `motion-use voiceover` (any configured service: Azure AI Speech, ElevenLabs, MiniMax, OpenAI TTS; edge-tts only as a preview when none is configured). Each scene grows to fit its narration; narrations never overlap. Without any, the video still renders, with music.
 - **A real cover.** Frame 0 is the finished first scene, so players and feeds show a thumbnail instead of a black frame; `render` also writes it as a PNG.
 - **Real footage.** `video` scenes play your own screen recordings (trimmed, sped up); `image` scenes show screenshots or illustrations made with [image-use](https://github.com/leeguooooo/image-use). Both can highlight a region (everything else dims) and zoom into it.
 - **Your brand.** Logo on the cover, end card and (optionally) every scene; a full color palette with contrast checks; your own fonts, subset per video, with their license.
@@ -131,7 +131,7 @@ The installer downloads the release archive and its `.sha256` from GitHub, verif
 |---|---|
 | `init [dir]` | Directed film by default; `--mode template` selects a starter brief: `--style`, `--name`, `--lang zh,en`, `--format landscape,vertical` |
 | `validate [brief]` | Check the brief, files, voiceover lengths and glyph coverage; print timelines |
-| `voiceover [brief]` | Speak each scene's `narration`: `--engine azure` (licensed) or `edge` (preview); `voiceover check` transcribes the clips and flags misreads |
+| `voiceover [brief]` | Speak each scene's `narration`: `--engine azure\|elevenlabs\|minimax\|openai` (keys from env or the macOS keychain), `edge` (preview) or `command`; `voiceover providers` verifies keys, `voiceover use` remembers your voice; `voiceover check` transcribes the clips and flags misreads |
 | `still [brief]` | Keyframes and a contact sheet; `--at 1.5,4` for exact seconds, `--beats 4` one frame per bar; `--onion 1.2-2` stacks a move's frames into one PNG to judge its spacing; warns when film drawing keeps state between frames |
 | `render [brief]` | MP4 per language × format, plus a cover PNG; `--quality draft\|standard\|high`, `--target github` / `--max-size 9MB`; `--release` platform masters + manifest, `--snapshot <id>` re-render an earlier cut, `--gate` fail on flagged narration, off-frame text or overlapping text |
 | `verify <mp4>` | Decode and measure a delivered video: review frames, audio, motion lights; `--gate` fails on red, `--loop` checks the loop seam, `--manifest` checks a file is the current release master |

@@ -125,7 +125,7 @@ For quick information cards or an existing `brief.json`: `motion-use init <dir> 
 
 - Rendering is local; narration generation uses the voice service. Update checks run at most daily (`MOTION_USE_NO_UPDATE_CHECK=1` disables them).
 - Preserve user files; motion-use never overwrites outputs it did not write. Do not run two jobs on the same output folder.
-- Missing edge-tts: `uv tool install edge-tts`, then retry. Never disable narration as a workaround. edge-tts is a preview voice; public videos need suitably licensed speech (Azure).
+- Missing edge-tts: `uv tool install edge-tts`, then retry. Never disable narration as a workaround. edge-tts is a preview voice (预览声音，不能交付); public videos need a configured service. `motion-use voiceover providers` lists every configured service (env, keychain, user config) with a live key check; `motion-use voiceover use <azure|elevenlabs|minimax|openai> --voice <id>` remembers the choice for every project. When several are configured and none chosen, voiceover stops and asks: pick with the user, never silently fall back to edge. A `key invalid` error means replace the key, not retry.
 - Install and update through GitHub Releases; `motion-use upgrade` refreshes the CLI and this skill.
 
 ## Tutorial and script review

@@ -40,8 +40,9 @@ import {
   edgeAvailable,
   edgeGenerated,
   generateVoiceover,
-  pickEngine,
+  ENGINES as VO_ENGINE_NAMES,
 } from "./voiceover.mjs";
+import { PROVIDERS, PROVIDER_NAMES, PREVIEW_NOTE, chooseEngine, configureHint, discoverProviders, readUserConfig, userConfigPath, validateProvider, writeUserVoice } from "./tts-providers.mjs";
 import {
   FILM_FORMATS,
   buildFilm,
@@ -110,7 +111,9 @@ Usage: motion-use <command> [options]
                       --plan writes the request only; --response <json> imports a saved review
   redact <image> --box x,y,w,h [--box ...] --out <new.png>  Blur private screenshot regions
   validate [brief]    Check a brief: fields, files, voiceover lengths, characters the fonts cannot draw
-  voiceover [brief]   Speak each scene's "narration" into voiceover/<lang>/<scene-id>.mp3 (--engine azure|edge|command)
+  voiceover [brief]   Speak each scene's "narration" into voiceover/<lang>/<scene-id>.mp3 (--engine azure|elevenlabs|minimax|openai|edge|command)
+  voiceover providers  List the voice services configured on this machine (env, keychain, user config) and verify each key
+  voiceover use <provider> --voice <id> [--lang zh] [--model m]  Remember the voice service and voice for every project
   voiceover audition <plan.json> --out <fresh-dir>  Compare same-script samples; listening remains UNREVIEWED
   voiceover check     Transcribe every narration clip (whisper via uv) and compare it with its script:
                       catches misread acronyms ("AI" as "A-A-I") and polyphones (重试 heard as 重视)
@@ -247,6 +250,8 @@ export async function main(argv) {
         film: { type: "boolean" },
         command: { type: "string" },
         model: { type: "string" },
+        voice: { type: "string" },
+        offline: { type: "boolean" },
         response: { type: "string" },
         box: { type: "string", multiple: true },
         sigma: { type: "string" },
@@ -802,8 +807,8 @@ async function render(o, [briefPath]) {
     o.range = { from, to };
   }
   if (isFilm(briefPath)) {
-    if (o.engine && !["edge", "azure", "command"].includes(o.engine))
-      return fail("--engine must be azure, edge or command", o.json);
+    if (o.engine && !VO_ENGINE_NAMES.includes(o.engine))
+      return fail(`--engine must be one of: ${VO_ENGINE_NAMES.join(", ")}`, o.json);
     if (!o["allow-code"])
       return fail(
         "this film executes authored drawing code; pass --allow-code only for a project you wrote or trust",
@@ -886,8 +891,8 @@ async function render(o, [briefPath]) {
           printReport({ errors: checked.errors, warnings: [], timelines: [] });
         return 1;
       }
-      if (o.engine && !["azure", "edge", "command"].includes(o.engine))
-        return fail("--engine must be azure, edge or command", o.json);
+      if (o.engine && !VO_ENGINE_NAMES.includes(o.engine))
+        return fail(`--engine must be one of: ${VO_ENGINE_NAMES.join(", ")}`, o.json);
       const generated = await generateVoiceover(checked.brief, {
         langs: list(o.lang) ?? checked.brief.languages,
         engine: o.engine,
@@ -963,7 +968,7 @@ async function render(o, [briefPath]) {
         : edgeGenerated(brief, proj.lang);
       if (edgeFiles.length && !o.json)
         console.error(
-          `motion-use: ${id} uses ${edgeFiles.length} voiceover file(s) made with edge-tts: preview quality, and whether they may be published is not established. For a public video, regenerate with --engine azure.`,
+          `motion-use: ${id} uses ${edgeFiles.length} voiceover file(s) made with edge-tts: preview quality, and whether they may be published is not established. ${PREVIEW_NOTE}. For a public video, regenerate with a configured provider (motion-use voiceover providers).`,
         );
       if (proj.range) {
         const { from, to } = proj.range,
@@ -1606,6 +1611,8 @@ function fitSize(file, max, workDir) {
 
 async function voiceover(o, [briefPath, ...rest]) {
   if (briefPath === "check") return voiceoverCheck(o, rest);
+  if (briefPath === "providers") return voiceoverProviders(o);
+  if (briefPath === "use") return voiceoverUse(o, rest);
   if (briefPath === "audition") {
     if (rest.length !== 1) return fail("voiceover audition <plan.json> --out <fresh-directory>", o.json);
     const result = await auditionVoices(rest[0], o.out, { allowCode: Boolean(o["allow-code"]) });
@@ -1622,8 +1629,8 @@ async function voiceover(o, [briefPath, ...rest]) {
       return 1;
     }
     warnScriptDrift(c);
-    if (o.engine && !["edge", "azure", "command"].includes(o.engine))
-      return fail("--engine must be azure, edge or command", o.json);
+    if (o.engine && !VO_ENGINE_NAMES.includes(o.engine))
+      return fail(`--engine must be one of: ${VO_ENGINE_NAMES.join(", ")}`, o.json);
     o._progress?.("tts", "start");
     const res = await generateFilmNarration(c.film, {
       langs: c.langs,
@@ -1643,6 +1650,7 @@ async function voiceover(o, [briefPath, ...rest]) {
           {
             ok,
             engine: res.engine,
+            ...(res.preview ? { preview: true, note: res.note } : {}),
             files: res.rows.map((row) => {
               const track = row.status !== "error" && post.film.tracks.find((a) => a.id === row.scene && a.lang === row.lang && a.role === "voiceover");
               const window = post.film.narrationPlans.find((p) => p.id === row.scene);
@@ -1661,6 +1669,7 @@ async function voiceover(o, [briefPath, ...rest]) {
         console.log(
           `${row.status}: ${row.lang}/${row.scene}${row.error ? ": " + row.error : ""}`,
         );
+      if (res.preview) console.error(`note: ${res.note}. No voice service is configured; see motion-use voiceover providers.`);
       if (!post.ok) printReport(post.report);
     }
     return ok ? 0 : 1;
@@ -1676,8 +1685,8 @@ async function voiceover(o, [briefPath, ...rest]) {
     else printReport({ errors, warnings, timelines: [] });
     return 1;
   }
-  if (o.engine && !["azure", "edge", "command"].includes(o.engine))
-    return fail("--engine must be azure, edge or command", o.json);
+  if (o.engine && !VO_ENGINE_NAMES.includes(o.engine))
+    return fail(`--engine must be one of: ${VO_ENGINE_NAMES.join(", ")}`, o.json);
   const langs = list(o.lang) ?? brief.languages;
   if (!brief.scenes.some((s) => s.narration))
     return fail(
@@ -1695,7 +1704,7 @@ async function voiceover(o, [briefPath, ...rest]) {
   if (o.json)
     console.log(
       JSON.stringify(
-        { ok: failed.length === 0, engine: res.engine, files: res.rows, errors: failed.map((r) => ({ scene: r.scene, lang: r.lang, message: r.error })) },
+        { ok: failed.length === 0, engine: res.engine, ...(res.preview ? { preview: true, note: res.note } : {}), files: res.rows, errors: failed.map((r) => ({ scene: r.scene, lang: r.lang, message: r.error })) },
         null,
         2,
       ),
@@ -1707,7 +1716,7 @@ async function voiceover(o, [briefPath, ...rest]) {
       );
     if (res.engine === "edge")
       console.error(
-        "note: edge-tts is preview quality and its audio is not cleared for publishing; for a public video use --engine azure (AZURE_SPEECH_KEY, AZURE_SPEECH_REGION).",
+        `note: ${PREVIEW_NOTE}. No voice service is configured; see motion-use voiceover providers.`,
       );
   }
   return failed.length ? 1 : 0;
@@ -2168,6 +2177,50 @@ function contactSheet(pngs, out, fmt) {
   return fs.existsSync(out);
 }
 
+/** Configured voice services with a live key check, and the engine `voiceover` would pick. */
+async function providerReport(o) {
+  const user = readUserConfig();
+  const found = discoverProviders();
+  const rows = await Promise.all(found.map(async (p) => {
+    const base = { provider: p.provider, label: p.label, source: p.source, selected: user.voiceover?.provider === p.provider };
+    if (!p.complete) return { ...base, ok: false, detail: `${p.source}; missing ${p.missing.join(", ")}: ${configureHint(p.provider)}` };
+    if (o.offline) return { ...base, ok: true, verified: false, detail: `${p.source}; key not verified (--offline)` };
+    const v = await validateProvider(p.provider, p.cred);
+    return { ...base, ok: v.ok, verified: v.ok, ...(v.keyInvalid ? { keyInvalid: true } : {}), detail: `${p.source}; ${v.detail}` };
+  }));
+  for (const name of PROVIDER_NAMES)
+    if (!found.some((p) => p.provider === name))
+      rows.push({ provider: name, label: PROVIDERS[name].label, ok: false, configured: false, detail: `not configured (optional): ${configureHint(name)}` });
+  let def, choices = null;
+  try {
+    const usable = found.filter((p) => rows.find((r) => r.provider === p.provider)?.ok);
+    def = chooseEngine({ providers: usable, config: user }).engine;
+  } catch (e) { def = null; choices = e.choices; }
+  return { rows, default: def ?? `choose one of ${choices.join(", ")} (motion-use voiceover use <provider> --voice <id>)`, choices, selected: user.voiceover ?? null, config: userConfigPath() };
+}
+
+async function voiceoverProviders(o) {
+  const rep = await providerReport(o);
+  if (o.json) console.log(JSON.stringify({ ok: true, ...rep }, null, 2));
+  else {
+    for (const r of rep.rows) console.log(`${r.ok ? "ok  " : r.keyInvalid ? "BAD " : "--  "} ${r.provider.padEnd(11)} ${r.selected ? "(selected) " : ""}${r.detail}`);
+    console.log(`selected: ${rep.selected ? `${rep.selected.provider} ${JSON.stringify(rep.selected.voices ?? {})}` : "none"} (${rep.config})`);
+    console.log(`voiceover will use: ${rep.default}${rep.default === "edge" ? ` — ${PREVIEW_NOTE}` : ""}`);
+  }
+  return 0;
+}
+
+async function voiceoverUse(o, [provider]) {
+  if (!provider) return fail("voiceover use <provider> --voice <id> [--lang zh] [--model m]", o.json);
+  const lang = o.lang ?? "zh";
+  if (provider !== "edge" && !o.voice && !readUserConfig().voiceover?.voices?.[lang] && !PROVIDERS[provider]?.voices?.[lang] && provider !== "azure")
+    return fail(`--voice <id> is required for ${provider}`, o.json);
+  const res = writeUserVoice({ provider, voices: o.voice ? { [lang]: o.voice } : {}, model: o.model });
+  if (o.json) console.log(JSON.stringify({ ok: true, ...res }, null, 2));
+  else console.log(`voiceover: ${provider}${o.voice ? ` voice ${o.voice} (${lang})` : ""} remembered in ${res.file}`);
+  return 0;
+}
+
 async function doctor(o) {
   const checks = [];
   const disk = diskSpace(o.out ?? process.cwd());
@@ -2230,10 +2283,8 @@ async function doctor(o) {
     );
   // The native renderer is optional: without it films render in Chrome.
   const native = findRenderer();
-  // Voiceover engines are optional: reported, never a failure.
-  const azureReady = Boolean(
-    process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION,
-  );
+  // Voiceover engines are optional: reported, never a failure. Each configured key is verified.
+  const voice = await providerReport(o);
   const optional = [
     {
       name: "renderer native",
@@ -2242,13 +2293,7 @@ async function doctor(o) {
         ? `not installed (optional; films render in Chrome): ${native.missing}`
         : `motion-render ${native.version} (${native.bin})${native.caps.webgl ? `; WebGL on ANGLE (${native.caps.gl?.backend ?? "?"})` : `; WebGL films render in Chrome${native.caps.webgl_error ? ` (${native.caps.webgl_error})` : ""}`}${native.note ? `; ${native.note}` : ""}`,
     },
-    {
-      name: "voiceover azure",
-      ok: azureReady,
-      detail: azureReady
-        ? `region ${process.env.AZURE_SPEECH_REGION}`
-        : "not configured (optional): set AZURE_SPEECH_KEY and AZURE_SPEECH_REGION",
-    },
+    ...voice.rows.map((p) => ({ name: `voiceover ${p.provider}`, ok: p.ok, detail: p.detail, ...(p.keyInvalid ? { keyInvalid: true } : {}) })),
     {
       name: "voiceover edge",
       ok: edgeAvailable(),
@@ -2257,7 +2302,7 @@ async function doctor(o) {
         : "not installed (optional): pip install edge-tts",
     },
   ];
-  const defaultEngine = pickEngine();
+  const defaultEngine = voice.default;
   const ok = checks.every((c) => c.ok);
   if (o.json)
     console.log(
@@ -2280,7 +2325,7 @@ async function doctor(o) {
         `${c.ok ? "ok  " : "FAIL"} ${c.name.padEnd(28)} ${c.detail}${c.fix ? `\n     fix: ${c.fix}` : ""}`,
       );
     for (const c of optional)
-      console.log(`${c.ok ? "ok  " : "--  "} ${c.name.padEnd(28)} ${c.detail}`);
+      console.log(`${c.ok ? "ok  " : c.keyInvalid ? "BAD " : "--  "} ${c.name.padEnd(28)} ${c.detail}`);
     console.log(`disk available: ${(disk.available_bytes / 1024 ** 3).toFixed(2)} GiB (observed; use preflight <film> for an estimate)`);
     console.log(`voiceover default engine: ${defaultEngine}`);
     console.log(ok ? "all good" : "some checks failed");
