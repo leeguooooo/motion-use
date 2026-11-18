@@ -20,7 +20,7 @@ The opening depends on where people hear it. Set `brief.setting` (`motion-use in
 |---|---|---|
 | `feed-short` (default when absent) | a clip in a feed, three seconds to earn attention | the first line is said while pointing at the picture |
 | `launch` | a product film for people seeing it the first time | also opens on the picture |
-| `meeting-explainer` | a colleague presenting in a review meeting or an internal walkthrough | say what today is about, where people are stuck, how you will explain it; no hook |
+| `meeting-explainer` | a colleague presenting in a review meeting or an internal walkthrough | say what today is about, then the approach itself; no hook, no outline preview |
 | `course` | a lesson | say what the listener will be able to do, then start |
 
 **"The first line points at the picture" is a short-video rule, not a rule for every film.** In a review meeting nobody opens with a hook and answers their own question. For `meeting-explainer` and `course`, `script lint` drops `opening-quantity` / `opening-rule` and instead reports `opening-hook` (a question in the first shot) and `rhetorical-question` (two or more questions in the script); `script review` swaps the reviewer persona and the opening rule. `brief.speaker` (for example 「团队里的资深同事」) names who is talking; the review prompt speaks as that person with `brief.tone`.
@@ -29,7 +29,7 @@ Same content, two openings:
 
 > feed-short: 你看这颗骰子。点下去，点数当场就出，棋子跟着就走。
 >
-> meeting-explainer: 今天讲对局的校验方案。大家最常问的是：客户端先出结果，服务端怎么还能定名次。我先讲开局那一步，再讲每一步怎么对账。
+> meeting-explainer: 今天讲对局的校验方案。人机局整局由客户端在本地算完；开局时服务端发种子，打完服务端用同一个种子重算，名次以重算为准。
 
 ## How a script turns into a machine voice
 
@@ -81,6 +81,21 @@ A script rewritten only to avoid the patterns above tends to grow new ones. In t
 | A conclusion stronger than the rule | 「停错就没积分了」 when it only halves them, 「全看自觉」 when photos are checked | say what the rule does: 「停错了积分减半」 |
 | Switching who "you" is | 「用户要做的是…」 then 「你停好拍一张」 then 「我们出接口」 | one name for the player throughout; "we" only for the team |
 
+Removing the short-video hook tends to produce the presenter's templates instead. `script lint` reports each one (high priority for `meeting-explainer` and `course`, a warning elsewhere):
+
+| Rule | Example | Instead |
+|---|---|---|
+| `setup-question` | 「大家问得最多的是同一个问题：……怎么还能算对。」「为什么……？答案是……」 | say the answer as the first sentence |
+| `outline-preview` | 「我先把这件事讲清楚，再讲客户端要做什么」「接下来讲三部分」「最后总结一下」 | delete it; start with the first point |
+| `signpost` | 「这里有个细节要注意。」「这里有一个漏洞需要堵。」「发奖是这样走的。」 | delete the sentence; the next one is the content |
+| `count-frame` | 「三件事」「两处要小心：第一……第二……」 | drop the count; say the items as connected sentences |
+
+Same paragraph, outline-and-setup vs. direct:
+
+> 提纲 + 设问: 今天讲人机局。大家问得最多的是同一个问题：服务端基本不参与，名次怎么还能算对。我先把这件事讲清楚，再讲客户端要做什么。这里有个细节要注意。
+>
+> 直接讲: 人机局整局由客户端在本地算完；开局时服务端发种子，打完服务端用同一个种子重算，名次以重算为准。所以客户端要把每一步的输入原样记下来，打完一起上报。
+
 The test that catches both layers: read it aloud as the stated speaker to the stated audience. If a colleague would ask "why are you talking like that?", rewrite the line.
 
 Do not invent facts to sound specific. A missing number stays missing; a vivid example must be true (motion-use's script review keeps a list of new-fact candidates for this reason).
@@ -118,6 +133,10 @@ The fact pass can only check what it is shown. `brief.facts` is a summary; when 
 | `semicolon-chain` | two or more semicolons in one shot's narration |
 | `written-register` | a written-register word from the table above |
 | `frame-open` | two or more shots open by announcing a count or a numbered item (「有两个条件」「第一样是」 / "there are three", "first,") |
+| `setup-question` | a line poses a question to answer it (「问得最多的是…问题：」, a question followed by 「答案是 / 原因是」 / "the question everyone asks") |
+| `outline-preview` | a line previews the outline (「我先讲…再…」「接下来讲」「最后总结一下」 / "first I'll…", "to sum up") |
+| `signpost` | a short sentence that only announces what follows (「这里有个细节要注意」「X 是这样走的」 / "here's how X works") |
+| `count-frame` | a line counts items before giving them (「三件事」「两处要小心：」, 「第一…第二…」 / "two things to watch", "first, … second") |
 | `filler` | two or more fillers that sound spoken but point at nothing (「这块」「记住…就行」「说白了」 / "basically", "just remember") |
 | `symmetric-pair` | two or more matched clause pairs (same opening, same length) |
 | `audience-drift` | the script says "you" twice or more and also names the role (玩家 / 用户 / player / user) twice or more |
