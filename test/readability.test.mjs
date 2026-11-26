@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { contrastRuns, describeText, probeText, readingRuns, readingSeconds } from "../src/text-probe.mjs";
+import { busyRuns, contrastRuns, describeText, probeText, readingRuns, readingSeconds } from "../src/text-probe.mjs";
 import { measureMotion, gradeMotion } from "../src/motion-check.mjs";
 import { initFilm, checkFilm, buildFilm, validateFilm } from "../src/film.mjs";
 import { runHyperframes } from "../src/hf.mjs";
@@ -207,3 +207,64 @@ test("contrast check on a real film: a wide halo is judged as the backdrop; a ha
   }
 });
 
+
+test("busy check: a large title over a picture full of edges is flagged with its worst moment; calm pictures, fades and flashes pass (#131)", () => {
+  const title = (edges, extra = {}) => box("一句话做完", 300, 200, 1600, 360, { busy: { edges, spread: 90 }, ...extra });
+  const runs = busyRuns(every(3, (t) => [t >= 1 && t < 2 && title(t < 1.5 ? 0.12 : 0.18), t >= 2 && title(0.02)]));
+  assert.deepEqual(runs.map((r) => [r.kind, r.text, r.from, r.to, r.edges, r.at]), [["busy", "一句话做完", 1, 1.9, 0.18, 1.5]]);
+  const line = describeText({ runs })[0];
+  assert.match(line, /large text over a busy picture 1–1.9s \(18% edge cells under it at 1.5s; the shot may have its own words there\): "一句话做完"/);
+  assert.match(line, /pick another shot, move the text, or put a plate or dark band under it \(still --at 1.5\)/);
+  // A halo pass and its fill are one title; under 6% is calm; a fade-in and a one-frame flash are not judged.
+  const pass = busyRuns(
+    every(3, (t) => [
+      box("calm", 0, 0, 900, 120, { busy: { edges: 0.05, spread: 30 } }),
+      box("fading", 0, 200, 900, 320, { busy: { edges: 0.3, spread: 90 }, alpha: 0.5 }),
+      t === 1 && box("flash", 0, 400, 900, 520, { busy: { edges: 0.3, spread: 90 } }),
+      box("small, not measured", 0, 600, 100, 620),
+    ]),
+  );
+  assert.deepEqual(pass, []);
+});
+
+test("busy check on a real film: a title over a shot with its own big words is flagged; gradient, halo and plate are not (#131)", { timeout: 180000 }, async (t) => {
+  if (!(await chrome())) return t.skip("no Chrome for rendering");
+  const dir = temp();
+  initFilm({ lang: "zh", format: "landscape" }, dir);
+  const file = path.join(dir, "film.json");
+  const data = JSON.parse(fs.readFileSync(file, "utf8"));
+  Object.assign(data, { voiceover: false, music: "none", duration: 4, shots: [{ id: "only", start: 0, end: 4, purpose: "probe", action: "hook titles over shots" }] });
+  fs.writeFileSync(file, JSON.stringify(data));
+  // The shots are pictures (an offscreen canvas, like decoded footage), so their words are pixels.
+  fs.writeFileSync(
+    path.join(dir, "composition", "draw.js"),
+    `const shot = (w, h, words) => {
+      const o = document.createElement("canvas"); o.width = w; o.height = h; const g = o.getContext("2d");
+      const gr = g.createLinearGradient(0, 0, w, h); gr.addColorStop(0, "#203040"); gr.addColorStop(1, "#d08040");
+      g.fillStyle = words ? "#f4f4f4" : gr; g.fillRect(0, 0, w, h);
+      if (words) { g.fillStyle = "#111"; g.font = '700 ' + Math.round(h * 0.22) + 'px "Film Sans"'; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("全选。", w / 2, h * 0.3); }
+      return o;
+    };
+    let shots;
+    window.drawFrame = function (c, t, film, view, M) {
+      shots = shots || [shot(view.width, view.height, false), shot(view.width, view.height, true)];
+      const k = Math.floor(t);
+      c.drawImage(shots[k === 1 || k === 3 ? 1 : 0], 0, 0);
+      if (k === 3) { c.fillStyle = "rgba(0,0,0,0.9)"; c.fillRect(0, view.height * 0.18, view.width, view.height * 0.24); }
+      const title = ["渐变底上的标题", "压在全选两个字上", "描边标题", "压了底板"][k];
+      if (k === 2) {
+        c.font = '800 108px "Film Sans"'; c.textAlign = "center"; c.textBaseline = "middle"; c.lineJoin = "round";
+        c.strokeStyle = "#000000"; c.lineWidth = 16; c.strokeText(title, view.width / 2, view.height * 0.3);
+        c.fillStyle = "#ffffff"; c.fillText(title, view.width / 2, view.height * 0.3);
+      } else M.text(c, title, view.width / 2, view.height * 0.3, 108, "#ffffff", 800, "center");
+    };`,
+  );
+  const c = checkFilm(file, {});
+  assert.deepEqual(c.report.errors, []);
+  const proj = await buildFilm(c.film, "zh", "landscape", path.join(dir, "out", ".build", "probe"));
+  const r = await probeText(proj.dir, proj.total);
+  assert.equal(r.skipped, undefined, r.skipped);
+  const busy = r.runs.filter((x) => x.kind === "busy");
+  assert.deepEqual(busy.map((x) => x.text), ["压在全选两个字上"], JSON.stringify(r.runs));
+  assert.ok(busy[0].from >= 0.9 && busy[0].to <= 2 && busy[0].edges >= 0.1, JSON.stringify(busy[0]));
+});

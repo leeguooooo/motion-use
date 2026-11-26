@@ -301,6 +301,42 @@ export function contrastRuns(samples, { step = 0.1, minRun = 0.3, alpha = 0.9 } 
   return runs.sort((a, b) => a.from - b.from);
 }
 
+// A large string over a picture with its own words or hard detail under it: the hook of a model
+// comparison laid its title over a shot that already showed "全选。" in big letters (issue #131).
+// The probe gives each large string (≥ 5% of the frame's short side) the share of edge cells
+// under it (brightness steps of more than 40 of 255 between neighbouring cells of a 64-wide grid)
+// and the brightness spread. Measured in Chrome (2026-11): flat colour, gradients, fine grain and a
+// plate under the title 0%; landscape photos 3–5%; an editor screenshot 7% (landscape) to 27%
+// (portrait); big letters in the shot 16–18%; striped rock 27%. Warns from 6%.
+export const BUSY_EDGES = 0.06;
+export function busyRuns(samples, { step = 0.1, minRun = 0.2, alpha = 0.9, edges = BUSY_EDGES } = {}) {
+  const open = new Map(),
+    runs = [];
+  const close = (key) => {
+    const r = open.get(key);
+    open.delete(key);
+    if (r.to - r.from + step >= minRun - 1e-6) runs.push({ ...r, from: +r.from.toFixed(2), to: +r.to.toFixed(2) });
+  };
+  for (const s of samples) {
+    const seen = new Set();
+    for (const b of s.boxes) {
+      if (!b.busy || (b.alpha ?? 1) < alpha || b.busy.edges < edges || seen.has(b.text)) continue;
+      seen.add(b.text);
+      const r = open.get(b.text);
+      if (r && s.t - r.to <= step * 1.5) {
+        r.to = s.t;
+        if (b.busy.edges > r.edges) Object.assign(r, { edges: b.busy.edges, spread: b.busy.spread, at: s.t });
+      } else {
+        if (r) close(b.text);
+        open.set(b.text, { kind: "busy", text: b.text, from: s.t, to: s.t, at: s.t, edges: b.busy.edges, spread: b.busy.spread });
+      }
+    }
+    for (const key of [...open.keys()]) if (!seen.has(key)) close(key);
+  }
+  for (const key of [...open.keys()]) close(key);
+  return runs.sort((a, b) => a.from - b.from);
+}
+
 function serve(dir) {
   const root = path.resolve(dir);
   const server = http.createServer((req, res) => {
@@ -379,6 +415,7 @@ export async function probeText(projDir, duration, { step = 0.1, minRun = 0.3, n
         // the frame-accurate samples time when a line appears and goes
         ...readingRuns(dense, { width: meta.width, height: meta.height }).filter((r) => !ranges || windows.some(([a,b]) => r.from > a + step && r.to < b - step)),
         ...contrastRuns(all, { step, minRun }),
+        ...busyRuns(all, { step }),
       ].sort((a, b) => a.from - b.from),
       page_errors: errors.slice(0, 5),
       renderer: native ? "native" : "chrome",
@@ -401,7 +438,9 @@ export function describeText(check) {
       ? `text drawn over other text ${r.from}–${r.to}s (${Math.round(r.overlap * 100)}% of the smaller box): ${q(r.text)} × ${q(r.other)}`
       : r.kind === "reading"
         ? `text on screen ${r.from}–${r.to}s for ${r.seconds}s, needs ${r.required}s to read (${READING_RULE}): ${q(r.text)}`
-        : r.kind === "contrast"
+        : r.kind === "busy"
+          ? `large text over a busy picture ${r.from}–${r.to}s (${Math.round(r.edges * 100)}% edge cells under it at ${r.at}s; the shot may have its own words there): ${q(r.text)}; pick another shot, move the text, or put a plate or dark band under it (still --at ${r.at})`
+          : r.kind === "contrast"
           ? `low contrast ${r.contrast}:1 ${r.from}–${r.to}s, ${r.color} on ${r.backdrop} (WCAG ${r.need}:1 for ${r.large ? "large" : "normal"} text; large = 24 px+, or 18.66 px+ bold): ${q(r.text)}`
           : `text ${r.kind === "frame" ? "runs off the frame" : "leaves the portrait safe area"} (${r.sides.join("/")}, ${r.overflow_px}px) ${r.from}–${r.to}s: ${q(r.text)}`;
   // Reading and contrast notes can be many on a busy film; the report keeps every one.
@@ -409,9 +448,9 @@ export function describeText(check) {
     count = {};
   for (const r of check.runs) {
     count[r.kind] = (count[r.kind] ?? 0) + 1;
-    if (!["reading", "contrast"].includes(r.kind) || count[r.kind] <= 8) out.push(line(r));
+    if (!["reading", "contrast", "busy"].includes(r.kind) || count[r.kind] <= 8) out.push(line(r));
   }
-  for (const k of ["reading", "contrast"])
+  for (const k of ["reading", "contrast", "busy"])
     if (count[k] > 8) out.push(`${count[k] - 8} more ${k} notes in report.json text_check`);
   return out;
 }

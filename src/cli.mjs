@@ -61,7 +61,7 @@ import { loadInstruments, packDir, packInstalled, PACK_VERSION } from "./sampler
 import { breakdownVideo } from "./breakdown.mjs";
 import { fetchReference } from "./reference.mjs";
 import { analyzeBeats, decodeMono } from "./beats.mjs";
-import { compareVideos } from "./compare.mjs";
+import { compareVideos, compareVideoClip } from "./compare.mjs";
 import { measureMotion, gradeMotion } from "./motion-check.mjs";
 import { svgBoxesFile } from "./diagram.mjs";
 import { checkNarration, describeNarration, narrationItems, resolveNarrationCheckConfig, writeNarrationReview } from "./narration-check.mjs";
@@ -147,6 +147,10 @@ Usage: motion-use <command> [options]
   beats <audio>      Find a song's tempo, first downbeat, bar loudness and drop; prints the film.json
                       music line that puts film second 0 on a downbeat (--from/--to: analyse a range)
   compare <a> <b>     Put frames of two videos side by side (--times 1.5,4 --out compare.png)
+                      --video: one MP4 with both playing side by side at once (--out compare.mp4)
+                      --title "…" --labels A,B (default: file names) --from 0,2.5 --speed 1,1.5 (one value: both sides)
+                      --duration s (default: the longer side; the shorter holds its last frame)
+                      --width 640 (per side) --fps 30 --audio none|a|b (default none; follows that side's speed)
   catalog [styles|shots] [id]   List original style/shot cards; --out <fresh-dir> writes a live preview gallery
   catalog recommend --product-type <type> --material <type>  Explain selection candidates, not quality scores
   study <id> <dir>    Create a renderable 6-second study from a catalog card (illustrative, intentionally silent)
@@ -409,6 +413,12 @@ export async function main(argv) {
         simplify: { type: "string" },
         object: { type: "string" },
         "id-field": { type: "string" },
+        video: { type: "boolean" },
+        labels: { type: "string" },
+        speed: { type: "string" },
+        duration: { type: "string" },
+        audio: { type: "string" },
+        fps: { type: "string" },
       },
     });
   } catch (e) {
@@ -2211,6 +2221,7 @@ async function beats(o, [file]) {
 
 async function compare(o, [a, b]) {
   if (!a || !b) return fail("compare needs two videos: compare <a> <b> --times 1.5,4", o.json);
+  if (o.video) return compareVideo(o, a, b);
   const times = list(o.times ?? o.at)?.map(Number);
   if (!times?.length || times.some((t) => !Number.isFinite(t)))
     return fail("--times takes seconds like 1.5,4", o.json);
@@ -2220,6 +2231,43 @@ async function compare(o, [a, b]) {
   const r = compareVideos(path.resolve(a), path.resolve(b), out, { times });
   if (o.json) console.log(JSON.stringify({ ok: true, ...r }, null, 2));
   else console.log(r.out);
+  return 0;
+}
+
+async function compareVideo(o, a, b) {
+  const nums = (v, name) => {
+    const xs = list(v);
+    if (!xs) return undefined;
+    if (xs.length > 2 || xs.some((x) => !Number.isFinite(Number(x)))) throw new Error(`--${name} takes one number or two (a,b), like 0,2.5`);
+    return xs.length === 1 ? Number(xs[0]) : xs.map(Number);
+  };
+  const one = (v, name) => {
+    if (v === undefined) return undefined;
+    const n = Number(v);
+    if (!Number.isFinite(n)) throw new Error(`--${name} takes a number, got ${v}`);
+    return n;
+  };
+  const labels = o.labels === undefined ? undefined : o.labels.split(",").map((x) => x.trim());
+  if (labels && labels.length !== 2) return fail("--labels takes two names: --labels A,B", o.json);
+  const out = path.resolve(o.out ?? "compare.mp4");
+  if (path.extname(out).toLowerCase() !== ".mp4") return fail("--video writes an MP4: --out compare.mp4", o.json);
+  if (fs.existsSync(out) && !o.force) return fail(`${out} exists; pass --force or choose --out`, o.json);
+  const width = o.width === undefined ? undefined : Number(o.width);
+  const r = compareVideoClip(path.resolve(a), path.resolve(b), out, {
+    labels,
+    title: o.title ?? "",
+    from: nums(o.from, "from"),
+    speed: nums(o.speed, "speed"),
+    duration: one(o.duration, "duration"),
+    fps: one(o.fps, "fps"),
+    audio: o.audio,
+    ...(width === undefined ? {} : { width }),
+  });
+  if (o.json) console.log(JSON.stringify({ ok: true, ...r }, null, 2));
+  else {
+    console.log(r.out);
+    for (const s of r.sides) if (s.held > 0) console.error(`note: ${s.label} ends ${s.held}s early and holds its last frame`);
+  }
   return 0;
 }
 

@@ -88,7 +88,11 @@ Each event starts from wherever earlier events have brought the camera at time `
 ```bash
 motion-use breakdown reference.mp4          # → breakdown/reference/breakdown.md
 motion-use compare reference.mp4 out/my-film-en-landscape-VO.mp4 --times 1.5,4,7.2
+# the same two as one video, both playing at once (a model-vs-model comparison clip):
+motion-use compare a.mp4 b.mp4 --video --title "同一段提示词" --labels A,B --from 0,2.5 --speed 1,1.5 --out compare.mp4
 ```
+
+`--video` draws the title and labels with the bundled font (ffmpeg needs no drawtext), plays the shorter side to its end and holds its last frame until the longer one ends (or `--duration`); `--audio a|b` keeps one side's sound at that side's speed.
 
 The breakdown writes cut times, a beat-grid fit (confirm it against the music; few cuts fit any grid), 4 fps contact sheets, a strip of every second frame around each transition (the only place a transition's mechanism is visible), a heatmap of where pixels move inside each segment, the last clean frame of each segment, a palette with blue-purple share, and the same motion lights the delivery check uses. Replication means learning the mechanism (timing, framing, how a transition grows out of an object), then applying it to a new subject; it is never a pixel copy, and borrowed principles are credited in DIRECTOR.md.
 
@@ -155,7 +159,7 @@ Review notes arrive as feelings. Turn each into a change you can measure before 
 | "playful" | springs at zeta 0.5, small rotations (±3°), stepped secondaries (`M.step`) |
 | "it drags" | shorten every hold by one beat (60 / BPM s), cut the longest hold first; keep the ≥ 0.5 s after a number lands |
 | "too busy" | one hero move at a time; secondaries start 100–200 ms after it and travel 50–70% as far; ambient motion under 5% of the frame's size |
-| "hard to read" | check `text_check` reading and contrast notes first; fewer words before longer holds |
+| "hard to read" | check `text_check` reading, contrast and busy notes first; fewer words before longer holds; a title over a shot with its own words: another shot, another position, or a plate |
 | "looks like AI" | name the defaults the render used (centred title card, blue-purple glow, every element fading in, uniform drift, symmetric layout), add them to the banned list, re-render without them |
 | "feels robotic" | `still --onion` across the move: evenly spaced ghosts are linear; ease it so the ghosts bunch towards the landing |
 
