@@ -4,6 +4,19 @@ import { validateTeaching } from "./teaching.mjs";
 import { projectInput } from "./projects.mjs";
 import { groupCaptions } from "./caption-plan.mjs";
 import { anchoredTime, sequenceFiles, buildFootage } from "./footage.mjs";
+import { checkMarks, checkSpeedMap, footageAnchorTime } from "./footage-speed.mjs";
+
+// The map written by motion-use footage speed beside the sped-up MP4; it must describe this file.
+function readSpeedMap(rel, video, local) {
+  const file = local(rel);
+  if (!file) return null;
+  let map;
+  try { map = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { throw Error(`speedMap: ${e.message}`); }
+  checkSpeedMap(map);
+  if (map.output?.bytes !== fs.statSync(video).size)
+    throw Error(`speedMap ${rel} was written for a different file than ${path.basename(video)} (${map.output?.file ?? "unknown"}, ${map.output?.bytes ?? "?"} bytes); run motion-use footage speed again`);
+  return { file, map };
+}
 // A film owns its choreography. The CLI owns assets, exact time, packaging and delivery.
 import fs from "node:fs";
 import path from "node:path";
@@ -82,6 +95,8 @@ export function validateFilm(
   if (!["complete", "narration", "retime"].includes(phase))
     throw new Error("validation phase must be complete, narration or retime");
   if (phase === "retime" && data && typeof data === "object") data = { ...data, music: "none" };
+  // Footage anchors on narration lines read clip placement and speed maps even in the narration phase.
+  const anchorVideos = data && typeof data === "object" && data.videos && typeof data.videos === "object" && !Array.isArray(data.videos) ? data.videos : {};
   if (phase === "narration" && data && typeof data === "object" && !Array.isArray(data)) {
     // Speech generation/retiming do not consume picture, score or sound effects.
     // Project the input for this phase only; never write this projection back to film.json.
@@ -165,7 +180,7 @@ export function validateFilm(
     if (!data.narrationReviews || typeof data.narrationReviews !== "object" || Array.isArray(data.narrationReviews)) error("$.narrationReviews", "a map keyed by language/shot-id");
     else for (const [key, review] of Object.entries(data.narrationReviews)) {
       const [lang, id, extra] = key.split("/");
-      if (extra || !Array.isArray(data.languages) || !data.languages.includes(lang) || !(id === "narration" || (Array.isArray(data.shots) && data.shots.some((s) => s?.id === id))))
+      if (extra || !Array.isArray(data.languages) || !data.languages.includes(lang) || !(id === "narration" || (Array.isArray(data.shots) && data.shots.some((s) => s?.id === id)) || (Array.isArray(data.narration) && data.narration.some((l) => l?.id === id))))
         error(`$.narrationReviews.${key}`, "a language and narration shot ID in this film");
       if (!review || !/^[a-f0-9]{64}$/.test(review.sha256 ?? "") || ["script", "heard", "reason"].some((f) => typeof review[f] !== "string" || !review[f].trim() || review[f].length > 16000))
         error(`$.narrationReviews.${key}`, "{sha256, script, heard, reason}: an exact audio/script/transcript review record");
@@ -614,6 +629,8 @@ export function validateFilm(
       if (!finite(at, 0, data.duration) || !finite(from, 0, 86400) || !finite(rate, 0.25, 4)) throw Error("at/from must be non-negative; rate must be 0.25–4");
       if (v.volume !== undefined && !finite(v.volume, 0, 2)) throw Error("volume must be 0–2");
       if (v.volume > 0 && (rate !== 1 || v.frames)) throw Error("footage sound needs a video file at rate 1");
+      if (v.marks !== undefined) checkMarks(v.marks, "marks");
+      if (v.speedMap !== undefined && v.frames !== undefined) throw Error("speedMap describes a video file made by motion-use footage speed, not an image sequence");
       let sequence, f, info;
       if (v.frames !== undefined) {
         sequence = sequenceFiles(v.frames, (file) => local(file, `${p}.frames`), v.fps, v.startNumber);
@@ -629,6 +646,8 @@ export function validateFilm(
         f = local(v.file, `${p}.file`); if (!f) continue;
         info = mediaInfo(f);
       }
+      const speed = v.speedMap === undefined ? null : readSpeedMap(v.speedMap, f, (file) => local(file, `${p}.speedMap`));
+      if (v.speedMap !== undefined && !speed) continue;
       const shot = v.shot ? shots.find((s) => s.id === v.shot) : shots.find((s) => at >= s.start && at < s.end);
       const end = v.shot ? shot.end : data.duration;
       const room = Math.max(0, (info.duration - from) / rate);
@@ -637,7 +656,7 @@ export function validateFilm(
         throw Error(`length ${length.toFixed?.(3) ?? length} s of film × rate ${rate} = ${(length*rate).toFixed(3)} s of source from ${from}; source duration ${info.duration.toFixed(3)} s, max length ${Math.min(room,end-at).toFixed(3)} s (${v.hold === "last" ? "hold:last permits source overflow" : "set length/from or hold:last"}); film/shot ends at ${end} s`);
       const holdUntil = Math.min(shot?.end ?? data.duration, ...Object.values(data.videos ?? {}).filter((other) => other !== v).map((other) => { try { const t = anchoredTime(other,shots,"at"); return t>at ? t : data.duration; } catch { return data.duration; } }));
       videoFrames += sequence ? Math.min(sequence.length,Math.ceil((from+Math.min(length,room)*rate)*v.fps)-Math.floor(from*v.fps)) : Math.ceil(Math.min(length,room) * data.fps);
-      videos[k] = { file:f, ...(sequence ? {sequence, sourceFps:v.fps}:{}), at, from, rate, length, room, hold:v.hold, holdFrom:shot?.start ?? 0, holdUntil, shot:v.shot, volume:v.volume??0, width:info.w,height:info.h,audio:info.audio };
+      videos[k] = { file:f, ...(sequence ? {sequence, sourceFps:v.fps}:{}), at, from, rate, length, room, hold:v.hold, holdFrom:shot?.start ?? 0, holdUntil, shot:v.shot, volume:v.volume??0, width:info.w,height:info.h,audio:info.audio, ...(speed ? { speedMapFile: speed.file, speedMap: speed.map } : {}) };
     } catch(e) { error(p,e.message); }
   }
 
@@ -650,9 +669,25 @@ export function validateFilm(
   catch (e) { error("$.fonts", `cannot read font: ${e.message}`); }
   if (glyphs.length)
     error("$.copy", `missing font glyphs: ${glyphs.join(" ")}`);
+  // A narration line's footage anchor → film second, through the clip's speed map and placement.
+  const anchorTime = (anchor, p) => {
+    const raw = anchorVideos[anchor.footage];
+    if (typeof anchor.footage !== "string" || !raw || typeof raw !== "object") throw Error(`footage must name a clip in videos (${Object.keys(anchorVideos).join(", ") || "none declared"})`);
+    const built = videos[anchor.footage];
+    if (phase !== "narration" && !built) throw Error(`footage ${anchor.footage} failed validation; fix $.videos.${anchor.footage} first`);
+    let map = built?.speedMap ?? null;
+    if (!built && raw.speedMap !== undefined) {
+      const file = local(raw.speedMap, `${p}.footage`);
+      if (!file) throw Error(`speed map of footage ${anchor.footage} is unreadable`);
+      map = checkSpeedMap(JSON.parse(fs.readFileSync(file, "utf8")));
+    }
+    if (raw.marks !== undefined) checkMarks(raw.marks, `videos.${anchor.footage}.marks`);
+    return footageAnchorTime(anchor, raw, { clipStart: built?.at ?? anchoredTime(raw, shots, "at"), map, length: built?.length });
+  };
   const narration = resolveNarration(
     { ...data, dir, tracks },
     {
+      anchorTime,
       error,
       warn: (p, message) => warnings.push({ path: p, message }),
       requireFiles: requireNarration,
@@ -682,6 +717,7 @@ export function validateFilm(
       narrationConfig: narration.config,
       narrationPlans: narration.plans,
       narrationPending: narration.pending,
+      narrationSchedule: narration.schedule,
     },
     shots,
   };
