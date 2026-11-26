@@ -56,7 +56,7 @@ import { auditionVoices } from "./voice-audition.mjs";
 import { generateFilmNarration } from "./film-voiceover.mjs";
 import { composeMusic, evaluateScore, isStarterScore, INSTALL_HINT } from "./compose.mjs";
 import { recordRelease } from "./music-index.mjs";
-import { musicPlan, addTrack, auditionMusic, chooseMusic, readMusicSources, writeMusicPreference, isExplainer } from "./music-library.mjs";
+import { musicPlan, addTrack, auditionMusic, chooseMusic, readMusicSources, duckProblems, writeMusicPreference, isExplainer } from "./music-library.mjs";
 import { loadInstruments, packDir, packInstalled, PACK_VERSION } from "./sampler.mjs";
 import { breakdownVideo } from "./breakdown.mjs";
 import { fetchReference } from "./reference.mjs";
@@ -165,7 +165,9 @@ Usage: motion-use <command> [options]
   music add <file> --url <detail-page> --author <name> --license <licence> [--title t] [film]
                       Copy a downloaded track into assets/music, hash it and record it in SOURCES.md
   music audition [film] <track>... --out <fresh-dir> [--seconds 40] [--narration <audio>]
-                      The film's own narration mixed over each candidate (ducked as the film will be)
+                      The film's own narration mixed over each candidate (ducked as the film will be:
+                      music.volume and music.duck; --duck-mode sentence|signal, --duck-to=<dB>,
+                      --duck-attack <s>, --duck-release <s> try other ducking; choose writes it into film.json)
   music choose <audition-dir> <id> [film] [--remember]  Write the picked track into film.json music
   music prefer [--style s] [--track none]  Remember a preferred style at user level (music plan lists it first)
   instruments [list|install]  The recorded instrument pack the scores play (CC0); install fetches it
@@ -324,6 +326,10 @@ export async function main(argv) {
         track: { type: "string" },
         narration: { type: "string" },
         seconds: { type: "string" },
+        "duck-mode": { type: "string" },
+        "duck-to": { type: "string" },
+        "duck-attack": { type: "string" },
+        "duck-release": { type: "string" },
         remember: { type: "boolean" },
         "key-keychain": { type: "string" },
         default: { type: "boolean" },
@@ -2659,7 +2665,7 @@ async function musicLibraryCmd(o, [action, ...rest]) {
     if (action === "audition") {
       let film = null, tracks = rest;
       if (rest[0] && (isFilm(rest[0]) || (fs.existsSync(rest[0]) && fs.statSync(rest[0]).isDirectory()))) [film, ...tracks] = rest;
-      if (!tracks.length || !o.out) return fail("music audition [film] <track>... --out <fresh-dir> [--seconds 40] [--narration <audio>]", o.json);
+      if (!tracks.length || !o.out) return fail("music audition [film] <track>... --out <fresh-dir> [--seconds 40] [--narration <audio>] [--duck-mode sentence|signal] [--duck-to=-20] [--duck-attack 0.5] [--duck-release 0.9]", o.json);
       const seconds = o.seconds ? Number(o.seconds) : 40;
       if (!(seconds >= 5 && seconds <= 180)) return fail("--seconds: 5–180", o.json);
       let voices;
@@ -2675,13 +2681,24 @@ async function musicLibraryCmd(o, [action, ...rest]) {
           .map((a) => ({ file: a.file, start: a.start, offset: a.offset ?? 0, length: Math.min(a.length, seconds - a.start) }));
       }
       const dir = filmDirOf(film).dir;
+      // Ducked as the film will mix it: the film's music.volume and music.duck, then any --duck-* flag.
+      let filmMusic = {};
+      try { const m = JSON.parse(fs.readFileSync(filmDirOf(film).file, "utf8")).music; if (m && typeof m === "object") filmMusic = m; } catch {}
+      const flags = { mode: o["duck-mode"], duckTo: o["duck-to"], attack: o["duck-attack"], release: o["duck-release"] };
+      let duck = filmMusic.duck;
+      if (Object.values(flags).some((v) => v !== undefined)) {
+        duck = typeof duck === "number" ? { duckTo: duck } : { ...(duck && typeof duck === "object" ? duck : {}) };
+        for (const [k, v] of Object.entries(flags)) if (v !== undefined) duck[k] = k === "mode" ? v : Number(v);
+      }
+      const bad = duckProblems(duck, "music.duck");
+      if (bad.length) return fail(bad.map((p) => `${p.path}: ${p.message}`).join("\n"), o.json);
       const sources = readMusicSources(dir).tracks;
       const candidates = tracks.map((t) => {
         const abs = path.resolve(t);
         const rel = path.relative(dir, abs).split(path.sep).join("/");
         return { file: abs, source: sources.find((s) => s.file === rel) ?? null };
       });
-      const r = auditionMusic({ voices: voices.map((v) => ({ ...v, channels: mediaChannels(v.file) })), seconds, candidates, out: o.out, probe: audioSeconds });
+      const r = auditionMusic({ voices: voices.map((v) => ({ ...v, channels: mediaChannels(v.file) })), seconds, candidates, out: o.out, probe: audioSeconds, volume: filmMusic.volume ?? 0.6, duck });
       print(r, `${r.review}\n${r.candidates.map((c) => `  ${c.id}: ${c.status === "ok" ? c.sample + (c.loops ? ` (loops ${c.loops}×)` : "") : c.error}${c.source ? "" : "  — no source record (music add)"}`).join("\n")}\nlistening UNREVIEWED; choose with motion-use music choose ${r.out} <id> [film]`);
       return r.ok ? 0 : 1;
     }

@@ -13,7 +13,7 @@ import { claimDir, audioSeconds, mediaInfo } from "./build.mjs";
 import { execFileSync } from "node:child_process";
 import { writeSubsets, missingGlyphs } from "./fonts.mjs";
 import { writeMusic, MOOD_NAMES, moodBpm } from "./music.mjs";
-import { isExplainer, duckPoints, loopPlan, shiftEnvelope, DUCK_DB, FILE_FADE } from "./music-library.mjs";
+import { isExplainer, duckPoints, duckProblems, duckSettings, duckWindows, loopPlan, shiftEnvelope, FILE_FADE } from "./music-library.mjs";
 import { composeMusic } from "./compose.mjs";
 import { peakTime } from "./beats.mjs";
 import { mixAudio } from "./mix.mjs";
@@ -451,8 +451,7 @@ export function validateFilm(
     }
   }
   if (typeof music === "object" && music) {
-    if (music.duck !== undefined && !finite(music.duck, -40, 0))
-      error("$.music.duck", "dB the music drops under narration, -40–0");
+    for (const p of duckProblems(music.duck)) error(p.path, p.message);
     if (music.loop !== undefined && typeof music.loop !== "boolean")
       error("$.music.loop", "true (repeat a short song at phrase boundaries, the default) or false");
   }
@@ -1188,13 +1187,14 @@ export async function buildFilm(film, lang, format, outDir, { range = null, guid
     const volume =
       typeof film.music === "object" ? (film.music.volume ?? 0.6) : 0.6;
     const isFile = Boolean(film.musicFile);
-    // Voiceover windows duck the music (a licensed track -20 dB, an authored score -12 dB by
-    // default; music.duck overrides); it rises again only in pauses longer than a breath.
+    // Voiceover clips duck the music (a licensed track -20 dB, an authored score -12 dB by
+    // default; music.duck overrides): by default down for each whole clip, so a pause inside a
+    // sentence never lets the bed back up (#130); music.duck.mode "signal" follows the voice level.
     const voices = selectedTracks
       .filter((a) => a.role === "voiceover")
-      .map((a) => ({ start: a.start, end: a.start + a.length }));
-    const db = film.music.duck ?? (isFile ? DUCK_DB.file : DUCK_DB.score);
-    const env = voices.length ? duckPoints(voices, volume, isFile ? { db, duration: film.duration } : { db, duration: film.duration, attack: 0.15, release: 0.2, hold: 0.2 }) : null;
+      .map((a) => ({ file: a.file, start: a.start, offset: a.offset ?? 0, length: a.length }));
+    const duck = duckSettings(film.music.duck, { file: isFile });
+    const env = voices.length ? duckPoints(duckWindows(voices, duck), volume, { ...duck, duration: film.duration }) : null;
     // A licensed song shorter than the film repeats at a phrase boundary with a crossfade.
     let pieces = [{ start: 0, mediaStart: film.music.from || 0, duration: film.duration, fadeIn: 0, fadeOut: 0 }];
     if (isFile && film.music.loop !== false) {
