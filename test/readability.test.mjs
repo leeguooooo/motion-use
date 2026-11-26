@@ -60,6 +60,23 @@ test("reading check: a haloed label is one string, and a label the camera carrie
   assert.deepEqual(two.map((r) => r.text), ["北洋政府"]);
 });
 
+test("reading check: a backspaced line is judged once, as the full line, not per erased fragment", () => {
+  const typed = (t) => {
+    // "Hold the whole line" typed from 0, held to 3, erased one letter per 0.1 s, then a new line typed.
+    const full = "Hold the whole line";
+    if (t < 3) return full;
+    const left = full.length - Math.round((t - 3) / 0.1);
+    return left > 0 ? full.slice(0, left) : "Next one stays".slice(0, Math.max(0, Math.round((t - 5) / 0.05)));
+  };
+  const runs = readingRuns(every(8, (t) => [typed(t) && box(typed(t), 100, 100, 100 + typed(t).length * 30, 140)]), { width: 1920, height: 1080 });
+  assert.deepEqual(runs, [], "3 s is enough for the full line, and the erasing fragments are not lines");
+  const quick = readingRuns(every(5, (t) => { const s = t < 0.6 ? "Hold the whole line" : t < 1.5 ? "Hold the whole line".slice(0, 19 - Math.round((t - 0.6) / 0.05)) : ""; return [s && box(s, 100, 100, 700, 140)]; }), { width: 1920, height: 1080 });
+  assert.deepEqual(quick.map((r) => r.text), ["Hold the whole line"], "the full line up only 0.6 s is still flagged, once");
+  // A shorter heading put in place of a line is not an erase: it is judged on its own.
+  const swapped = readingRuns(every(4, (t) => [t >= 1 && t < 2 ? box("Revenue grew 40% in Q3", 100, 100, 700, 140) : t >= 2 && t < 2.2 ? box("Revenue", 100, 100, 300, 140) : null]), { width: 1920, height: 1080 });
+  assert.ok(swapped.some((r) => r.text === "Revenue"));
+});
+
 test("shot text that cannot be read inside its shot window is a validate warning", () => {
   const d = temp();
   initFilm({ lang: "en", format: "landscape" }, d);

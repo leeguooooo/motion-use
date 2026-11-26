@@ -212,7 +212,8 @@ function lines(boxes) {
 /**
  * Lines of text visible for less time than it takes to read them (READING_RULE). A line that grows
  * (a typewriter, words arriving one by one, a counter rolling: digits are ignored for identity)
- * counts from the moment its first part appeared. Strings with no letters are not checked. A line
+ * counts from the moment its first part appeared; a line being erased (a backspaced typewriter: each
+ * sample a prefix of the line just gone) is not judged again, the full line was. Strings with no letters are not checked. A line
  * that went because the camera carried it out of the frame (a map label during a push) is not
  * judged: the film moved on, the text did not vanish; a line that disappears in place still is.
  * samples: [{ t, boxes }] sorted by t.
@@ -226,7 +227,7 @@ export function readingRuns(samples, { width = Infinity, height = Infinity, alph
   const close = (key, at) => {
     const r = open.get(key);
     open.delete(key);
-    if (r.grown || leftFrame(r)) return;
+    if (r.grown || r.erasing || leftFrame(r)) return;
     const seconds = at - r.from,
       required = readingSeconds(r.text);
     if (seconds < required - 0.05)
@@ -245,6 +246,8 @@ export function readingRuns(samples, { width = Infinity, height = Infinity, alph
         r = { from: s.t, text, parts: new Set() };
         for (const [k, o] of open)
           if (!now.has(k) && s.t - o.last <= gap && key.includes(k)) ((r.from = Math.min(r.from, o.from)), (o.grown = true));
+          // erased a few characters since the last sample, not replaced by a shorter heading
+          else if (!now.has(k) && s.t - o.last <= gap && k.startsWith(key) && k.length - key.length <= 6) r.erasing = true;
         for (const [k, o] of [...open]) if (o.grown) open.delete(k);
         open.set(key, r);
       }

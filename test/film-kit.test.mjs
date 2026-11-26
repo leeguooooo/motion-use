@@ -104,6 +104,54 @@ test("composed helpers accept compact camera tuples and read numbers from film.d
   assert.throws(() => k.cover(stubCanvas(), "nope"), /declare it under film.json assets/);
 });
 
+test("typeline erases back to the shared prefix, types the rest and says when keys move", () => {
+  const k = kit({ look: { palette: "paper" } });
+  const keys = [[0, "Agenda"], [2, "Agent"], [4, "Agent loop"]];
+  const at = (t) => k.typeline(stubCanvas(), t, keys, [100, 100], { cps: 10, erase: 20 });
+  assert.equal(at(-1), null, "nothing before the first key");
+  assert.equal(at(0.35).text, "Age");
+  assert.equal(at(0.35).moving, "type");
+  assert.equal(at(1.5).moving, null);
+  // "Agenda" → "Agent": shared "Agen", so only "da" is erased (0.1 s) and "t" typed.
+  assert.equal(at(2.06).text, "Agend");
+  assert.equal(at(2.06).moving, "delete");
+  assert.equal(at(2.25).text, "Agent");
+  assert.equal(at(4.25).text, "Agent l");
+  // A key that arrives mid-typing erases what was on screen, not the whole earlier string.
+  const early = [[0, "Hello world"], [0.3, "Hi"]];
+  const shownAt = (t) => k.typeline(stubCanvas(), t, early, [0, 0], { cps: 10, erase: 20 }).text;
+  assert.equal(shownAt(0.29), "He");
+  assert.equal(shownAt(0.3), "Hel", "the three typed letters, no flash of the untyped rest");
+  assert.equal(shownAt(0.4), "H", "\"el\" erased in 0.1 s");
+  assert.equal(shownAt(0.51), "Hi");
+});
+
+test("transition draws only A before, only B after, and B inside a mask between", () => {
+  const k = kit({ look: { palette: "paper" } });
+  const run = (t, mode) => {
+    const c = stubCanvas();
+    c.canvas = { width: 1920, height: 1080 };
+    const seen = [];
+    k.transition(c, t, 1, 0.5, mode, () => seen.push("A"), () => seen.push("B"), { center: [300, 300] });
+    return { seen, calls: c.calls.map((x) => x[0]) };
+  };
+  assert.deepEqual(run(0.5, "iris").seen, ["A"]);
+  assert.deepEqual(run(2, "iris").seen, ["B"]);
+  for (const mode of ["wipe", "iris", (c, p, { W, H }) => c.rect(0, 0, W * p, H)]) {
+    const mid = run(1.25, mode);
+    assert.deepEqual(mid.seen, ["A", "B"]);
+    assert.ok(mid.calls.includes("clip"), "B is clipped to the mask");
+  }
+  assert.throws(() => run(1.25, "checker"), /mask function/);
+});
+
+test("a counter with a rate keeps running instead of landing", () => {
+  const k = kit({ look: { palette: "ink" } });
+  const c = stubCanvas();
+  k.counter(c, 11, [960, 540], { at: 1, from: 0, rate: 1.5, decimals: 1, suffix: " years" });
+  assert.ok(c.calls.some((x) => x[0] === "fillText" && x[1] === "15.0 years"));
+});
+
 test("a film that is not the demo does not match the demo signatures", () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), "mu-sim-"));
   const file = path.join(d, "bars.mp4");

@@ -16,6 +16,7 @@ import { writeMusic, MOOD_NAMES, moodBpm } from "./music.mjs";
 import { isExplainer, duckPoints, loopPlan, shiftEnvelope, DUCK_DB, FILE_FADE } from "./music-library.mjs";
 import { composeMusic } from "./compose.mjs";
 import { peakTime } from "./beats.mjs";
+import { mixAudio } from "./mix.mjs";
 import { esc } from "./html.mjs";
 import { BriefError } from "./brief.mjs";
 import { SETTINGS } from "./narration-lint.mjs";
@@ -477,6 +478,7 @@ export function validateFilm(
   if (data.audio !== undefined && !Array.isArray(data.audio))
     error("$.audio", "an array of local audio clips");
   if (data.audio?.length > 64) error("$.audio", "at most 64 clips");
+  const effects = ["click", "switch", "whoosh", "ding", "stamp", "thud", "paper", "explosion", "train", "map-pin", "page-turn", "low-boom", "type", "delete", "select", "pop", "tick", "rise"];
   (Array.isArray(data.audio) ? data.audio.slice(0, 64) : []).forEach((a, i) => {
     const p = `$.audio[${i}]`;
     if (!a || typeof a !== "object") return error(p, "an audio clip");
@@ -484,10 +486,10 @@ export function validateFilm(
       error(p, "choose a local file or a bundled effect, not both");
     if (
       a.effect !== undefined &&
-      !["click", "switch", "whoosh", "ding", "stamp", "thud", "paper", "explosion", "train", "map-pin", "page-turn", "low-boom"].includes(a.effect)
+      !effects.includes(a.effect)
     )
-      error(`${p}.effect`, "a bundled effect: click, switch, whoosh, ding, stamp, thud, paper, explosion, train, map-pin, page-turn, low-boom");
-    const file = ["click", "switch", "whoosh", "ding", "stamp", "thud", "paper", "explosion", "train", "map-pin", "page-turn", "low-boom"].includes(a.effect)
+      error(`${p}.effect`, `a bundled effect: ${effects.join(", ")}`);
+    const file = effects.includes(a.effect)
         ? path.join(ROOT, "assets", "sfx", `${a.effect}.wav`)
         : local(a.file, `${p}.file`);
     let start;
@@ -500,6 +502,13 @@ export function validateFilm(
       error(`${p}.volume`, "0–2");
     if (a.role !== undefined && !["voiceover", "music", "sfx"].includes(a.role))
       error(`${p}.role`, "voiceover, music or sfx");
+    // pitch: a playback-rate multiplier, like a sampler: 1.06 plays 6% higher and 6% shorter
+    if (a.pitch !== undefined && !finite(a.pitch, 0.5, 2))
+      error(`${p}.pitch`, "0.5–2 (playback rate: pitch and length change together; 1 = as recorded)");
+    // Captions and word timings are not rescaled, so narration plays as recorded.
+    if (a.pitch !== undefined && a.pitch !== 1 && (a.role === "voiceover" || a.lang !== undefined))
+      error(`${p}.pitch`, "not on narration: its captions and word timings would no longer match");
+    const pitch = finite(a.pitch, 0.5, 2) ? a.pitch : 1;
     if (a.align !== undefined && !["start", "peak"].includes(a.align))
       error(`${p}.align`, '"start" (default: the file starts at start) or "peak" (its loudest moment lands at start)');
     if (
@@ -513,19 +522,21 @@ export function validateFilm(
         let trimmed = 0;
         // align "peak": measure where the clip actually hits and move it so that moment lands on start.
         if (a.align === "peak" && Number.isFinite(start) && Number.isFinite(offset)) {
-          peak = peakTime(file, { offset, length: a.length });
+          // measured in source seconds; at a pitch the clip plays faster, so it hits peak / pitch in
+          peak = peakTime(file, { offset, length: a.length }) / pitch;
           start -= peak;
           if (start < 0) {
-            trimmed = -start;
+            trimmed = -start * pitch;
             offset += trimmed;
             start = 0;
           }
         }
+        // length and offset are source seconds; the clip plays for length / pitch
         const length = a.length !== undefined ? a.length - trimmed : sourceSeconds - offset;
         if (
           !finite(length, 0.01, 3600) ||
           offset + length > sourceSeconds + 0.05 ||
-          start + length > data.duration + 0.05
+          start + length / pitch > data.duration + 0.05
         )
           error(
             p,
@@ -536,7 +547,9 @@ export function validateFilm(
           file,
           start,
           offset,
-          length,
+          // on the timeline: played seconds (start + length is where the clip ends)
+          length: pitch === 1 ? length : length / pitch,
+          ...(pitch !== 1 ? { pitch } : {}),
           volume: a.volume ?? 1,
           ...(peak !== undefined ? { peak: Math.round(peak * 1000) / 1000 } : {}),
         });
@@ -1200,9 +1213,13 @@ export async function buildFilm(film, lang, format, outDir, { range = null, guid
     });
   }
   selectedTracks.forEach((a, i) => {
-    const rel = `assets/audio/clip-${i}${path.extname(a.file)}`;
-    fs.copyFileSync(a.file, path.join(outDir, rel));
-    mix.push({ id: `film-audio-${i}`, rel, start: a.start, mediaStart: a.offset, seek: true, duration: a.length, volume: a.volume, fadeIn: 0.015, fadeOut: 0.03, track: 11 + i });
+    // A pitched clip is baked once (resampled like a sampler), so the page's <audio> and the native
+    // mix play the same file: HyperFrames' data-playback-rate would keep the pitch and only stretch time.
+    const pitched = a.pitch !== undefined && a.pitch !== 1;
+    const rel = pitched ? `assets/audio/clip-${i}.wav` : `assets/audio/clip-${i}${path.extname(a.file)}`;
+    if (pitched) mixAudio([{ file: a.file, start: 0, mediaStart: a.offset, duration: a.length, volume: 1, pitch: a.pitch }], a.length, path.join(outDir, rel));
+    else fs.copyFileSync(a.file, path.join(outDir, rel));
+    mix.push({ id: `film-audio-${i}`, rel, start: a.start, mediaStart: pitched ? 0 : a.offset, seek: true, duration: a.length, volume: a.volume, fadeIn: 0.015, fadeOut: 0.03, track: 11 + i });
   });
   // Footage sound, when asked for, is extracted once and placed like any other clip.
   if (!range)

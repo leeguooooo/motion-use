@@ -103,7 +103,7 @@ export function buildNarrationStem(tracks, seconds, output) {
   const inputs = tracks.flatMap((a) => ["-i", a.file]);
   const filters = tracks.map(
     (a, i) =>
-      `[${i}:a]atrim=start=${a.offset}:duration=${a.length},asetpts=PTS-STARTPTS,volume=${a.volume},afade=t=in:d=0.015,afade=t=out:st=${Math.max(0, a.length - 0.03)}:d=0.03,adelay=${Math.round(a.start * 1000)}:all=1[v${i}]`,
+      `[${i}:a]atrim=start=${a.offset}:duration=${a.pitch && a.pitch !== 1 ? `${a.length * a.pitch},asetpts=PTS-STARTPTS,aresample=48000,asetrate=${Math.round(48000 * a.pitch)},aresample=48000` : a.length},asetpts=PTS-STARTPTS,volume=${a.volume},afade=t=in:d=0.015,afade=t=out:st=${Math.max(0, a.length - 0.03)}:d=0.03,adelay=${Math.round(a.start * 1000)}:all=1[v${i}]`,
   );
   filters.push(
     `${tracks.map((_, i) => `[v${i}]`).join("")}amix=inputs=${tracks.length}:normalize=0,apad,atrim=duration=${seconds},aresample=16000[out]`,

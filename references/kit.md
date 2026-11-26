@@ -30,7 +30,7 @@ Every time-based helper is `(c, t, …positional, options)`; points are `[x, y]`
 | `captions(c, t, [[text, start, end], …])`, `caption(c, t, text, start, end, {x, y, align, size, plate, lines})` | beat titles in a masked slot: rise 0.35 s, hold, leave 0.18 s |
 | `words(c, t, text, [x,y], {at, stagger, times, style: rise\|slam\|pop\|type, emphasis: [words], until})` | kinetic words entering in turn |
 | `stamp(c, t, text, [x,y], {at, until, box, rotate})` | a word slammed in, 1.55 → 0.94 → 1 |
-| `counter(c, t, [x,y], {value, from, at, dur, prefix, suffix, decimals})` | number rolling to `value` (a `data` key or a number) |
+| `counter(c, t, [x,y], {value, from, at, dur, prefix, suffix, decimals, rate})` | number rolling to `value` (a `data` key or a number); with `rate` (per second) a live meter that never lands |
 | `chart(c, t, {data, type: bar\|line\|dots, at, highlight, x, y, w, h, max})` | bars grow in turn, line draws on; labels may be `{en, zh}` |
 | `callout(c, t, [x,y], text, {at, until, sub, dx, dy})` | dot, pulse, leader line, label |
 | `card(c, [x,y], {label, fill, icon, scale})`, `pill(c, t, [x,y], text, {from, to})` | a filled object; a message that swells and collapses |
@@ -39,6 +39,9 @@ Every time-based helper is `(c, t, …positional, options)`; points are `[x, y]`
 | `cover(c, image, {x, y, w, h, fx, fy, zoom})`, `video(name, t)` | image or current footage frame covering a box, zoomed on a focus |
 | `spotlight(c, t, [x,y,w,h], {at, until})`, `cursor(c, t, [[t,x,y], …], {clicks})` | dim all but a region; a pointer that moves and clicks |
 | `grade(c, "mono"\|"tint"\|"duotone", …)`, `grain(c, t)`, `vignette(c)` | whole-frame looks, drawn last |
+| `post(c, t, {bloom, threshold, radius, halation, halationColor, ca, contrast, saturation})` | film post on the finished frame (before `captions`): bloom from bright parts, warm halation, radial chromatic aberration; nothing on by default, choose per film or chapter |
+| `transition(c, t, at, dur, mode, drawA, drawB, {center, angle, ease})` | scene A hands the frame to B through a growing mask; `mode` is the film's own `(c, p, {W, H, unit, t}) => { /* add subpaths */ }`; `"wipe"` and `"iris"` are for drafts |
+| `typeline(c, t, [[at, text], …], [x,y], {cps, erase, caret, size, align})` → `{text, x, width, moving}` (`null` before the first key and from `until`) | typed text with a caret; each new key erases back to the shared prefix, then types; `moving` is `"type"`/`"delete"`/`null` for sound |
 | `follow(t, [[at, value], …], {f, d})` | a number or point that springs to each new target in turn, a pure function of `t` (UI morphs) |
 | `tween(t, at, dur, ease)`, `springZeta(t, zeta, hz)`, `springHz`, `settle`, `lagged`, `step`, `easings.*` | timing building blocks; `springZeta` takes seconds since the move and a damping ratio (0.8 premium, 0.5 playful, 1 no bounce) |
 | `rough`, `drawOn`, `paragraph`, `wrap`, `ring`, `lerp2`, `add`, `rng`, `noise` | drawing building blocks |
@@ -53,7 +56,18 @@ Every time-based helper is `(c, t, …positional, options)`; points are `[x, y]`
            "narration": {"en": "Sales peaked in the third quarter."}}]
 ```
 
-Palettes: `paper` `poster` `ink` `navy` `bauhaus` `snow` `wood` `chalk` `whiteboard`, or 3–6 hex colors. Music: each film's own `composition/score.js` ([music.md](music.md)); a built-in bed (`promo` `explainer` `pulse` `chiptune` `pentatonic` `ambient`) only with `music.why`; or a song: `{"file": "audio/song.wav", "bpm": 128, "from": 1.3}` from `motion-use beats`. Original documentary accents: `stamp`, `thud`, `paper`, `explosion`, `train`, `map-pin`, `page-turn`, `low-boom` (stylized, not historical recordings). Sound effects take `"align": "peak"` to land their hit on `start`; `"loop": true` checks the last frame leads into the first. Beat-driven briefs and the one-shape morph: [briefing.md](briefing.md). Footage frames are extracted at build time (≤ 5,400 per film); sound only at rate 1.
+Palettes: `paper` `poster` `ink` `navy` `bauhaus` `snow` `wood` `chalk` `whiteboard`, or 3–6 hex colors. Music: each film's own `composition/score.js` ([music.md](music.md)); a built-in bed (`promo` `explainer` `pulse` `chiptune` `pentatonic` `ambient`) only with `music.why`; or a song: `{"file": "audio/song.wav", "bpm": 128, "from": 1.3}` from `motion-use beats`. Original documentary accents: `stamp`, `thud`, `paper`, `explosion`, `train`, `map-pin`, `page-turn`, `low-boom` (stylized, not historical recordings); UI sounds `type`, `delete`, `select`, `pop`, `tick`, `rise`. A clip's `pitch` (0.5–2) plays it faster and higher, so a run of `select` at 1, 1.06, 1.12… counts up with the picture. Sound effects take `"align": "peak"` to land their hit on `start`; `"loop": true` checks the last frame leads into the first. Beat-driven briefs and the one-shape morph: [briefing.md](briefing.md). Footage frames are extracted at build time (≤ 5,400 per film); sound only at rate 1.
+
+These helpers are building blocks, not a style: decide the picture from the subject, then use them where they serve it and draw your own where they do not ([directing.md](directing.md#do-not-let-the-kit-make-every-film-look-the-same)). A transition of the film's own:
+
+```js
+const fromLamp = (c, p, { W, H }) => c.arc(lamp[0], lamp[1], Math.hypot(W, H) * p, 0, Math.PI * 2);
+M.transition(c, t, 12.4, 0.6, fromLamp, office, field);   // the lamp's light becomes the next scene
+M.post(c, t, { bloom: 0.8, halation: 0.5, ca: 0.003 });    // this chapter's grade; captions after it
+M.captions(c, t);
+```
+
+The text check does not see the mask: while a transition runs it measures the text of both scenes as if each were whole, so look at the move itself (`still --onion`) rather than trusting the report there. Text typed by `typeline` is judged as whole lines: typing grows one line, and erasing it is not a new line.
 
 ## Cheap iteration
 
