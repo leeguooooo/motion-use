@@ -94,6 +94,27 @@ The breakdown writes cut times, a beat-grid fit (confirm it against the music; f
 
 For a new character interpretation or style direction, show three options first, with different compositions, not three color grades. A named style is not exempt.
 
+## Every number gets a machine: lessons from "The Last Boring Slide"
+
+Studied from [The Last Boring Slide](https://claude.ai/artifact/Cy2d8Vn63CnzCtonA1LSah), a self-running talk about AI progress drawn live in WebGL. The principles below are paraphrased; its text, shaders, data and its motif are not ours to reuse.
+
+- **Make the metaphor exact.** In that film "twice the rate" is a small gear that turns exactly twice for each turn of the big one. The point is not gears: it is that the viewer can count the picture and get the number, so the picture is the argument. For a 3% fee, 3 coins of 100 leave the hand; for "ten times the users", the queue is drawn ten times as long. Find this subject's own object and write the arithmetic into the shot's `action`.
+- **One motif carries the thesis and pays off at the end.** That talk's motif was the editor's selection box: it selects a title, then a curve, then a day on a calendar, and in the last chapter it selects the whole planet. The thesis was "something will be able to edit the world". Find this film's own motif in its subject and plan where it appears, where it changes meaning and where it pays off. Do not borrow that one.
+- **Say how sure you are on screen.** "One modelled run", "illustration", a range and not a point, a dashed line for an extrapolation. The narration names the source; the frame marks what is measured and what is not.
+- **Each chapter is its own world and its own way in.** A different setting, grade and transition per chapter, each grown from the content: a page that folds, a light that floods, a curve that leaves the chart. One style still holds (type, palette logic, the motif), so it reads as one film and not a collage.
+- **Sound counts with the picture.** UI ticks under typed and deleted text; a run of pops whose `pitch` rises a little with each element (1, 1.06, 1.12…); one big hit where the scale changes.
+- **A dull set-up is a tool, not a style.** That talk opens on a deliberately boring slide and breaks it within seconds. Use it only when breaking the expectation is the point, break it within about 3 s, and never in an internal explainer, which starts straight on the content. Validation still warns on a title-led opening; write the reason in DIRECTOR.md.
+- **Few words on screen.** Two short lines at most per chapter; the explanation is in the narration.
+
+### Do not let the kit make every film look the same
+
+The kit's helpers (`transition`, `post`, `typeline`, `counter`, the camera) are building blocks, not a style. Films made from the same defaults read as one film. For each film:
+
+- Decide the picture from the subject first, then reach for a helper only when it serves that picture; draw your own when it does not.
+- Write this film's transitions as mask functions grown from its objects; `wipe` and `iris` are for drafts.
+- Choose the grade (`post`, `grade`, `grain`) per film or per chapter from the subject's light; nothing is on by default, and the same grade on every film is a house look nobody asked for.
+- Record in DIRECTOR.md what only this film has: its motif, its metaphors, its transitions. If that list could describe the last film too, redesign before rendering.
+
 ## Delivery lights
 
 `render` measures the delivered MP4 (12 fps, 320 px gray, bottom subtitle band masked) and writes `motion` into `review/<id>/report.json`. For authored films, red fails delivery; for scene templates and `verify` (without `--gate`) it is reported.

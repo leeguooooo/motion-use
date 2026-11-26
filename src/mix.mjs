@@ -58,7 +58,10 @@ export function mixArgs(tracks, total, out) {
   const inputs = [],
     parts = [];
   tracks.forEach((m, i) => {
-    inputs.push("-ss", String(m.mediaStart ?? 0), "-t", String(m.duration), "-i", m.file);
+    // pitch (a playback rate, 0.5–2) shifts pitch and length together: duration is the played time,
+    // so pitch × duration seconds of the source are read and resampled into it.
+    const pitch = m.pitch && m.pitch !== 1 ? m.pitch : 1;
+    inputs.push("-ss", String(m.mediaStart ?? 0), "-t", String(pitch === 1 ? m.duration : num(m.duration * pitch)), "-i", m.file);
     const d = m.duration;
     let fadeIn = m.fadeIn ?? 0,
       fadeOut = m.fadeOut ?? 0;
@@ -69,6 +72,7 @@ export function mixArgs(tracks, total, out) {
     const env = m.automation ? envelope(m.automation, d, m.volume ?? 1) : null;
     const chain = [
       "aresample=48000",
+      ...(pitch !== 1 ? [`asetrate=${Math.round(48000 * pitch)}`, "aresample=48000"] : []),
       // HyperFrames' pan=stereo|FL=FL+FC|FR=FR+FC on a mono file: the one channel on both sides
       ...(m.channels === 1 ? ["pan=stereo|c0=c0|c1=c0"] : []),
       "aformat=sample_fmts=fltp:channel_layouts=stereo",

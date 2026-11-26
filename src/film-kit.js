@@ -668,10 +668,10 @@ window.__filmKit = function (view, film) {
   const localize = (v) => (v && typeof v === "object" ? (v[film.lang] ?? Object.values(v)[0]) : v);
   const fmt = (v, decimals = 0) => Number(v).toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).replace("-", "−");
   // A number that rolls to its value and lands at `at` + `dur`. `value` may name a key in film.data.
-  function counter(c, t, at, { value, from = 0, at: start = 0, dur = 0.9, decimals = 0, prefix = "", suffix = "", size = 160 * unit, color = ink().ink, weight = 900, align = "center" } = {}) {
-    const v = Number(dataOf(value));
+  // With `rate` (units per second) it never lands: a live meter that keeps running from `from`.
+  function counter(c, t, at, { value, from = 0, at: start = 0, dur = 0.9, decimals = 0, prefix = "", suffix = "", size = 160 * unit, color = ink().ink, weight = 900, align = "center", rate = null } = {}) {
     if (t < start) return;
-    const shown = lerp(from, v, easings.expoOut((t - start) / dur));
+    const shown = rate !== null ? from + rate * (t - start) : lerp(from, Number(dataOf(value)), easings.expoOut((t - start) / dur));
     label(c, prefix + fmt(shown, decimals) + suffix, at[0], at[1], { size, color, weight, align });
   }
   // Bar, line or dot chart from [{label, value}] (or a film.data key). Bars grow from zero in turn;
@@ -929,6 +929,164 @@ window.__filmKit = function (view, film) {
     c.fillRect(0, 0, view.width, view.height);
     c.restore();
   }
+  // ---------------------------------------------------------------- typed lines, transitions, film post
+  // Building blocks, not a style: use them when the idea calls for them, and change them freely.
+  //
+  // Text typed key by key with a caret. Each new key erases back to the common prefix, then types
+  // the rest: [[0.4, "rent: 1,200"], [3, "rent: 1,450"], [5.2, "rent: too much"]]. Returns the
+  // visible text, its box and whether keys are moving now ("type" / "delete" / null), so sound
+  // effects and other drawing can follow it.
+  function typeline(c, t, keys, at, { cps = 14, erase = 26, caret = true, size = 80 * unit, color = ink().ink, caretColor = color, weight = 800, align = "left", mono = false, until = Infinity } = {}) {
+    if (!Array.isArray(keys) || !keys.length) throw new Error("typeline: keys must be [[at, text], ...]");
+    let k = -1;
+    while (k + 1 < keys.length && keys[k + 1][0] <= t) k++;
+    if (k < 0 || t >= until) return null;
+    // What key i shows at time u: erase what key i-1 actually showed when key i came (it may not
+    // have finished typing) back to the shared prefix, then type the rest.
+    const showAt = (i, u) => {
+      const next = Array.from(String(keys[i][1] ?? "")), prev = i > 0 ? showAt(i - 1, keys[i][0]).shown : [];
+      let keep = 0;
+      while (keep < prev.length && keep < next.length && prev[keep] === next[keep]) keep++;
+      const dt = u - keys[i][0], eraseDur = (prev.length - keep) / erase;
+      if (dt < eraseDur) return { shown: prev.slice(0, prev.length - Math.floor(dt * erase)), moving: "delete" };
+      const n = Math.min(next.length - keep, Math.floor((dt - eraseDur) * cps));
+      return { shown: next.slice(0, keep + n), moving: keep + n < next.length ? "type" : null };
+    };
+    const { shown, moving } = showAt(k, t);
+    const text = shown.join("");
+    c.font = fontOf(weight, size, mono);
+    const w = text ? c.measureText(text).width : 0;
+    const x0 = align === "center" ? at[0] - w / 2 : align === "right" ? at[0] - w : at[0];
+    if (text) label(c, text, x0, at[1], { size, color, weight, align: "left", mono });
+    // Solid while keys move, blinking once a second while idle.
+    if (caret && (moving || t % 1 < 0.55)) {
+      c.save();
+      c.fillStyle = caretColor;
+      c.fillRect(x0 + w + size * 0.06, at[1] - size * 0.48, Math.max(2, size * 0.055), size * 0.96);
+      c.restore();
+    }
+    return { text, x: x0, y: at[1], width: w, moving };
+  }
+
+  // One scene handing the frame to the next through a mask that grows over [at, at + dur].
+  // drawA / drawB paint whole scenes (background included); before the move only A is drawn,
+  // after it only B. "mode" is a function (c, p, {W, H, unit, t}) that adds subpaths for the part of
+  // the frame B already owns at progress p (0..1). Write one for each film, grown out of the object
+  // the cut is about (a lamp's light, a page that folds, a line that runs off the chart). "wipe"
+  // (angle in degrees) and "iris" (center) exist for drafts; a film made of them looks like every
+  // other film made of them.
+  function transition(c, t, at, dur, mode, drawA, drawB, { center = [view.width / 2, view.height / 2], angle = 0, ease = easings.cubicInOut } = {}) {
+    const p = ease(clamp((t - at) / dur));
+    if (p <= 0) return drawA(c, t);
+    if (p >= 1) return drawB(c, t);
+    drawA(c, t);
+    const W = view.width, H = view.height;
+    c.save();
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    const s = c.canvas.width / W;
+    c.scale(s, s);
+    c.beginPath();
+    if (typeof mode === "function") mode(c, p, { W, H, unit, t });
+    else if (mode === "iris") {
+      const far = Math.max(...[[0, 0], [W, 0], [0, H], [W, H]].map(([x, y]) => Math.hypot(x - center[0], y - center[1])));
+      c.arc(center[0], center[1], far * p, 0, Math.PI * 2);
+    } else if (mode === "wipe") {
+      // A straight edge sweeping across the frame in the direction of "angle".
+      const a = (angle * Math.PI) / 180, dx = Math.cos(a), dy = Math.sin(a), long = Math.hypot(W, H);
+      const reach = Math.abs(W * dx) + Math.abs(H * dy), d = -reach / 2 - 1 + (reach + 2) * p;
+      const pt = (along, side) => [W / 2 + dx * along - dy * side, H / 2 + dy * along + dx * side];
+      c.moveTo(...pt(-long, -long));
+      c.lineTo(...pt(d, -long));
+      c.lineTo(...pt(d, long));
+      c.lineTo(...pt(-long, long));
+      c.closePath();
+    } else throw new Error('transition: mode is a mask function (c, p, {W, H, unit, t}) or "wipe" / "iris"');
+    c.restore();
+    c.save();
+    c.clip();
+    drawB(c, t);
+    c.restore();
+  }
+
+  // Film post on the finished frame, drawn after everything except subtitles: bloom from the
+  // bright parts, warm halation round them, radial chromatic aberration, contrast and saturation.
+  // Choose the grade per film or chapter from its subject; nothing here is on by default.
+  const postCanvases = {};
+  const postCanvas = (key, w, h) => {
+    const k = postCanvases[key] ?? (postCanvases[key] = document.createElement("canvas"));
+    if (k.width !== w || k.height !== h) ((k.width = w), (k.height = h));
+    const x = k.getContext("2d");
+    x.setTransform(1, 0, 0, 1, 0, 0);
+    x.globalAlpha = 1;
+    x.globalCompositeOperation = "source-over";
+    x.filter = "none";
+    x.clearRect(0, 0, w, h);
+    return [k, x];
+  };
+  function post(c, t, { bloom = 0, threshold = 0.72, radius = 24, halation = 0, halationColor = "#ff5a2a", ca = 0, contrast = 1, saturation = 1 } = {}) {
+    if (!bloom && !halation && !ca && contrast === 1 && saturation === 1) return;
+    const W = c.canvas.width, H = c.canvas.height, s = W / view.width;
+    const [src, sx] = postCanvas("src", W, H);
+    sx.drawImage(c.canvas, 0, 0);
+    c.save();
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.globalAlpha = 1;
+    if (ca > 0) {
+      // Each channel scaled about the centre (red most, blue not at all), so the fringe grows to the
+      // edges and every channel still covers the frame.
+      // The first channel replaces the frame ("copy"; no fill, which the text check would read as a
+      // plate over everything drawn before), the others add to it.
+      [["#ff0000", 1 + 2 * ca], ["#00ff00", 1 + ca], ["#0000ff", 1]].forEach(([tint, k], i) => {
+        c.globalCompositeOperation = i ? "lighter" : "copy";
+        const [ch, cx] = postCanvas("ch" + i, W, H);
+        cx.drawImage(src, 0, 0);
+        cx.globalCompositeOperation = "multiply";
+        cx.fillStyle = tint;
+        cx.fillRect(0, 0, W, H);
+        c.drawImage(ch, (W - W * k) / 2, (H - H * k) / 2, W * k, H * k);
+      });
+      sx.globalCompositeOperation = "copy";
+      sx.drawImage(c.canvas, 0, 0);
+      sx.globalCompositeOperation = "source-over";
+    }
+    if (contrast !== 1 || saturation !== 1) {
+      c.globalCompositeOperation = "copy";
+      c.filter = "contrast(" + contrast + ") saturate(" + saturation + ")";
+      c.drawImage(src, 0, 0);
+      c.filter = "none";
+    }
+    if (bloom > 0 || halation > 0) {
+      // Bright pass at quarter size: brightness b then contrast k send luminance "threshold" to 0 and
+      // white to white (b = 1 / (1 + T), k = (1 + T) / (1 - T)); everything darker clips to black.
+      const q = 4, w = Math.max(1, Math.round(W / q)), h = Math.max(1, Math.round(H / q));
+      const [hi, hx] = postCanvas("hi", w, h);
+      const T = Math.min(0.95, Math.max(0, threshold));
+      hx.filter = "brightness(" + (1 / (1 + T)).toFixed(4) + ") contrast(" + ((1 + T) / (1 - T)).toFixed(4) + ")";
+      hx.drawImage(src, 0, 0, w, h);
+      const [bl, bx] = postCanvas("bl", w, h);
+      bx.filter = "blur(" + Math.max(0.5, (radius * s) / q).toFixed(2) + "px)";
+      bx.drawImage(hi, 0, 0);
+      c.globalCompositeOperation = "screen";
+      if (bloom > 0) ((c.globalAlpha = Math.min(1, bloom)), c.drawImage(bl, 0, 0, W, H));
+      if (halation > 0) {
+        const [ha, ax] = postCanvas("ha", w, h);
+        // Black under the blur so its transparent rim does not take the tint at the frame edges.
+        ax.fillStyle = "#000000";
+        ax.fillRect(0, 0, w, h);
+        ax.filter = "blur(" + Math.max(0.5, (radius * 2.2 * s) / q).toFixed(2) + "px)";
+        ax.drawImage(hi, 0, 0);
+        ax.filter = "none";
+        ax.globalCompositeOperation = "multiply";
+        ax.fillStyle = halationColor;
+        ax.fillRect(0, 0, w, h);
+        c.globalAlpha = Math.min(1, halation);
+        c.drawImage(ha, 0, 0, W, H);
+      }
+    }
+    c.restore();
+  }
+
+
 
   // ---------------------------------------------------------------- diagrams (#121)
   // A source document's own architecture / sequence diagram is the base layer; animation adds what
@@ -1273,5 +1431,8 @@ window.__filmKit = function (view, film) {
     grade,
     grain,
     vignette,
+    typeline,
+    transition,
+    post,
   };
 };
