@@ -31,7 +31,15 @@ row in SOURCES.md. `music choose` refuses a track without that record.
 ### How an imported track is mixed
 
 - Under narration it drops **-20 dB** (an authored score keeps -12 dB); `music.duck` (dB, -40–0) overrides.
-- It stays down across breaths shorter than 0.8 s and rises in real pauses (0.25 s attack, 0.6 s release).
+- It ducks by sentence: down for each narration clip from its first word to its last, starting 0.5 s before the clip (attack) and coming back over 0.9 s after it (release). Pauses inside a sentence never let it back up, and gaps between clips shorter than 0.8 s or than attack + release stay down. A level-following sidechain rises in every TTS comma pause and sounds as if the voice cut out (#130).
+- To tune it, give `music.duck` as an object (every key optional):
+
+  ```json
+  "music": {"file": "assets/music/cafe.mp3", "duck": {"duckTo": -20, "attack": 0.5, "release": 0.9}}
+  ```
+
+  `mode: "signal"` follows the narration level instead (a sidechain baked into the same envelope: 0.05 s attack, 0.6 s release, pauses quieter than `threshold` -35 dBFS let the music up). Use it only when the music should breathe between words. `hold` (s) is the gap below which two windows join.
+- `music audition` ducks with the film's `music.volume` and `music.duck`; `--duck-mode`, `--duck-to=-24` (a negative value needs the `=`), `--duck-attack`, `--duck-release` try other settings, and `music choose` writes the ducking that was heard into film.json.
 - 1.5 s fade in, 2.5 s fade out.
 - A song shorter than the film repeats from `music.from` on a 4-bar phrase (`music.bpm`, else 8-second blocks) with a 2 s crossfade; `"loop": false` turns this off. Listen to the join.
 
