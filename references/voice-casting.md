@@ -38,7 +38,7 @@ motion-use voice list | voice show [name] | voice use <name> | voice remove <nam
 `init` writes `"voiceover": {"dir": "voiceover", "profile": "<default>"}` into
 film.json (`--voice-profile <name>|none`). A voiceover block that names no engine,
 voices or command also takes the default profile; `"profile": false` opts out. Fields
-the project sets (engine, voices, rate, model, instructions) win over the profile.
+the project sets (engine, voices, rate, model, instructions, stability, similarity) win over the profile.
 The voiceover manifest records the resolved engine, voice, rate and model, and a
 render snapshot records the settings the profile resolved to and pins them on
 restore, so editing a profile never silently changes a delivered film's voice: its
@@ -54,10 +54,42 @@ output says “预览声音，不能交付”.
 
 Built-in bridge mapping: `voices.<lang>` is the provider voice ID; `model` defaults
 to `eleven_multilingual_v2` / `speech-02-hd` / `gpt-4o-mini-tts`; `rate` becomes
-the provider's speed (ElevenLabs 0.7–1.2, MiniMax 0.5–2, OpenAI 0.25–4, clamped);
+the provider's speed (ElevenLabs 0.7–1.2, MiniMax 0.5–2, OpenAI 0.25–4, clamped),
+except on ElevenLabs `eleven_v4`, `eleven_v4_turbo` and `eleven_v3` (see below);
 `instructions` is accepted only by `openai` (and command bridges); the others reject
 it rather than ignore the direction. MiniMax/OpenAI have default voices
 (`male-qn-qingse`, `coral`); ElevenLabs needs an explicit voice ID.
+### ElevenLabs eleven_v4 / eleven_v4_turbo / eleven_v3
+
+These models take only Stability and Similarity; Style and Speed do nothing, and there
+is no SSML. motion-use sends neither `speed` nor `style` to them, and a `rate` other
+than `+0%` gives a warning: the speed has to be changed afterwards. The request carries
+`language_code` (`zh` for `zh-CN`). Expression comes from audio tags in the text.
+
+- `"stability": 0.5`, `"similarity": 0.8` (0–1) in a voice profile (`voice set …
+  --stability 0.5 --similarity 0.8`) or in film.json/brief `voiceover`, passed on as
+  `stability` / `similarity_boost`. Lower stability: more ups and downs, follows tags
+  more closely. Also sent to other ElevenLabs models.
+- `"delivery": "[curious]"` on a shot or scene, or on `voiceover` for every line: audio
+  tags in square brackets put in front of the spoken text. They are not part of
+  `narration`, so they never reach captions. Only these three models get them; on any
+  other model they are dropped with a warning.
+- `"take": "one"` on `voiceover`: each language is spoken as one request (lines
+  separated by a blank line, `voiceover.delivery` once at the start, each line's own
+  `delivery` in front of it) to `/with-timestamps`, then cut into the usual per-shot
+  clips by character timing. A clip ends 0.15 s after its last letter or digit and never
+  after the next line's first one starts; it starts 0.1 s before its first and never
+  before the previous line's last one ends. Punctuation is ignored because ElevenLabs
+  stretches a punctuation mark's end up to the next line's first word. Changing one line
+  records the whole take again. Recommended for eleven_v4 narration: one request per line
+  with a different tag each sounds like a different reading every time; one take with
+  one opening tag (`[calm, conversational]`, stability 0.5) stays one voice. Default
+  `"line"`: one request per line, as before.
+- `"maxPause": 0.3` on `voiceover` (any engine, 0.1–2 s): pauses inside a clip longer
+  than this are shortened to it (ffmpeg `silencedetect` at -42 dB, cut in the middle of
+  the pause); silence at the start and end of a clip stays. Edge's sentence timing is
+  dropped then; it cannot be combined with `--word-timing`.
+
 Do not let available credentials or the starter's Chinese/English voice determine
 the final narrator. Keep an explicit user-selected voice unless asked to change it.
 

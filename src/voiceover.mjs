@@ -13,9 +13,9 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { commandSpeech, speechCommandKey } from "./tts-command.mjs";
+import { commandSpeech, probeSpeech, speechCommandKey } from "./tts-command.mjs";
 import { splitSentences } from "./caption-plan.mjs";
-import { PROVIDER_NAMES, PREVIEW_NOTE, KeyInvalidError, bridgeSpeech, chooseEngine, credentialsFor, resolveModel, resolveVoice } from "./tts-providers.mjs";
+import { PROVIDER_NAMES, PREVIEW_NOTE, KeyInvalidError, bridgeSpeech, chooseEngine, credentialsFor, elevenTagModel, resolveModel, resolveVoice } from "./tts-providers.mjs";
 
 export const ENGINES = [...PROVIDER_NAMES, "edge", "command"];
 const BRIDGED = ["elevenlabs", "minimax", "openai"];
@@ -142,6 +142,139 @@ export function readVoManifest(dir) {
   }
 }
 
+// Settings recorded only when set, so manifests written before they existed stay current.
+const OPTIONAL = ["delivery", "stability", "similarity", "maxPause", "take"];
+function optionalSettings(config, delivery) {
+  return Object.fromEntries([
+    ["delivery", delivery || undefined], ["stability", config.stability], ["similarity", config.similarity],
+    ["maxPause", config.maxPause], ["take", config.take === "one" ? "one" : undefined],
+  ].filter(([, v]) => v !== undefined && v !== null));
+}
+const sameOptional = (rec, want) => OPTIONAL.every((k) => rec[k] === want[k]);
+
+/**
+ * The audio tags a clip is spoken with: "" unless the model reads tags (ElevenLabs v4/v3).
+ * One request per line: the scene's tag, else the voiceover's. One take: the voiceover's tag
+ * opens the take and each scene's tag opens its line.
+ */
+export function deliveryFor(config, sceneDelivery, engine = config.engine, model = resolveModel(engine, config)) {
+  if (engine !== "elevenlabs" || !elevenTagModel(model)) return "";
+  return (config.take === "one" ? [config.delivery, sceneDelivery] : [sceneDelivery || config.delivery]).filter(Boolean).join(" ");
+}
+
+/**
+ * What to cut so that no pause inside a clip is longer than `seconds`. `silences` are
+ * [start, end] runs found by ffmpeg silencedetect (-42 dB); runs touching the start or the end
+ * of the clip are not pauses inside it and stay. Each long pause keeps `seconds`, half on each
+ * side of the cut. → [[from, to], …] in seconds, to remove.
+ */
+export function pauseCuts(silences, duration, seconds) {
+  const edge = 0.02;
+  return silences
+    .filter(([a, b]) => a > edge && b < duration - edge && b - a > seconds + 0.01)
+    .map(([a, b]) => [+(a + seconds / 2).toFixed(4), +(b - seconds / 2).toFixed(4)]);
+}
+
+function ffmpegAudio(args, what) {
+  const r = spawnSync("ffmpeg", ["-v", "error", "-y", ...args], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+  if (r.error?.code === "ENOENT") throw new Error(`${what} needs ffmpeg`);
+  if (r.status !== 0) throw new Error(`${what} failed: ${(r.stderr || "").trim().split("\n").pop()}`);
+}
+const MP3 = ["-c:a", "libmp3lame", "-b:a", "128k"];
+
+function silences(file, seconds) {
+  const r = spawnSync("ffmpeg", ["-hide_banner", "-nostats", "-i", file, "-af", `silencedetect=noise=-42dB:d=${seconds}`, "-f", "null", "-"], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+  if (r.error?.code === "ENOENT") throw new Error("maxPause needs ffmpeg");
+  if (r.status !== 0) throw new Error("maxPause: ffmpeg could not read the clip");
+  const out = [];
+  for (const m of r.stderr.matchAll(/silence_(start|end): (-?[\d.]+)/g)) {
+    if (m[1] === "start") out.push([Math.max(0, Number(m[2])), Infinity]);
+    else if (out.length) out[out.length - 1][1] = Number(m[2]);
+  }
+  return out;
+}
+
+// Shorten pauses inside the clip; its first and last sound stay where they are relative to the edges.
+function capPauses(file, seconds) {
+  const duration = probeSpeech(file);
+  const cuts = pauseCuts(silences(file, seconds), duration, seconds);
+  if (!cuts.length) return;
+  const keep = [];
+  let at = 0;
+  for (const [a, b] of cuts) { keep.push([at, a]); at = b; }
+  keep.push([at, duration]);
+  const graph = `[0:a]asplit=${keep.length}${keep.map((_, i) => `[s${i}]`).join("")};` +
+    keep.map(([a, b], i) => `[s${i}]atrim=start=${a}:end=${b},asetpts=PTS-STARTPTS[k${i}]`).join(";") +
+    `;${keep.map((_, i) => `[k${i}]`).join("")}concat=n=${keep.length}:v=0:a=1[out]`;
+  const capped = `${file}.cap.mp3`;
+  try {
+    ffmpegAudio(["-i", file, "-filter_complex", graph, "-map", "[out]", ...MP3, capped], "maxPause");
+    fs.renameSync(capped, file);
+  } finally { fs.rmSync(capped, { force: true }); }
+}
+
+const WORD = /[\p{L}\p{N}]/u;
+const untagged = (s) => String(s).replace(/\[[^\]]*\]/g, " ");
+
+/**
+ * Cut points for each line of a one-take recording from its character alignment
+ * (ElevenLabs /with-timestamps). Only letters and digits place a line: ElevenLabs stretches a
+ * punctuation mark's end up to the next line's first word, so cutting there carries the next
+ * words into this clip. A line ends `pad` after its last letter or digit, never after the next
+ * line's first one starts; it starts `lead` before its first, never before the previous line's
+ * last one ends. Audio tags ("[calm]") are skipped on both sides. → [{ start, end }] in seconds.
+ */
+export function splitTake(alignment, texts, { pad = 0.15, lead = 0.1, duration } = {}) {
+  const chars = alignment?.characters, st = alignment?.character_start_times_seconds, en = alignment?.character_end_times_seconds;
+  if (!Array.isArray(chars) || !Array.isArray(st) || !Array.isArray(en) || st.length !== chars.length || en.length !== chars.length)
+    throw new Error("take alignment: characters and their start/end times are missing or differ in length");
+  const stream = [];
+  let depth = 0;
+  chars.forEach((c, i) => {
+    if (c === "[") depth++;
+    else if (c === "]") depth = Math.max(0, depth - 1);
+    else if (!depth && WORD.test(c)) stream.push(i);
+  });
+  const norm = (c) => String(c).normalize("NFKC").toLowerCase();
+  let at = 0;
+  const spans = texts.map((t, n) => {
+    const want = [...untagged(t)].filter((c) => WORD.test(c));
+    if (!want.length) throw new Error(`take alignment: line ${n + 1} has no letters or digits to place`);
+    for (let k = 0; k < want.length; k++) {
+      const i = stream[at + k];
+      if (i === undefined || norm(chars[i]) !== norm(want[k]))
+        throw new Error(`take alignment does not match line ${n + 1} near "${want.slice(Math.max(0, k - 4), k + 4).join("")}"; regenerate, or use take "line"`);
+    }
+    const span = { first: stream[at], last: stream[at + want.length - 1] };
+    at += want.length;
+    return span;
+  });
+  if (at !== stream.length) throw new Error("take alignment has speech after the last line; regenerate, or use take \"line\"");
+  const total = duration ?? Math.max(...en);
+  return spans.map((s, n) => {
+    const prevEnd = n ? en[spans[n - 1].last] : 0;
+    const nextStart = n < spans.length - 1 ? st[spans[n + 1].first] : total;
+    const start = Math.max(prevEnd, st[s.first] - lead);
+    const end = Math.max(start, Math.min(en[s.last] + pad, nextStart));
+    return { start: +start.toFixed(3), end: +end.toFixed(3) };
+  });
+}
+
+/** The warnings a generation run gives before it speaks (settings the model will not honour). */
+export function speechWarnings(engine, model, vo, langs, scenes = []) {
+  const out = [];
+  if (engine !== "elevenlabs") return out;
+  const tags = elevenTagModel(model);
+  if (tags)
+    for (const lang of langs) {
+      const rate = vo.rates?.[lang] ?? "+0%";
+      if (parseFloat(rate) !== 0) out.push(`${lang}: ${model} does not take a speaking rate, so rate ${rate} is not applied; change the speed afterwards (e.g. ffmpeg atempo) or drop the rate`);
+    }
+  if (!tags && (vo.delivery || scenes.some((s) => s.delivery)))
+    out.push(`delivery tags are not sent: ${model} does not read audio tags (eleven_v4, eleven_v4_turbo or eleven_v3 do)`);
+  return out;
+}
+
 /**
  * Generate missing or outdated narration audio. Returns one row per scene × language.
  * A scene without narration text for a language is skipped (a recording can still go there).
@@ -151,77 +284,157 @@ export async function generateVoiceover(brief, { langs = brief.languages, engine
   if (!vo?.dir) throw new Error('the brief has no voiceover folder; add "voiceover": {"dir": "voiceover"}');
   const engine = pickEngine(requested ?? vo.engine);
   if (wordTiming && engine !== "azure") throw new Error("--word-timing currently requires --engine azure; imported cue timestamps remain available for other voices");
+  if (wordTiming && vo.maxPause) throw new Error("--word-timing cannot be combined with voiceover.maxPause: shortened pauses would move every word");
+  const oneTake = vo.take === "one";
+  if (oneTake && engine !== "elevenlabs") throw new Error(`take "one" needs engine elevenlabs (${engine} gives no character timing)`);
   const manifest = readVoManifest(vo.dir);
   const rows = [];
   const model = BRIDGED.includes(engine) ? resolveModel(engine, vo) : vo.model;
+  const warnings = speechWarnings(engine, model, vo, langs, brief.scenes);
+  for (const w of warnings) log(`warning: ${w}`);
   let keyInvalid = null;
   for (const lang of langs) {
     const voice = resolveVoice(engine, vo, lang);
     const rate = vo.rates[lang] ?? "+0%";
-    for (const scene of brief.scenes) {
+    const pending = [], slot = [];
+    for (const [si, scene] of brief.scenes.entries()) {
       const text = scene.narration?.[lang];
       if (!text) continue;
       const rel = path.join(lang, `${scene.id}.mp3`);
       const out = path.join(vo.dir, rel);
       const row = { scene: scene.id, lang, file: out, engine, voice, ...(engine === "command" || BRIDGED.includes(engine) ? { model, instructions: vo.instructions ?? "" } : {}) };
       if (keyInvalid) {
-        rows.push({ ...row, status: "error", error: keyInvalid, skipped: true });
+        slot[si] = ({ ...row, status: "error", error: keyInvalid, skipped: true });
         continue;
       }
       if (!voice) {
-        rows.push({ ...row, status: "error", error: `no voice for "${lang}"; set voiceover.voices.${lang}${BRIDGED.includes(engine) ? ` or run motion-use voiceover use ${engine} --voice <id> --lang ${lang}` : ""}` });
+        slot[si] = ({ ...row, status: "error", error: `no voice for "${lang}"; set voiceover.voices.${lang}${BRIDGED.includes(engine) ? ` or run motion-use voiceover use ${engine} --voice <id> --lang ${lang}` : ""}` });
         continue;
       }
       // Another recording for this scene (e.g. scene.wav) would be picked up instead of the mp3.
       const other = [".wav", ".m4a", ".aac", ".ogg"].map((e) => path.join(vo.dir, lang, scene.id + e)).find((f) => fs.existsSync(f));
       if (other && !force) {
-        rows.push({ ...row, file: other, status: "kept", reason: `${path.basename(other)} already exists for this scene` });
+        slot[si] = ({ ...row, file: other, status: "kept", reason: `${path.basename(other)} already exists for this scene` });
         continue;
       }
       const rec = manifest[rel];
+      const delivery = deliveryFor(vo, scene.delivery, engine, model);
       const want = { text, engine, voice, rate, ...(engine === "command" ? {
         model: vo.model, instructions: vo.instructions ?? "", commandKey: speechCommandKey(vo.command ?? [], vo.commandCwd),
-      } : BRIDGED.includes(engine) ? { model, instructions: vo.instructions ?? "" } : {}) };
+      } : BRIDGED.includes(engine) ? { model, instructions: vo.instructions ?? "" } : {}), ...optionalSettings(vo, delivery) };
+      let current = false;
       if (fs.existsSync(out)) {
         const mine = rec && rec.sha === sha(fs.readFileSync(out));
         if (!mine && !force) {
-          rows.push({ ...row, status: "kept", reason: "a recording that motion-use did not make (use --force to replace it)" });
+          slot[si] = ({ ...row, status: "kept", reason: "a recording that motion-use did not make (use --force to replace it)" });
           continue;
         }
-        if (mine && Object.entries(want).every(([k,v]) => rec[k] === v) && (!wordTiming || rec.words?.length)) {
-          rows.push({ ...row, status: "unchanged" });
-          continue;
-        }
+        current = mine && Object.entries(want).every(([k,v]) => rec[k] === v) && sameOptional(rec, want) && (!wordTiming || rec.words?.length);
+      }
+      pending.push({ si, scene, text, rel, out, row, want, rec, current });
+    }
+    gen: if (oneTake) {
+      if (!pending.length) break gen;
+      // One request for the language: any changed line re-records the whole take, so every clip
+      // comes from the same performance.
+      const takeKey = sha(JSON.stringify([voice, model, rate, vo.stability ?? null, vo.similarity ?? null, vo.delivery ?? "", pending.map((p) => [p.scene.id, p.text, p.scene.delivery ?? ""])]));
+      if (pending.every((p) => p.current && p.rec.takeKey === takeKey)) {
+        for (const p of pending) slot[p.si] = { ...p.row, status: "unchanged" };
+        break gen;
+      }
+      const res = await recordTake({ vo, lang, voice, model, rate, pending, log });
+      if (res.error) {
+        if (res.keyInvalid) keyInvalid = res.error;
+        for (const p of pending) slot[p.si] = { ...p.row, status: "error", error: sanitizeSpeechError(res.error), stale: fs.existsSync(p.out), ...(res.keyInvalid ? { keyInvalid: true } : {}) };
+        break gen;
+      }
+      pending.forEach((p, n) => {
+        manifest[p.rel] = { ...p.want, sha: sha(fs.readFileSync(p.out)), takeKey, takeSpan: res.spans[n] };
+        slot[p.si] = { ...p.row, status: "generated" };
+      });
+    } else for (const { si, scene, text, rel, out, row, want, current } of pending) {
+      if (keyInvalid) {
+        slot[si] = ({ ...row, status: "error", error: keyInvalid, skipped: true });
+        continue;
+      }
+      if (current) {
+        slot[si] = ({ ...row, status: "unchanged" });
+        continue;
       }
       fs.mkdirSync(path.dirname(out), { recursive: true });
       const tmp = `${out}.partial.mp3`;
+      const spokenText = want.delivery ? `${want.delivery} ${text}` : text;
       let cues = null, words = null;
       try {
         log(`${lang}/${scene.id}: ${engine} ${voice}`);
         const generate = async () => {
           fs.rmSync(tmp, { force: true });
           if (engine === "azure") { if (wordTiming) words = azureTimed(text, voice, rate, tmp, vo.keySource); else await azure(text, voice, rate, tmp, vo.keySource); }
-          else if (BRIDGED.includes(engine)) await bridgeSpeech(engine, { text, voice, model, instructions: vo.instructions ?? "", rate, out: tmp }, { keySource: vo.keySource });
+          else if (BRIDGED.includes(engine)) await bridgeSpeech(engine, { text: spokenText, voice, model, instructions: vo.instructions ?? "", rate, stability: vo.stability, similarity: vo.similarity, lang, out: tmp }, { keySource: vo.keySource });
           else if (engine === "command") commandSpeech(vo, { text, lang, voice, model: vo.model, instructions: vo.instructions ?? "", rate, output: tmp }, { allowCode });
           else cues = edge(text, voice, rate, tmp);
         };
         if (engine === "command") await generate();
         else await retrySpeech(generate);
         if (!fs.existsSync(tmp) || fs.statSync(tmp).size === 0) throw new Error("no audio was written");
+        // Shortened pauses move the service's sentence timing: drop it rather than keep it wrong.
+        if (vo.maxPause) { capPauses(tmp, vo.maxPause); cues = null; }
         fs.renameSync(tmp, out);
       } catch (e) {
         fs.rmSync(tmp, { force: true });
         // A rejected key fails every line the same way: stop at the first one.
         if (e.keyInvalid) keyInvalid = e.message;
-        rows.push({ ...row, status: "error", error: sanitizeSpeechError(e.message), stale: fs.existsSync(out), ...(e.keyInvalid ? { keyInvalid: true } : {}) });
+        slot[si] = ({ ...row, status: "error", error: sanitizeSpeechError(e.message), stale: fs.existsSync(out), ...(e.keyInvalid ? { keyInvalid: true } : {}) });
         continue;
       }
       manifest[rel] = { ...want, sha: sha(fs.readFileSync(out)), ...(cues?.length ? { cues } : {}), ...(words?.length ? { words } : {}) };
-      rows.push({ ...row, status: "generated" });
+      slot[si] = ({ ...row, status: "generated" });
     }
+    rows.push(...slot.filter(Boolean));
   }
   fs.writeFileSync(path.join(vo.dir, MANIFEST), JSON.stringify(manifest, null, 2) + "\n");
-  return { engine, ...(vo.profile ? { profile: vo.profile } : {}), rows, ...(engine === "edge" ? { preview: true, note: PREVIEW_NOTE } : {}), ...(keyInvalid ? { keyInvalid } : {}) };
+  return { engine, ...(vo.profile ? { profile: vo.profile } : {}), rows, ...(warnings.length ? { warnings } : {}), ...(engine === "edge" ? { preview: true, note: PREVIEW_NOTE } : {}), ...(keyInvalid ? { keyInvalid } : {}) };
+}
+
+/** The text of a one-take request: the voiceover's tag, then each line (with its tag) on its own paragraph. */
+export function takeText(vo, lines, { tags = true } = {}) {
+  const lead = tags && vo.delivery ? `${vo.delivery} ` : "";
+  return lead + lines.map((l) => (tags && l.delivery ? `${l.delivery} ${l.text}` : l.text)).join("\n\n");
+}
+
+// Speak every pending line of one language in one ElevenLabs request, then cut it into clips.
+async function recordTake({ vo, lang, voice, model, rate, pending, log }) {
+  const dir = path.join(vo.dir, lang);
+  fs.mkdirSync(dir, { recursive: true });
+  const take = path.join(dir, ".motion-use-take.partial.mp3");
+  const tmps = pending.map((p) => `${p.out}.partial.mp3`);
+  try {
+    log(`${lang}: one take of ${pending.length} line(s), elevenlabs ${voice}`);
+    const text = takeText(vo, pending.map((p) => ({ text: p.text, delivery: p.scene.delivery })), { tags: elevenTagModel(model) });
+    let alignment;
+    await retrySpeech(async () => {
+      fs.rmSync(take, { force: true });
+      ({ alignment } = await bridgeSpeech("elevenlabs", { text, voice, model, rate, stability: vo.stability, similarity: vo.similarity, lang, timestamps: true, out: take }, { keySource: vo.keySource }));
+    });
+    if (!fs.existsSync(take) || fs.statSync(take).size === 0) throw new Error("no audio was written");
+    let duration;
+    try { duration = probeSpeech(take); } catch { duration = undefined; }
+    const spans = splitTake(alignment, pending.map((p) => p.text), { duration });
+    pending.forEach((p, n) => {
+      const { start, end } = spans[n];
+      ffmpegAudio(["-i", take, "-ss", String(start), "-to", String(end), ...MP3, tmps[n]], "cutting the take");
+      if (!fs.existsSync(tmps[n]) || fs.statSync(tmps[n]).size === 0) throw new Error(`cutting the take wrote no audio for ${p.scene.id}`);
+      if (vo.maxPause) capPauses(tmps[n], vo.maxPause);
+    });
+    // Only replace clips once every line of the take was cut.
+    pending.forEach((p, n) => fs.renameSync(tmps[n], p.out));
+    return { spans };
+  } catch (e) {
+    return { error: e.message, keyInvalid: Boolean(e.keyInvalid) };
+  } finally {
+    fs.rmSync(take, { force: true });
+    for (const t of tmps) fs.rmSync(t, { force: true });
+  }
 }
 
 /** Voiceover files in use that came from the edge engine (for the publish warning in render). */
@@ -252,7 +465,7 @@ export function sanitizeSpeechError(message) {
 
 // Imported recordings remain supported. A tracked generated clip must match both
 // the current script/settings and the bytes; stale generation never becomes timing.
-export function narrationFreshness(dir, file, text, config = {}, lang) {
+export function narrationFreshness(dir, file, text, config = {}, lang, { delivery } = {}) {
   const record = readVoManifest(dir)[path.relative(dir, file)];
   if (!record) return { current: false, imported: true };
   // With no engine named, any engine is current as long as its voice is the one it would use now.
@@ -262,7 +475,8 @@ export function narrationFreshness(dir, file, text, config = {}, lang) {
     record.rate === (config.rates?.[lang] ?? "+0%") &&
     (!config.engine || record.engine === config.engine) &&
     (!BRIDGED.includes(engine) || (record.model === resolveModel(engine, config) && record.instructions === (config.instructions ?? ""))) &&
-    (config.engine !== "command" || (record.model === config.model && record.instructions === (config.instructions ?? "") && record.commandKey === speechCommandKey(config.command ?? [], config.commandCwd)));
+    (config.engine !== "command" || (record.model === config.model && record.instructions === (config.instructions ?? "") && record.commandKey === speechCommandKey(config.command ?? [], config.commandCwd))) &&
+    sameOptional(record, optionalSettings(config, deliveryFor(config, delivery, engine)));
   return { current, imported: false };
 }
 

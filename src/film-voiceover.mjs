@@ -1,7 +1,7 @@
 import { spoken, displayed } from "./caption-plan.mjs";
 import fs from "node:fs";
 import path from "node:path";
-import { validateBrief } from "./brief.mjs";
+import { DELIVERY_RE, validateBrief } from "./brief.mjs";
 import { audioSeconds } from "./build.mjs";
 import { generateVoiceover, narrationFreshness } from "./voiceover.mjs";
 
@@ -14,6 +14,15 @@ const contained = (base, file) => {
     !path.isAbsolute(r)
   );
 };
+// A shot's audio tags ("[curious]"): spoken before its narration, never captioned.
+function shotDelivery(s, error) {
+  if (s.delivery === undefined) return {};
+  if (typeof s.delivery !== "string" || (s.delivery.trim() && !DELIVERY_RE.test(s.delivery.trim()))) {
+    error(`$.shots.${s.id}.delivery`, 'ElevenLabs audio tags in square brackets, like "[curious]" or "[calm, conversational]" (1–4 tags); spoken, never captioned');
+    return {};
+  }
+  return s.delivery.trim() ? { delivery: s.delivery.trim() } : {};
+}
 export function resolveNarration(
   film,
   {
@@ -111,6 +120,7 @@ export function resolveNarration(
             end: s.end - 0.08,
             narration: map(s.narration, `$.shots.${s.id}.narration`),
             display: map(s.narration, `$.shots.${s.id}.narration`, displayed),
+            ...shotDelivery(s, error),
           }));
   const tracks = [],
     pending = [];
@@ -154,7 +164,7 @@ export function resolveNarration(
         continue;
       }
       try {
-        const freshness = narrationFreshness(dir, file, p.narration[l], config, l);
+        const freshness = narrationFreshness(dir, file, p.narration[l], config, l, { delivery: p.delivery });
         if (!freshness.imported && !freshness.current) {
           error(`$.voiceover.${l}.${p.id}`, "stale narration: script, settings or audio hash changed; regenerate voiceover");
           continue;

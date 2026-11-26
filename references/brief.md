@@ -116,10 +116,11 @@ Narration can be recorded or generated. Either way it ends up at `<voiceover.dir
 - **Generated:** write `narration` on the scenes, then run `motion-use voiceover <brief>`.
   - `--engine azure` uses Azure AI Speech (`AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, or keychain `motion-use-azure` / `motion-use-azure-region`).
   - `--engine elevenlabs|minimax|openai` use the built-in bridges; see [voice-casting.md](voice-casting.md) for keys and defaults.
+  - ElevenLabs: `voiceover.stability` / `similarity` (0–1), `voiceover.take: "one"` (the whole script in one request, cut by character timing) and audio tags in `delivery` on a scene or on `voiceover` (`"[curious]"`; eleven_v4, eleven_v4_turbo, eleven_v3 only; never captioned). `voiceover.maxPause` (seconds) shortens long pauses inside a clip for any engine. See [voice-casting.md](voice-casting.md).
   - With no engine named: the user's default voice profile (`motion-use voice`; `"profile": "<name>"` picks another, `false` opts out), else the only configured service, else (several configured) voiceover stops and lists them; edge only when nothing is configured.
   - `--engine edge` uses the `edge-tts` CLI (`pip install edge-tts`): the same voices through Microsoft Edge's read-aloud service. Whether its audio may be published is not established, so treat it as a preview; `render` reminds you when a video uses it.
   - Default voices: `zh-CN-YunxiNeural` for `zh`, `en-US-AndrewMultilingualNeural` for `en`; set `voiceover.voices` for other languages or other voices.
-  - Generated files are recorded in `<dir>/.motion-use-voiceover.json`. Running again regenerates only lines whose text, voice, rate or engine changed. A file motion-use did not generate (your own recording) is never replaced unless you pass `--force`.
+  - Generated files are recorded in `<dir>/.motion-use-voiceover.json`. Running again regenerates only lines whose text, voice, rate, engine or voice settings (delivery, stability, similarity, take, maxPause) changed. A file motion-use did not generate (your own recording) is never replaced unless you pass `--force`.
 
 ## Timing
 
