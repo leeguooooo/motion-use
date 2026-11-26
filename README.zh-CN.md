@@ -164,6 +164,7 @@ motion-use 是一个 Node.js 程序，带一个可选的原生渲染器：影片
 | `music [film]` | 只渲染这条片子自己的配乐（`composition/score.js`：按题材选乐器、调式、高潮位置和画面重音），并报告每个镜头的音符数和配乐警告 |
 | `instruments [list\|install]` | 配乐方案演奏用的 CC0 真实乐器包（筝、竖琴、钢琴、钟、锣、框鼓、弦乐、木管……） |
 | `compare <a> <b>` | 两支片子同一时刻并排对比：`--times 1.5,4`；加 `--video` 输出一支左右并排同时播放的 MP4，可设 `--title`、`--labels A,B`，两边各自的 `--from` 起点和 `--speed` 变速 |
+| `capture <url\|html>` | 录网页作品（canvas、WebGL、CSS 动画）和它用 WebAudio 合成的声音：接管页面时间逐帧截图，不占屏幕，画面和声音同一个时钟，产出 `capture.mp4` + `audio.wav` + `capture.json`；`--duration`、`--press a@0.5`、`--page-key ArrowRight --page-every 8`（[references/capture.md](references/capture.md)） |
 | `doctor` | 检查 Node、FFmpeg、Chrome、引擎、原生渲染器和字体 |
 | `upgrade` | 更新 CLI 和它的 skill；`--check` 只检查不安装 |
 

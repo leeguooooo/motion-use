@@ -1,0 +1,40 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>html,body{margin:0;background:#000;overflow:hidden}canvas{display:block}
+#box{position:absolute;left:0;top:100px;width:20px;height:20px;background:#00f;animation:slide 2s linear forwards}
+@keyframes slide{from{transform:translateX(0)}to{transform:translateX(1000px)}}</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// Fixture for test/capture.test.mjs: the left half is white on the first frame at or after the
+// tone starts (1 s after A is pressed), black before; a bar moves with performance.now; the tone
+// is a 440 Hz OscillatorNode started at AudioContext.currentTime; the blue CSS box slides 1000 px in 2 s.
+const c = document.getElementById("c"), g = c.getContext("2d");
+let started = null, ctx = null;
+window.addEventListener("keydown", (e) => {
+  if (e.key.toLowerCase() !== "a" || ctx) return;
+  ctx = new AudioContext();
+  ctx.resume();
+  setTimeout(() => {
+    const o = ctx.createOscillator(), v = ctx.createGain();
+    v.gain.value = 0.5; o.frequency.value = 440;
+    o.connect(v).connect(ctx.destination);
+    o.start(ctx.currentTime);
+    started = performance.now();
+  }, 1000);
+});
+function frame(t) {
+  g.fillStyle = "#000"; g.fillRect(0, 0, 1920, 1080);
+  if (started !== null) { g.fillStyle = "#fff"; g.fillRect(0, 0, 960, 1080); }
+  g.fillStyle = "#f00"; g.fillRect((t / 1000 * 400) % 1920, 900, 40, 40);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+<div id="box"></div>
+<canvas id="gl" width="64" height="64" style="position:absolute;right:0;top:0;width:64px;height:64px"></canvas>
+<script>
+// WebGL: a green square in the top-right corner, cleared every frame.
+const gl = document.getElementById("gl").getContext("webgl");
+window.__webgl = Boolean(gl);
+(function draw() { if (gl) { gl.clearColor(0, 1, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT); } requestAnimationFrame(draw); })();
+</script>
+</body></html>

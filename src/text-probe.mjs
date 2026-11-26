@@ -352,7 +352,8 @@ function serve(dir) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
 }
 
-async function browser() {
+/** Chrome from the pinned engine (puppeteer-core); `args` replace the text probe's CPU-only flags. */
+export async function browser(args = ["--no-sandbox", "--disable-gpu", "--hide-scrollbars"], extra = {}) {
   // puppeteer-core ships with the pinned engine; resolve it from there.
   const require = createRequire(createRequire(import.meta.url).resolve("hyperframes/package.json"));
   const puppeteer = require("puppeteer-core");
@@ -360,7 +361,7 @@ async function browser() {
   const executablePath = r.out.trim().split("\n").pop();
   if (r.code !== 0 || !executablePath || !fs.existsSync(executablePath))
     throw new Error("no Chrome found (motion-use doctor --install-browser)");
-  return puppeteer.launch({ executablePath, headless: true, args: ["--no-sandbox", "--disable-gpu", "--hide-scrollbars"] });
+  return puppeteer.launch({ executablePath, headless: true, args, ...extra });
 }
 
 /**
