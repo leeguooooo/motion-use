@@ -162,9 +162,17 @@ export function deliveryFor(config, sceneDelivery, engine = config.engine, model
   return (config.take === "one" ? [config.delivery, sceneDelivery] : [sceneDelivery || config.delivery]).filter(Boolean).join(" ");
 }
 
-/** The ffmpeg filter that shortens every pause inside a clip to at most `seconds`. */
-export function pauseFilter(seconds) {
-  return `silenceremove=stop_periods=-1:stop_duration=${seconds}:stop_threshold=-42dB`;
+/**
+ * What to cut so that no pause inside a clip is longer than `seconds`. `silences` are
+ * [start, end] runs found by ffmpeg silencedetect (-42 dB); runs touching the start or the end
+ * of the clip are not pauses inside it and stay. Each long pause keeps `seconds`, half on each
+ * side of the cut. → [[from, to], …] in seconds, to remove.
+ */
+export function pauseCuts(silences, duration, seconds) {
+  const edge = 0.02;
+  return silences
+    .filter(([a, b]) => a > edge && b < duration - edge && b - a > seconds + 0.01)
+    .map(([a, b]) => [+(a + seconds / 2).toFixed(4), +(b - seconds / 2).toFixed(4)]);
 }
 
 function ffmpegAudio(args, what) {
@@ -174,10 +182,33 @@ function ffmpegAudio(args, what) {
 }
 const MP3 = ["-c:a", "libmp3lame", "-b:a", "128k"];
 
+function silences(file, seconds) {
+  const r = spawnSync("ffmpeg", ["-hide_banner", "-nostats", "-i", file, "-af", `silencedetect=noise=-42dB:d=${seconds}`, "-f", "null", "-"], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+  if (r.error?.code === "ENOENT") throw new Error("maxPause needs ffmpeg");
+  if (r.status !== 0) throw new Error("maxPause: ffmpeg could not read the clip");
+  const out = [];
+  for (const m of r.stderr.matchAll(/silence_(start|end): (-?[\d.]+)/g)) {
+    if (m[1] === "start") out.push([Math.max(0, Number(m[2])), Infinity]);
+    else if (out.length) out[out.length - 1][1] = Number(m[2]);
+  }
+  return out;
+}
+
+// Shorten pauses inside the clip; its first and last sound stay where they are relative to the edges.
 function capPauses(file, seconds) {
+  const duration = probeSpeech(file);
+  const cuts = pauseCuts(silences(file, seconds), duration, seconds);
+  if (!cuts.length) return;
+  const keep = [];
+  let at = 0;
+  for (const [a, b] of cuts) { keep.push([at, a]); at = b; }
+  keep.push([at, duration]);
+  const graph = `[0:a]asplit=${keep.length}${keep.map((_, i) => `[s${i}]`).join("")};` +
+    keep.map(([a, b], i) => `[s${i}]atrim=start=${a}:end=${b},asetpts=PTS-STARTPTS[k${i}]`).join(";") +
+    `;${keep.map((_, i) => `[k${i}]`).join("")}concat=n=${keep.length}:v=0:a=1[out]`;
   const capped = `${file}.cap.mp3`;
   try {
-    ffmpegAudio(["-i", file, "-af", pauseFilter(seconds), ...MP3, capped], "maxPause");
+    ffmpegAudio(["-i", file, "-filter_complex", graph, "-map", "[out]", ...MP3, capped], "maxPause");
     fs.renameSync(capped, file);
   } finally { fs.rmSync(capped, { force: true }); }
 }
@@ -391,8 +422,9 @@ async function recordTake({ vo, lang, voice, model, rate, pending, log }) {
     const spans = splitTake(alignment, pending.map((p) => p.text), { duration });
     pending.forEach((p, n) => {
       const { start, end } = spans[n];
-      ffmpegAudio(["-i", take, "-ss", String(start), "-to", String(end), ...(vo.maxPause ? ["-af", pauseFilter(vo.maxPause)] : []), ...MP3, tmps[n]], "cutting the take");
+      ffmpegAudio(["-i", take, "-ss", String(start), "-to", String(end), ...MP3, tmps[n]], "cutting the take");
       if (!fs.existsSync(tmps[n]) || fs.statSync(tmps[n]).size === 0) throw new Error(`cutting the take wrote no audio for ${p.scene.id}`);
+      if (vo.maxPause) capPauses(tmps[n], vo.maxPause);
     });
     // Only replace clips once every line of the take was cut.
     pending.forEach((p, n) => fs.renameSync(tmps[n], p.out));

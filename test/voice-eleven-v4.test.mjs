@@ -9,7 +9,7 @@ import { validateBrief } from "../src/brief.mjs";
 import { resolveNarration } from "../src/film-voiceover.mjs";
 import { probeSpeech } from "../src/tts-command.mjs";
 import { applyVoiceProfile, bridgeSpeech, checkProfile, elevenBody, resetProviderCache } from "../src/tts-providers.mjs";
-import { MANIFEST, deliveryFor, generateVoiceover, narrationFreshness, pauseFilter, speechWarnings, splitTake, takeText } from "../src/voiceover.mjs";
+import { MANIFEST, deliveryFor, generateVoiceover, narrationFreshness, pauseCuts, speechWarnings, splitTake, takeText } from "../src/voiceover.mjs";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "motion-use-v4-"));
 const quiet = { MOTION_USE_KEYCHAIN: "0", MOTION_USE_CONFIG: path.join(tmp, "none.json"), ELEVENLABS_API_KEY: "k" };
@@ -200,10 +200,10 @@ test("a manifest written before these settings existed stays current", () => {
 
 test("one take: the whole script in one request, cut by character timing into scene clips", async () => {
   // 第一句 1.0 s, a 0.8 s pause that its "。" stretches over, then 第二句 1.0 s.
-  const take = mp3([["tone", 1], ["silence", 0.8], ["tone", 1]], path.join(tmp, "take-src.mp3"));
-  const alignment = align([["[calm] ", 0, 0.02], ["第一句", 0.02, 1.0], ["。", 1.0, 1.8], ["\n\n", 1.8, 1.8], ["第二句", 1.8, 2.8], ["。", 2.8, 2.8]]);
+  const take = mp3([["tone", 1], ["silence", 0.8], ["tone", 1], ["silence", 0.5]], path.join(tmp, "take-src.mp3"));
+  const alignment = align([["[calm] ", 0, 0.02], ["第一句", 0.02, 1.0], ["。", 1.0, 1.8], ["\n\n", 1.8, 1.8], ["第二句", 1.8, 2.8], ["。", 2.8, 3.3]]);
   const scenes = (second = "第二句。") => [{ id: "a", type: "title", title: "A", narration: "第一句。" }, { id: "b", type: "title", title: "B", narration: second, delivery: "[softly]" }];
-  const requests = [], alignments = [alignment, alignment, align([["[calm] ", 0, 0.02], ["第一句", 0.02, 1.0], ["。", 1.0, 1.8], ["\n\n", 1.8, 1.8], ["[softly] ", 1.8, 1.8], ["又一句", 1.8, 2.8]])];
+  const requests = [], alignments = [alignment, alignment, align([["[calm] ", 0, 0.02], ["第一句", 0.02, 1.0], ["。", 1.0, 1.8], ["\n\n", 1.8, 1.8], ["[softly] ", 1.8, 1.8], ["又一句", 1.8, 2.8], ["。", 2.8, 3.3]])];
   await withFetch(async (url, init) => (requests.push({ url, body: JSON.parse(init.body) }), reply(200, { audio_base64: take.toString("base64"), alignment: alignments[requests.length - 1] })), async () => {
     const vo = { delivery: "[calm]", take: "one", stability: 0.5 };
     const res = await generateVoiceover(v4Brief("vo-take", vo, scenes()));
@@ -214,9 +214,10 @@ test("one take: the whole script in one request, cut by character timing into sc
     const dir = path.join(tmp, "vo-take");
     const manifest = JSON.parse(fs.readFileSync(path.join(dir, MANIFEST), "utf8"));
     assert.deepEqual(manifest[path.join("zh", "a.mp3")].takeSpan, { start: 0, end: 1.15 });
-    assert.deepEqual(manifest[path.join("zh", "b.mp3")].takeSpan, { start: 1.7, end: 2.8 });
-    assert.ok(Math.abs(probeSpeech(path.join(dir, "zh", "a.mp3")) - 1.15) < 0.06);
-    assert.ok(Math.abs(probeSpeech(path.join(dir, "zh", "b.mp3")) - 1.1) < 0.08);
+    assert.deepEqual(manifest[path.join("zh", "b.mp3")].takeSpan, { start: 1.7, end: 2.95 });
+    // MP3 frames and encoder padding: durations within 0.12 s.
+    assert.ok(Math.abs(probeSpeech(path.join(dir, "zh", "a.mp3")) - 1.15) < 0.12);
+    assert.ok(Math.abs(probeSpeech(path.join(dir, "zh", "b.mp3")) - 1.25) < 0.12);
     assert.equal(fs.readdirSync(path.join(dir, "zh")).sort().join(), "a.mp3,b.mp3");
     assert.equal(manifest[path.join("zh", "a.mp3")].delivery, "[calm]");
     assert.equal(manifest[path.join("zh", "b.mp3")].delivery, "[calm] [softly]");
@@ -237,13 +238,60 @@ test("one take: the whole script in one request, cut by character timing into sc
 });
 
 test("maxPause shortens pauses inside a clip", async () => {
-  assert.equal(pauseFilter(0.3), "silenceremove=stop_periods=-1:stop_duration=0.3:stop_threshold=-42dB");
-  const audio = mp3([["tone", 0.5], ["silence", 1.2], ["tone", 0.5]], path.join(tmp, "pause-src.mp3"));
+  // Pauses inside the clip keep 0.3 s, split around the cut; silence at either edge stays.
+  assert.deepEqual(pauseCuts([[0, 0.2], [0.5, 1.7], [2.0, 2.2], [2.6, 3.0]], 3.0, 0.3), [[0.65, 1.55]]);
+  assert.deepEqual(pauseCuts([[0.5, 0.79]], 3.0, 0.3), []);
+  const audio = mp3([["silence", 0.2], ["tone", 0.5], ["silence", 1.2], ["tone", 0.5], ["silence", 0.4]], path.join(tmp, "pause-src.mp3"));
   await withFetch(async () => reply(200, {}, audio), async () => {
     const res = await generateVoiceover(v4Brief("vo-pause", { maxPause: 0.3, rate: "+0%" }));
     assert.equal(res.rows[0].status, "generated");
     const seconds = probeSpeech(path.join(tmp, "vo-pause", "zh", "a.mp3"));
-    assert.ok(seconds > 1.1 && seconds < 1.5, `pause not shortened: ${seconds}s`);
+    // 2.8 s with a 1.2 s pause → about 1.9 s: only the inner pause is shortened.
+    assert.ok(seconds > 1.75 && seconds < 2.05, `pause not shortened to 0.3 s: ${seconds}s`);
     assert.equal(res.warnings, undefined);
+  });
+});
+
+test("film.json end to end: shot delivery, one take and maxPause reach the request, and the clips are current afterwards", async () => {
+  const { initFilm, checkFilm } = await import("../src/film.mjs");
+  const { generateFilmNarration } = await import("../src/film-voiceover.mjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "motion-use-v4-film-"));
+  initFilm({ lang: "zh", format: "landscape", voiceProfile: null }, dir);
+  const file = path.join(dir, "film.json"), d = JSON.parse(fs.readFileSync(file, "utf8"));
+  d.voiceover = { dir: "voiceover", profile: false, engine: "elevenlabs", voices: { zh: "v" }, model: "eleven_v4", take: "one", delivery: "[calm]", stability: 0.5, maxPause: 0.3 };
+  d.shots.forEach((s, i) => { s.narration = { zh: `第${i + 1}句。` }; delete s.delivery; });
+  d.shots[1].delivery = "[curious]";
+  fs.writeFileSync(file, JSON.stringify(d));
+  // A fake service that speaks each paragraph as 0.6 s of tone, its "。" stretched over 0.6 s of silence.
+  const requests = [];
+  const fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    requests.push({ url, body });
+    const lines = body.text.split("\n\n"), runs = [], parts = [];
+    lines.forEach((line, i) => {
+      const t = i * 1.2, [, tags = "", words] = line.match(/^((?:\[[^\]]*\]\s*)*)(.*)$/s);
+      if (tags) runs.push([tags, t, t]);
+      runs.push([words.replace(/。$/, ""), t, t + 0.6], ["。", t + 0.6, t + 1.2]);
+      if (i < lines.length - 1) runs.push(["\n\n", t + 1.2, t + 1.2]);
+      parts.push(["tone", 0.6], ["silence", 0.6]);
+    });
+    return reply(200, { audio_base64: mp3(parts, path.join(dir, "fake.mp3")).toString("base64"), alignment: align(runs) });
+  };
+  await withFetch(fetch, async () => {
+    const c = checkFilm(dir, { skipGeneratedVoiceover: true, phase: "narration" });
+    assert.deepEqual(c.report.errors, []);
+    const res = await generateFilmNarration(c.film, { langs: ["zh"] });
+    assert.ok(res.rows.length >= 2 && res.rows.every((r) => r.status === "generated"), JSON.stringify(res.rows));
+    assert.equal(requests.length, 1);
+    assert.match(requests[0].url, /\/with-timestamps\?/);
+    assert.ok(requests[0].body.text.startsWith("[calm] 第1句。\n\n[curious] 第2句。"));
+    assert.deepEqual(requests[0].body.voice_settings, { stability: 0.5 });
+    const post = checkFilm(dir, { requireNarration: ["zh"], phase: "narration" });
+    assert.deepEqual(post.report.errors, []);
+    assert.equal(post.film.tracks.filter((t) => t.role === "voiceover").length, res.rows.length);
+    // Captions read the narration, never the tag.
+    assert.ok(!JSON.stringify(post.film.narrationPlans.map((p) => p.display)).includes("[curious]"));
+    assert.equal((await generateFilmNarration(post.film, { langs: ["zh"] })).rows.every((r) => r.status === "unchanged"), true);
+    assert.equal(requests.length, 1);
   });
 });

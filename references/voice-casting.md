@@ -86,8 +86,9 @@ than `+0%` gives a warning: the speed has to be changed afterwards. The request 
   one opening tag (`[calm, conversational]`, stability 0.5) stays one voice. Default
   `"line"`: one request per line, as before.
 - `"maxPause": 0.3` on `voiceover` (any engine, 0.1–2 s): pauses inside a clip longer
-  than this are shortened to it (ffmpeg `silenceremove`, threshold -42 dB). Edge's
-  sentence timing is dropped then; it cannot be combined with `--word-timing`.
+  than this are shortened to it (ffmpeg `silencedetect` at -42 dB, cut in the middle of
+  the pause); silence at the start and end of a clip stays. Edge's sentence timing is
+  dropped then; it cannot be combined with `--word-timing`.
 
 Do not let available credentials or the starter's Chinese/English voice determine
 the final narrator. Keep an explicit user-selected voice unless asked to change it.
