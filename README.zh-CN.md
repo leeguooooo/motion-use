@@ -88,7 +88,7 @@ motion-use beats 歌曲.wav                    # 卡歌曲节拍：速度、第�
 
 每次渲染还会输出封面、从**交付的 MP4** 抽帧得到的联系表，以及一份技术报告：能否完整解码，实测时长、帧率、尺寸，有无音频，响度和峰值，每个镜头的 RMS，暗场和静止区间，以及运动指标。编码成功不等于审美通过：在人或 agent 看过之前，`visual_review` 一直是 pending。Canvas 上画的文字不在 DOM 布局检查的覆盖范围内。音频按 -14 LUFS / -1 dBTP 的工作目标做两遍归一化；`--no-normalize` 保留原始电平。
 
-**眼睛看不出的问题，交给检查。** 渲染时会用 whisper 把每段旁白转成文字，和脚本逐句对照，标出读错的地方，比如把“AI”读成“A-A-I”、把“重试”读成“重视”（单独跑用 `voiceover check`）。它还会测量画面里每一段文字，超出画面或竖版安全区的、两段字叠在一起的（比如前一句还没淡出、下一句已经出现在同一位置）都会报出来，带上时间。字在屏幕上停留的时间不够读完（每个英文词 0.3 秒、每个汉字 0.15 秒，再加 0.5 秒），或者和背景的对比度低于 WCAG 标准，也会提醒；一秒内闪烁超过三次（WCAG 2.3.1）的片子过不了运动检查。每次渲染都会把当时的输入存成快照，配音改了以后也能用 `render --snapshot <id>` 原样重渲染。`render --release` 生成发各平台用的文件：x264 veryslow CRF 16 母版、需要时给 X 的 45 MB 以内版本、封面，再写一份带哈希的 `release-manifest.json`；上传前用 `verify --manifest` 确认手里的就是当前母版。
+**眼睛看不出的问题，交给检查。** 渲染时会用 whisper 把每段旁白转成文字，和脚本逐句对照，标出读错的地方，比如把“AI”读成“A-A-I”、把“重试”读成“重视”（单独跑用 `voiceover check`）。它还会测量画面里每一段文字，超出画面或竖版安全区的、两段字叠在一起的（比如前一句还没淡出、下一句已经出现在同一位置）都会报出来，带上时间。字在屏幕上停留的时间不够读完（每个英文词 0.3 秒、每个汉字 0.15 秒，再加 0.5 秒），或者和背景的对比度低于 WCAG 标准，或者大字标题压在本身就有文字、高对比细节的画面上，也会提醒；一秒内闪烁超过三次（WCAG 2.3.1）的片子过不了运动检查。每次渲染都会把当时的输入存成快照，配音改了以后也能用 `render --snapshot <id>` 原样重渲染。`render --release` 生成发各平台用的文件：x264 veryslow CRF 16 母版、需要时给 X 的 45 MB 以内版本、封面，再写一份带哈希的 `release-manifest.json`；上传前用 `verify --manifest` 确认手里的就是当前母版。
 
 **不绑定某一个渲染器。** `files` 可以把任意本地文件（glb、vrm、hdr、wasm……）交给浏览器里的库，页面里用 `window.filmFiles.<名字>` 取。`"engine": {"type": "command", "command": ["blender", "-b", "-P", "scene.py", "--"]}` 让外部引擎来画画面：motion-use 写一份任务文件，命令按帧输出 PNG，后面的流程都不变——配乐和旁白、叠在上面的透明 composition 层（3D 画面上的字幕，照样过文字检查）、交付检查、快照和发布母版。`--workers 4` 把帧分给四个进程同时渲染；声明 `"stream": true` 的引擎把原始 RGBA 写进 FIFO，FFmpeg 边收边编码；声明 `"parallel": true` 的引擎只起一个进程，用四个线程。任务文件的约定见 [references/film.md](references/film.md#external-engines)。
 
@@ -163,7 +163,7 @@ motion-use 是一个 Node.js 程序，带一个可选的原生渲染器：影片
 | `beats <audio>` | 测一首歌：速度、第一个强拍、每小节响度、高潮；打印让片子从强拍开始的 `music` 配置 |
 | `music [film]` | 只渲染这条片子自己的配乐（`composition/score.js`：按题材选乐器、调式、高潮位置和画面重音），并报告每个镜头的音符数和配乐警告 |
 | `instruments [list\|install]` | 配乐方案演奏用的 CC0 真实乐器包（筝、竖琴、钢琴、钟、锣、框鼓、弦乐、木管……） |
-| `compare <a> <b>` | 两支片子同一时刻并排对比：`--times 1.5,4` |
+| `compare <a> <b>` | 两支片子同一时刻并排对比：`--times 1.5,4`；加 `--video` 输出一支左右并排同时播放的 MP4，可设 `--title`、`--labels A,B`，两边各自的 `--from` 起点和 `--speed` 变速 |
 | `doctor` | 检查 Node、FFmpeg、Chrome、引擎、原生渲染器和字体 |
 | `upgrade` | 更新 CLI 和它的 skill；`--check` 只检查不安装 |
 

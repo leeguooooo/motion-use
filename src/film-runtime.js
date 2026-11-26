@@ -252,6 +252,50 @@
         bold = /\bbold/.test(ctx.font) || +(/\b([1-9]00)\b/.exec(ctx.font)?.[1] ?? 400) >= 700;
       return { contrast: +((hi + 0.05) / (lo + 0.05)).toFixed(2), large: size >= 24 || (bold && size >= 18.66), color: hexOf(fill), backdrop: hexOf(back), size: Math.round(size) };
     };
+    // Busy backdrop: a title laid over a shot that already has words or hard detail where the title
+    // goes (a hook cut whose footage showed "全选。" under the title, issue #131). The picture under a
+    // large string just before its first draw, a little wider than the glyphs, shrunk to 64 cells
+    // across in grey: the share of neighbouring cells whose brightness differs by more than 40 of 255
+    // (edges) and the brightness spread. Large = at least 5% of the frame's short side.
+    const grid = document.createElement("canvas");
+    grid.width = 64;
+    grid.height = 64;
+    const gc = grid.getContext("2d", { willReadFrequently: true });
+    const busyOf = (box) => {
+      const padX = (box.x1 - box.x0) * 0.04,
+        padY = (box.y1 - box.y0) * 0.15;
+      const x0 = Math.max(0, Math.floor(box.x0 - padX)),
+        y0 = Math.max(0, Math.floor(box.y0 - padY)),
+        x1 = Math.min(probe.width, Math.ceil(box.x1 + padX)),
+        y1 = Math.min(probe.height, Math.ceil(box.y1 + padY));
+      if (x1 - x0 < 8 || y1 - y0 < 8) return null;
+      const gw = 64,
+        gh = Math.max(4, Math.min(64, Math.round((gw * (y1 - y0)) / (x1 - x0))));
+      gc.clearRect(0, 0, 64, 64);
+      gc.drawImage(probe, x0, y0, x1 - x0, y1 - y0, 0, 0, gw, gh);
+      const d = gc.getImageData(0, 0, gw, gh).data,
+        Y = new Float32Array(gw * gh);
+      let n = 0,
+        sum = 0,
+        sq = 0;
+      for (let i = 0; i < Y.length; i++) {
+        // transparent canvas reads as the black the encoder puts under it
+        const a = d[i * 4 + 3] / 255;
+        Y[i] = a * (0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2]);
+        sum += Y[i];
+        sq += Y[i] * Y[i];
+      }
+      let edges = 0;
+      for (let y = 0; y < gh; y++)
+        for (let x = 0; x < gw; x++) {
+          const v = Y[y * gw + x];
+          if (x + 1 < gw) (n++, Math.abs(v - Y[y * gw + x + 1]) > 40 && edges++);
+          if (y + 1 < gh) (n++, Math.abs(v - Y[(y + 1) * gw + x]) > 40 && edges++);
+        }
+      const mean = sum / Y.length;
+      return { edges: +(edges / n).toFixed(3), spread: Math.round(Math.sqrt(Math.max(0, sq / Y.length - mean * mean))) };
+    };
+    const fontPx = (ctx, T) => (parseFloat(/([\d.]+)px/.exec(ctx.font)?.[1]) || 0) * Math.sqrt(Math.abs(T.a * T.d - T.b * T.c));
     let boxes = [],
       plates = [],
       order = 0,
@@ -292,6 +336,15 @@
               alpha = +(this.globalAlpha * styleAlpha(this[styleKey])).toFixed(3);
             // Filled text only: an outline is usually there to lift the text off its background.
             const seen = styleKey === "fillStyle" && alpha >= 0.5 ? contrastOf(this, { ...box, det: T.a * T.d - T.b * T.c }, this[styleKey], alpha) : null;
+            // Busy backdrop of a large string, measured once: a halo or shadow pass drawn first is
+            // part of the title, so a later draw of the same string in the same place reuses it.
+            let busy = null;
+            if (alpha >= 0.5 && fontPx(this, T) >= 0.05 * Math.min(probe.width, probe.height)) {
+              const same = boxes.find((o) => o.text === s && o.busy && Math.min(o.x1, box.x1) - Math.max(o.x0, box.x0) > 0.8 * Math.min(o.x1 - o.x0, box.x1 - box.x0) && Math.min(o.y1, box.y1) - Math.max(o.y0, box.y0) > 0.8 * Math.min(o.y1 - o.y0, box.y1 - box.y0));
+              try {
+                busy = same ? same.busy : busyOf(box);
+              } catch {}
+            }
             const repaintOf = [];
             // Recognize a colour pass only when its glyph positions agree with
             // a substring of an earlier draw in the same canvas text state.
@@ -306,7 +359,7 @@
             }
             boxes.push({ text: s, ...box, alpha, order: order++, repaintOf,
               font: this.font, baseline: this.textBaseline,
-              ...((maxWidth === undefined && ["left", "start"].includes(this.textAlign) && this.direction !== "rtl") ? { draw: { x, y, matrix: [T.a,T.b,T.c,T.d,T.e,T.f] } } : {}), ...(seen ?? {}) });
+              ...((maxWidth === undefined && ["left", "start"].includes(this.textAlign) && this.direction !== "rtl") ? { draw: { x, y, matrix: [T.a,T.b,T.c,T.d,T.e,T.f] } } : {}), ...(seen ?? {}), ...(busy ? { busy } : {}) });
           }
         } catch {}
         return draw.apply(this, arguments);
