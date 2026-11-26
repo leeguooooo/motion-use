@@ -68,7 +68,7 @@ export function retimeFilm(input, { out, keepCaptions = false, scaleTiming = fal
           throw new Error(
             `${lang}/${shot.id}: narration file escapes the project`,
           );
-        const freshness = narrationFreshness(voDir, clip, spoken(typeof shot.narration === "string" ? shot.narration : shot.narration[lang]), checked.film.narrationConfig, lang);
+        const freshness = narrationFreshness(voDir, clip, spoken(typeof shot.narration === "string" ? shot.narration : shot.narration[lang]), checked.film.narrationConfig, lang, { delivery: typeof shot.delivery === "string" ? shot.delivery.trim() || undefined : undefined });
         if (!freshness.current)
           throw new Error(`${lang}/${shot.id}: ${freshness.imported ? "unverified recording (no matching narration manifest)" : "stale narration"}; run voiceover --force to generate current speech before retime`);
         return audioSeconds(clip);

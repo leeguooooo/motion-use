@@ -15,7 +15,8 @@
 // Named voice profiles (`motion-use voice …`), one of them the default for every project:
 //   {"voiceProfile": "julia",
 //    "voiceProfiles": {"julia": {"provider": "elevenlabs", "model": "eleven_v4", "voices": {"zh": "<id>"},
-//                                "rate": "+12%", "instructions": "", "key": {"keychain": "elevenlabs"}}}}
+//                                "rate": "+12%", "instructions": "", "stability": 0.5, "similarity": 0.8,
+//                                "key": {"keychain": "elevenlabs"}}}}
 // `key` names where the key is read from ({"env": NAME} or {"keychain": SERVICE}), never the key.
 // A legacy {"voiceover": {provider, voices, model}} from older `voiceover use` is read as a
 // profile named "default".
@@ -120,6 +121,12 @@ export function checkProfile(p) {
     out.rate = p.rate;
   }
   if (p.instructions) out.instructions = String(p.instructions).slice(0, 4000);
+  for (const k of ["stability", "similarity"]) {
+    if (p[k] === undefined || p[k] === null) continue;
+    if (p.provider !== "elevenlabs") throw new Error(`${k}: only elevenlabs profiles take voice settings`);
+    if (typeof p[k] !== "number" || !(p[k] >= 0 && p[k] <= 1)) throw new Error(`${k}: a number from 0 to 1`);
+    out[k] = p[k];
+  }
   if (p.key) {
     const k = p.key;
     if (typeof k !== "object" || !!k.env === !!k.keychain) throw new Error('key: {"env": "NAME"} or {"keychain": "service"}; never the key itself');
@@ -205,6 +212,7 @@ export function applyVoiceProfile(vo, env = process.env) {
   if (rest.model === undefined && p.model) merged.model = p.model;
   if (rest.rate === undefined && p.rate) merged.rate = p.rate;
   if (rest.instructions === undefined && p.instructions) merged.instructions = p.instructions;
+  for (const k of ["stability", "similarity"]) if (rest[k] === undefined && p[k] !== undefined) merged[k] = p[k];
   return { vo: merged, profile: p.name, keySource: p.key ?? null };
 }
 
@@ -323,16 +331,37 @@ export function rateToSpeed(rate = "+0%", [lo, hi] = [0.5, 2]) {
   return Math.min(hi, Math.max(lo, Number.isFinite(n) ? +n.toFixed(2) : 1));
 }
 
-/** Speak one line through a built-in bridge into `out` (MP3). */
-export async function bridgeSpeech(provider, { text, voice, model, instructions = "", rate, out }, { fetch: f = fetch, cred, keySource } = {}) {
+// ElevenLabs models that read audio tags such as "[curious] " and take only Stability and
+// Similarity: Style and Speed do nothing there (help center, "What is Eleven v4?").
+export const ELEVEN_TAG_MODELS = ["eleven_v4", "eleven_v4_turbo", "eleven_v3"];
+export const elevenTagModel = (model) => ELEVEN_TAG_MODELS.includes(model);
+
+/** The ElevenLabs request body: speed only for models that honour it; language_code for tag models. */
+export function elevenBody({ text, model, rate, stability, similarity, lang }) {
+  const tags = elevenTagModel(model);
+  const voice_settings = {
+    ...(tags ? {} : { speed: rateToSpeed(rate, [0.7, 1.2]) }),
+    ...(stability !== undefined && stability !== null ? { stability } : {}),
+    ...(similarity !== undefined && similarity !== null ? { similarity_boost: similarity } : {}),
+  };
+  const language = tags && lang ? String(lang).toLowerCase().split(/[-_]/)[0] : null;
+  return { text, model_id: model, ...(Object.keys(voice_settings).length ? { voice_settings } : {}), ...(language ? { language_code: language } : {}) };
+}
+
+/**
+ * Speak one line through a built-in bridge into `out` (MP3). With `timestamps` (ElevenLabs only)
+ * the request goes to /with-timestamps and the character alignment is returned.
+ */
+export async function bridgeSpeech(provider, { text, voice, model, instructions = "", rate, stability, similarity, lang, timestamps = false, out }, { fetch: f = fetch, cred, keySource } = {}) {
   cred ??= credentialsFor(provider, { keySource });
-  const signal = AbortSignal.timeout(120000);
+  const signal = AbortSignal.timeout(timestamps ? 300000 : 120000);
   model ||= PROVIDERS[provider].model;
+  if (timestamps && provider !== "elevenlabs") throw new Error(`${PROVIDERS[provider]?.label ?? provider} gives no character timing; take "one" needs elevenlabs`);
   let res;
   if (provider === "elevenlabs")
-    res = await f(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}?output_format=mp3_44100_128`, {
-      method: "POST", signal, headers: { "xi-api-key": cred.key, "Content-Type": "application/json", Accept: "audio/mpeg" },
-      body: JSON.stringify({ text, model_id: model, voice_settings: { speed: rateToSpeed(rate, [0.7, 1.2]) } }),
+    res = await f(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}${timestamps ? "/with-timestamps" : ""}?output_format=mp3_44100_128`, {
+      method: "POST", signal, headers: { "xi-api-key": cred.key, "Content-Type": "application/json", Accept: timestamps ? "application/json" : "audio/mpeg" },
+      body: JSON.stringify(elevenBody({ text, model, rate, stability, similarity, lang })),
     });
   else if (provider === "openai")
     res = await f("https://api.openai.com/v1/audio/speech", {
@@ -355,6 +384,12 @@ export async function bridgeSpeech(provider, { text, voice, model, instructions 
     if (code) throw new Error(`MiniMax returned status ${code}`);
     if (!body?.data?.audio) throw new Error("MiniMax returned no audio");
     fs.writeFileSync(out, Buffer.from(body.data.audio, "hex"));
+  } else if (timestamps) {
+    const body = await res.json();
+    const alignment = body?.alignment ?? body?.normalized_alignment;
+    if (!body?.audio_base64 || !Array.isArray(alignment?.characters)) throw new Error("ElevenLabs returned no audio or no character alignment");
+    fs.writeFileSync(out, Buffer.from(body.audio_base64, "base64"));
+    return { alignment };
   } else fs.writeFileSync(out, Buffer.from(await res.arrayBuffer()));
 }
 

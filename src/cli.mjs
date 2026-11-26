@@ -124,7 +124,8 @@ Usage: motion-use <command> [options]
   voiceover audition <plan.json> --out <fresh-dir>  Compare same-script samples; listening remains UNREVIEWED
   voice list|show [name]  Named voice profiles at user level (* = default; show verifies the key)
   voice set <name> --provider <p> --voice <id> [--lang zh] [--model m] [--rate +12%] [--instructions …]
-                      [--key-env NAME | --key-keychain SERVICE] [--default]  The key itself is never stored
+                      [--stability 0.5] [--similarity 0.8] (elevenlabs) [--key-env NAME | --key-keychain SERVICE]
+                      [--default]  The key itself is never stored
   voice save <audition-dir> <candidate-id> --name <n>  Keep an audition pick as a profile (becomes the default)
   voice use <name> | voice remove <name>  Choose the default profile every project speaks with
   voiceover check     Transcribe every narration clip (whisper via uv) and compare it with its script:
@@ -316,6 +317,8 @@ export async function main(argv) {
         provider: { type: "string" },
         rate: { type: "string" },
         instructions: { type: "string" },
+        stability: { type: "string" },
+        similarity: { type: "string" },
         "key-env": { type: "string" },
         url: { type: "string" },
         author: { type: "string" },
@@ -1737,6 +1740,7 @@ async function voiceover(o, [briefPath, ...rest]) {
             ok,
             engine: res.engine,
             ...(res.preview ? { preview: true, note: res.note } : {}),
+            ...(res.warnings ? { warnings: res.warnings } : {}),
             files: res.rows.map((row) => {
               const track = row.status !== "error" && post.film.tracks.find((a) => a.id === row.scene && a.lang === row.lang && a.role === "voiceover");
               const window = post.film.narrationPlans.find((p) => p.id === row.scene);
@@ -1790,7 +1794,7 @@ async function voiceover(o, [briefPath, ...rest]) {
   if (o.json)
     console.log(
       JSON.stringify(
-        { ok: failed.length === 0, engine: res.engine, ...(res.preview ? { preview: true, note: res.note } : {}), files: res.rows, errors: failed.map((r) => ({ scene: r.scene, lang: r.lang, message: r.error })) },
+        { ok: failed.length === 0, engine: res.engine, ...(res.preview ? { preview: true, note: res.note } : {}), ...(res.warnings ? { warnings: res.warnings } : {}), files: res.rows, errors: failed.map((r) => ({ scene: r.scene, lang: r.lang, message: r.error })) },
         null,
         2,
       ),
@@ -2310,7 +2314,7 @@ async function voiceoverUse(o, [provider]) {
 }
 
 const describeProfile = (name, p, def) =>
-  `${name === def ? "* " : "  "}${name.padEnd(14)} ${p.provider}${p.model ? ` ${p.model}` : ""} ${JSON.stringify(p.voices ?? {})}${p.rate ? ` rate ${typeof p.rate === "string" ? p.rate : JSON.stringify(p.rate)}` : ""}${p.key ? ` key from ${p.key.env ? `env ${p.key.env}` : `keychain ${p.key.keychain}`}` : ""}`;
+  `${name === def ? "* " : "  "}${name.padEnd(14)} ${p.provider}${p.model ? ` ${p.model}` : ""} ${JSON.stringify(p.voices ?? {})}${p.rate ? ` rate ${typeof p.rate === "string" ? p.rate : JSON.stringify(p.rate)}` : ""}${p.stability !== undefined ? ` stability ${p.stability}` : ""}${p.similarity !== undefined ? ` similarity ${p.similarity}` : ""}${p.key ? ` key from ${p.key.env ? `env ${p.key.env}` : `keychain ${p.key.keychain}`}` : ""}`;
 
 /** Check one profile's key with a no-cost request. */
 async function checkProfileKey(p, o = {}) {
@@ -2343,7 +2347,8 @@ async function voiceCmd(o, [sub, ...rest]) {
     }
     if (sub === "set") {
       const [name] = rest;
-      if (!name) return fail("voice set <name> --provider <p> --voice <id> [--lang zh] [--model m] [--rate +12%] [--instructions …] [--key-env NAME | --key-keychain SERVICE] [--default]", o.json);
+      if (!name) return fail("voice set <name> --provider <p> --voice <id> [--lang zh] [--model m] [--rate +12%] [--instructions …] [--stability 0.5] [--similarity 0.8] [--key-env NAME | --key-keychain SERVICE] [--default]", o.json);
+      for (const k of ["stability", "similarity"]) if (o[k] !== undefined && !/^(?:0(?:\.\d+)?|1(?:\.0+)?)$/.test(o[k])) return fail(`--${k}: a number from 0 to 1`, o.json);
       const prev = (() => { try { return getProfile(name); } catch { return null; } })();
       const provider = o.provider ?? prev?.provider;
       if (!provider) return fail("--provider is required for a new profile", o.json);
@@ -2354,6 +2359,8 @@ async function voiceCmd(o, [sub, ...rest]) {
         voices: { ...(same ? prev.voices : {}), ...(o.voice ? { [lang]: o.voice } : {}) },
         ...(o.model ? { model: o.model } : {}), ...(o.rate ? { rate: o.rate } : {}),
         ...(o.instructions !== undefined ? { instructions: o.instructions } : {}),
+        ...(o.stability !== undefined ? { stability: Number(o.stability) } : {}),
+        ...(o.similarity !== undefined ? { similarity: Number(o.similarity) } : {}),
         ...(o["key-env"] ? { key: { env: o["key-env"] } } : o["key-keychain"] ? { key: { keychain: o["key-keychain"] } } : {}),
       };
       delete profile.name;
@@ -2375,6 +2382,8 @@ async function voiceCmd(o, [sub, ...rest]) {
         provider: c.engine, voices: { [report.lang]: c.voice },
         ...(c.model ? { model: c.model } : {}), ...(c.rate && c.rate !== "+0%" ? { rate: c.rate } : {}),
         ...(c.instructions ? { instructions: c.instructions } : {}),
+        ...(c.stability !== undefined && c.stability !== null ? { stability: c.stability } : {}),
+        ...(c.similarity !== undefined && c.similarity !== null ? { similarity: c.similarity } : {}),
         ...(o["key-env"] ? { key: { env: o["key-env"] } } : o["key-keychain"] ? { key: { keychain: o["key-keychain"] } } : {}),
       };
       const res = saveProfile(o.name, profile, { makeDefault: o.default !== false });

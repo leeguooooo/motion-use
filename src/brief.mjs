@@ -7,6 +7,10 @@ import { applyVoiceProfile } from "./tts-providers.mjs";
 export const STYLES = ["promo", "explainer"];
 export const FORMATS = { landscape: [1920, 1080], vertical: [1080, 1920] };
 export const FPS_VALUES = [24, 25, 30, 60];
+// ElevenLabs audio tags placed before the spoken text, never shown: "[curious]" or "[calm] [softly]".
+export const DELIVERY_RE = /^(?:\[[^\[\]\x00-\x1f]{1,100}\]\s*){1,4}$/;
+const deliveryOk = (v) => typeof v === "string" && (v.trim() === "" || DELIVERY_RE.test(v.trim()));
+const DELIVERY_HINT = 'ElevenLabs audio tags in square brackets, like "[curious]" or "[calm, conversational]" (1–4 tags); spoken, never captioned';
 export const SCENE_TYPES = ["title", "terminal", "steps", "diagram", "features", "image", "video", "stat", "compare", "kinetic", "code", "html", "cta"];
 
 /**
@@ -364,6 +368,27 @@ export function validateBrief(data, baseDir) {
         if (!entries) r.error("$.voiceover.rate", 'a rate like "+8%", or one per language like {"zh": "+8%"}');
         else for (const [l, v] of entries) typeof v === "string" && RATE_RE.test(v) ? (rates[l] = v) : r.error(one ? "$.voiceover.rate" : `$.voiceover.rate.${l}`, 'a percentage like "+8%" or "-5%"');
       }
+      // ElevenLabs voice settings, audio tags and one-take generation; a pause cap for any engine.
+      for (const k of ["stability", "similarity"]) {
+        if (vo[k] === undefined) continue;
+        if (engine !== "elevenlabs") r.error(`$.voiceover.${k}`, "only engine elevenlabs takes voice settings");
+        else if (typeof vo[k] !== "number" || !(vo[k] >= 0 && vo[k] <= 1)) r.error(`$.voiceover.${k}`, "a number from 0 to 1");
+        else extra[k] = vo[k];
+      }
+      if (vo.delivery !== undefined) {
+        if (engine !== "elevenlabs") r.error("$.voiceover.delivery", "audio tags are only sent to engine elevenlabs (eleven_v4, eleven_v4_turbo, eleven_v3)");
+        else if (!deliveryOk(vo.delivery)) r.error("$.voiceover.delivery", DELIVERY_HINT);
+        else if (vo.delivery.trim()) extra.delivery = vo.delivery.trim();
+      }
+      if (vo.take !== undefined) {
+        if (!["line", "one"].includes(vo.take)) r.error("$.voiceover.take", '"line" (one request per scene, the default) or "one" (the whole script in one request, cut by character timing)');
+        else if (vo.take === "one" && engine !== "elevenlabs") r.error("$.voiceover.take", 'take "one" needs engine elevenlabs: it cuts the take by the character timing only ElevenLabs returns');
+        else if (vo.take === "one") extra.take = "one";
+      }
+      if (vo.maxPause !== undefined) {
+        if (!Number.isFinite(vo.maxPause) || vo.maxPause < 0.1 || vo.maxPause > 2) r.error("$.voiceover.maxPause", "seconds, 0.1–2: longer pauses inside a clip are shortened to this");
+        else extra.maxPause = vo.maxPause;
+      }
       const required=vo.required ?? (Array.isArray(data.scenes)&&data.scenes.some(s=>s?.narration));
       if(typeof required!=="boolean")r.error("$.voiceover.required","true or false; false is only for deliberately unnarrated output");
       voiceover = { dir, volume, engine, voices, rates, required, ...extra, ...(fromProfile.profile ? { profile: fromProfile.profile } : {}), ...(fromProfile.keySource ? { keySource: fromProfile.keySource } : {}) };
@@ -402,6 +427,10 @@ export function validateBrief(data, baseDir) {
         }
       }
       scene.narration = text(s.narration, `${p}.narration`, { required: false, max: 600 });
+      if (s.delivery !== undefined) {
+        if (!deliveryOk(s.delivery)) r.error(`${p}.delivery`, DELIVERY_HINT);
+        else if (s.delivery.trim()) scene.delivery = s.delivery.trim();
+      }
       scene.transition = s.transition ?? "fade";
       if (!TRANSITIONS.includes(scene.transition)) r.error(`${p}.transition`, `one of: ${TRANSITIONS.join(", ")} (how this scene comes in)`);
       const layouts = Object.hasOwn(LAYOUTS, s.type) ? LAYOUTS[s.type] : null;

@@ -151,7 +151,7 @@ export function restoreSnapshot({ record, store }) {
 /** The voiceover settings a profile-driven film actually spoke with (null without a profile). */
 export function resolvedVoice(vo) {
   if (!vo?.profile) return null;
-  return { profile: vo.profile, engine: vo.engine, voices: vo.voices ?? {}, rates: vo.baseRates ?? vo.rates ?? {}, ...(vo.model ? { model: vo.model } : {}), ...(vo.instructions ? { instructions: vo.instructions } : {}) };
+  return { profile: vo.profile, engine: vo.engine, voices: vo.voices ?? {}, rates: vo.baseRates ?? vo.rates ?? {}, ...(vo.model ? { model: vo.model } : {}), ...(vo.instructions ? { instructions: vo.instructions } : {}), ...(vo.stability !== undefined ? { stability: vo.stability } : {}), ...(vo.similarity !== undefined ? { similarity: vo.similarity } : {}) };
 }
 
 // A restored film speaks with the recorded settings, not with whatever the profile says today.
@@ -159,6 +159,6 @@ function pinVoice(filmFile, voice) {
   const data = JSON.parse(fs.readFileSync(filmFile, "utf8"));
   if (!data.voiceover || typeof data.voiceover !== "object") return;
   const { profile, ...rest } = data.voiceover;
-  data.voiceover = { ...rest, profile: false, engine: voice.engine, voices: voice.voices, ...(Object.keys(voice.rates).length ? { rate: voice.rates } : {}), ...(voice.model ? { model: voice.model } : {}), ...(voice.instructions ? { instructions: voice.instructions } : {}) };
+  data.voiceover = { ...rest, profile: false, engine: voice.engine, voices: voice.voices, ...(Object.keys(voice.rates).length ? { rate: voice.rates } : {}), ...(voice.model ? { model: voice.model } : {}), ...(voice.instructions ? { instructions: voice.instructions } : {}), ...(voice.stability !== undefined ? { stability: voice.stability } : {}), ...(voice.similarity !== undefined ? { similarity: voice.similarity } : {}) };
   fs.writeFileSync(filmFile, JSON.stringify(data, null, 2) + "\n");
 }
