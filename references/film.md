@@ -514,11 +514,11 @@ A long screen recording rarely wants one speed: a flat 2× rushes the animations
 
 ```bash
 motion-use footage speed capture/demo.mov --out footage/demo-fast.mp4 \
-  --still 3 --motion 2 --range 226-240:1.2 --min-segment 1.5 --mark domino=226
+  --still 3 --motion 2 --span 226-240:1.2 --min-segment 1.5 --mark domino=226
 ```
 
 - `--still` / `--motion`: speed of still and moving spans (0.25–16; defaults 3 and 2).
-- `--range from-to:speed`: a span that keeps its own speed, e.g. the part the viewer should watch calmly (repeatable, source seconds, no overlaps). Manual ranges are never merged away.
+- `--span from-to:speed`: a span that keeps its own speed, e.g. the part the viewer should watch calmly (repeatable, source seconds, no overlaps). Manual ranges are never merged away.
 - `--min-segment`: auto spans shorter than this (default 1.5 s) join their longer neighbour, so the speed does not jump back and forth.
 - `--noise` / `--freeze`: freezedetect noise level (default `-60dB`) and the shortest still span it reports (default 0.5 s).
 - `--mark name=second`: names a source second for narration anchors (repeatable); `videos.<name>.marks` can add more.

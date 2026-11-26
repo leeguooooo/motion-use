@@ -105,6 +105,24 @@ test("footage speed encodes a recording frame-exactly and writes its map", { ski
   assert.ok(Math.abs(seconds(m.file, "v:0") - m.segments.at(-1).end) < 1 / 30 + 1e-3);
 });
 
+test("many spans and a variable-frame-rate recording keep the file on the map", { skip: !hasFfmpeg }, () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "mu-speed-vfr-"));
+  const inputs = [];
+  for (let i = 0; i < 12; i++) inputs.push("-f", "lavfi", "-i", "color=c=gray:s=160x90:r=30:d=0.6", "-f", "lavfi", "-i", "testsrc=s=160x90:r=30:d=0.7");
+  const cfr = path.join(d, "cfr.mp4"), vfr = path.join(d, "vfr.mp4");
+  ff(...inputs, "-filter_complex", inputs.filter((x, i) => i % 4 === 3).map((_, i) => "[" + i + ":v]").join("") + "concat=n=24:v=1:a=0[v]", "-map", "[v]", "-pix_fmt", "yuv420p", "-c:v", "libx264", cfr);
+  // A screen recorder that writes no frame while nothing changes.
+  ff("-i", cfr, "-vf", "mpdecimate", "-fps_mode", "vfr", "-c:v", "libx264", vfr);
+  for (const src of [cfr, vfr]) {
+    const r = speedFootage(src, { out: src.replace(".mp4", "-fast.mp4"), minSegment: 0 });
+    assert.ok(r.segments.length >= 20, "every still/moving span is its own segment");
+    const frames = r.segments.reduce((a, s) => a + s.frames, 0);
+    const pts = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time", "-of", "csv=p=0", r.file], { encoding: "utf8" }).trim().split("\n").map(Number).sort((a, b) => a - b);
+    assert.equal(pts.length, frames, path.basename(src) + ": one frame per mapped frame");
+    assert.ok(pts.every((p, k) => Math.abs(p - k / 30) < 1 / 30), path.basename(src) + ": no drift across joins");
+  }
+});
+
 test("narration lines anchored to footage land at film time and are pushed when the previous line still speaks", { skip: !hasFfmpeg }, () => {
   const d = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "mu-anchor-"));
   initFilm({ lang: "en", format: "landscape" }, d);

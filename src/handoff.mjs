@@ -217,7 +217,7 @@ export function exportHandoff(input, options = {}) {
       file: copied.get(source),
     })),
     videos: Object.fromEntries(
-      Object.entries(film.videos ?? {}).map(([k, { file: source, ...v }]) => [
+      Object.entries(film.videos ?? {}).map(([k, { file: source, speedMapFile: _map, ...v }]) => [
         k,
         { ...v, file: copied.get(source), ...(v.sequence ? {sequence:v.sequence.map((f)=>copied.get(f))}: {}) },
       ]),

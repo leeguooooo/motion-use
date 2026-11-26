@@ -168,7 +168,7 @@ Usage: motion-use <command> [options]
                       data.diagrams.<name> and assets.<name> into film.json for M.diagram / M.glow / M.token
   geo <json|world|china-provinces> Project/simplify map data (--out <new.json>); builtins include provenance
   footage speed <recording> --out <new.mp4>  Speed a long recording up by its motion: still spans --still 3,
-                      moving spans --motion 2, --range 120-150:1.2 keeps a span at its own speed (repeatable),
+                      moving spans --motion 2, --span 120-150:1.2 keeps a span at its own speed (repeatable),
                       spans under --min-segment 1.5 s merge into a neighbour; sound keeps its pitch (atempo).
                       Writes <new>.speed.json: source second → output second, for videos.<name>.speedMap
                       (--noise -60dB / --freeze 0.5: freezedetect thresholds; --mark name=226 names a source second)
@@ -488,7 +488,7 @@ export async function main(argv) {
         noise: { type: "string" },
         freeze: { type: "string" },
         "min-segment": { type: "string" },
-        range: { type: "string", multiple: true },
+        span: { type: "string", multiple: true },
         mark: { type: "string", multiple: true },
       },
     });
@@ -2732,7 +2732,7 @@ async function retimeCmd(o, [film, ...extra]) {
 }
 
 async function footageCmd(o, [action, file, ...extra]) {
-  const usage = "footage speed <recording> --out <new.mp4> [--still 3] [--motion 2] [--range 120-150:1.2] [--min-segment 1.5] [--noise -60dB] [--freeze 0.5] [--mark name=226]";
+  const usage = "footage speed <recording> --out <new.mp4> [--still 3] [--motion 2] [--span 120-150:1.2] [--min-segment 1.5] [--noise -60dB] [--freeze 0.5] [--mark name=226]";
   if (action !== "speed" || !file || extra.length) return fail(usage, o.json);
   const num = (name, v) => {
     if (v === undefined) return undefined;
@@ -2757,7 +2757,7 @@ async function footageCmd(o, [action, file, ...extra]) {
       noise: o.noise,
       freeze: num("freeze", o.freeze),
       minSegment: num("min-segment", o["min-segment"]),
-      ranges: (o.range ?? []).map(parseSpeedRange),
+      ranges: (o.span ?? []).map(parseSpeedRange),
       marks,
     });
   } catch (e) {

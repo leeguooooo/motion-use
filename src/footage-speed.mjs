@@ -36,7 +36,7 @@ export function parseFreezes(log, duration) {
 /** "120-150:1.2" → {from:120, to:150, speed:1.2} */
 export function parseSpeedRange(s) {
   const m = /^\s*(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)\s*$/.exec(String(s));
-  if (!m) throw new Error('a range is "from-to:speed" in source seconds, e.g. 120-150:1.2');
+  if (!m) throw new Error('--span is "from-to:speed" in source seconds, e.g. 120-150:1.2');
   return { from: Number(m[1]), to: Number(m[2]), speed: Number(m[3]) };
 }
 
@@ -231,17 +231,26 @@ function ffmpegErr(e) {
   return new Error(String(e.stderr || e.message).trim().split("\n").slice(-4).join("\n"));
 }
 
-function probeFps(file) {
+const rational = (v) => {
+  const [a, b] = String(v ?? "").split("/").map(Number);
+  const x = b ? a / b : a;
+  return Number.isFinite(x) && x > 0 && x <= 240 ? x : null;
+};
+const videoPackets = (file) =>
+  Number(execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-count_packets", "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", file], { encoding: "utf8" }).trim());
+
+// The nominal frame rate (r_frame_rate, not the average, which a recording that holds
+// frames while nothing moves pulls down) and whether the file really has a frame per tick.
+function probeRate(file, duration) {
   try {
     const r = execFileSync("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=avg_frame_rate,r_frame_rate", "-of", "json", file], { encoding: "utf8" });
     const s = JSON.parse(r).streams?.[0] ?? {};
-    for (const v of [s.avg_frame_rate, s.r_frame_rate]) {
-      const [a, b] = String(v ?? "").split("/").map(Number);
-      const fps = b ? a / b : a;
-      if (Number.isFinite(fps) && fps > 0 && fps <= 240) return fps;
-    }
-  } catch {}
-  return 30;
+    const fps = Math.min(60, rational(s.r_frame_rate) ?? rational(s.avg_frame_rate) ?? 30);
+    const expected = duration * fps;
+    return { fps, variable: Math.abs(videoPackets(file) - expected) > Math.max(2, expected * 0.01) };
+  } catch {
+    return { fps: 30, variable: true };
+  }
 }
 
 /** Run freezedetect over a file; returns freeze spans in source seconds. */
@@ -271,16 +280,28 @@ export function speedFootage(input, { out, still, motion, noise, freeze, minSegm
   if (marks !== undefined) checkMarks(marks);
   const info = mediaInfo(src);
   if (!Number.isFinite(info.duration) || info.duration <= 0) throw new Error(input + ": duration unknown");
-  const fps = wantFps ?? probeFps(src);
+  const rate = probeRate(src, info.duration);
+  const fps = wantFps ?? rate.fps;
   const policy = { still: still ?? SPEED_DEFAULTS.still, motion: motion ?? SPEED_DEFAULTS.motion, noise: noise ?? SPEED_DEFAULTS.noise, freeze: freeze ?? SPEED_DEFAULTS.freeze, minSegment: minSegment ?? SPEED_DEFAULTS.minSegment, ranges };
   const freezes = detectFreezes(src, { noise: policy.noise, freeze: policy.freeze, duration: info.duration });
   const segments = layoutSpeed(planSpeed({ duration: info.duration, freezes, ...policy }), fps);
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "motion-use-speed-"));
   try {
+    // A variable-frame-rate recording (one frame held across a still screen) is first made
+    // constant, so a span that starts inside a held frame still has that frame.
+    let cut = src;
+    if (rate.variable) {
+      cut = path.join(work, "constant.mkv");
+      try {
+        execFileSync("ffmpeg", ["-v", "error", "-y", "-i", src, "-map", "0:v:0", ...(info.audio ? ["-map", "0:a:0", "-c:a", "copy"] : []), "-vf", "fps=" + fps, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "12", cut], { stdio: ["ignore", "ignore", "pipe"] });
+      } catch (e) {
+        throw ffmpegErr(e);
+      }
+    }
     const parts = segments.map((s, i) => {
       const part = path.join(work, String(i).padStart(4, "0") + ".mp4");
       const seconds = s.frames / fps;
-      const args = ["-v", "error", "-y", "-ss", String(s.from), "-t", String(s.to - s.from), "-i", src,
+      const args = ["-v", "error", "-y", "-ss", String(s.from), "-t", String(s.to - s.from), "-i", cut,
         ...(info.audio ? [] : ["-f", "lavfi", "-t", String(seconds), "-i", "anullsrc=r=48000:cl=stereo"]),
         "-map", "0:v:0", "-map", info.audio ? "0:a:0" : "1:a:0",
         "-vf", "setpts=(PTS-STARTPTS)/" + s.speed + ",fps=" + fps + ",format=yuv420p",
@@ -292,6 +313,9 @@ export function speedFootage(input, { out, still, motion, noise, freeze, minSegm
       } catch (e) {
         throw ffmpegErr(e);
       }
+      // The map is only as true as each part's frame count.
+      const got = videoPackets(part);
+      if (got !== s.frames) throw new Error(`span ${r3(s.from)}–${r3(s.to)} s came out with ${got} frames, expected ${s.frames}; the speed map would not match the file`);
       return part;
     });
     const list = path.join(work, "list.txt");
@@ -311,7 +335,7 @@ export function speedFootage(input, { out, still, motion, noise, freeze, minSegm
   const total = segments.at(-1).end;
   const map = {
     version: SPEED_MAP_VERSION,
-    source: { file: path.relative(path.dirname(sidecar), src), duration: r3(info.duration), audio: info.audio },
+    source: { file: path.basename(src), duration: r3(info.duration), audio: info.audio, ...(rate.variable ? { variableFrameRate: true } : {}) },
     output: { file: path.basename(target), duration: r3(total), fps, bytes: fs.statSync(target).size },
     policy,
     ...(marks ? { marks } : {}),
