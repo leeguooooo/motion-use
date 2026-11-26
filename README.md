@@ -141,6 +141,7 @@ The installer downloads the release archive and its `.sha256` from GitHub, verif
 | `music [film]` | Play the film's own score (`composition/score.js`, written for this film: instruments, mode, where it peaks, accents on picture events) into a WAV, with notes per shot and score warnings |
 | `instruments [list\|install]` | The recorded CC0 instrument pack scores play (zither, harp, piano, bells, gong, frame drum, strings, winds…) |
 | `compare <a> <b>` | Frames of two videos side by side: `--times 1.5,4`; `--video` plays both side by side in one MP4 with `--title`, `--labels A,B` and per-side `--from` / `--speed` |
+| `capture <url\|html>` | Record a web page (canvas, WebGL, CSS animation) and its WebAudio frame by frame on one virtual clock, headless: `capture.mp4` + `audio.wav` + `capture.json`; `--duration`, `--press a@0.5`, `--page-key ArrowRight --page-every 8` ([references/capture.md](references/capture.md)) |
 | `doctor` | Check Node, FFmpeg, Chrome, the engine, the native renderer and fonts |
 | `upgrade` | Update the CLI and its skill; `--check` only looks |
 

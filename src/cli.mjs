@@ -78,6 +78,7 @@ import { concatParts } from "./concat.mjs";
 import { exportGeo } from "./geo.mjs";
 import { retimeFilm } from "./retime.mjs";
 import { exportHandoff, checkHandoff } from "./handoff.mjs";
+import { capturePage, pageKeyTimes, parsePresses } from "./capture.mjs";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const VERSION = JSON.parse(
@@ -152,6 +153,10 @@ Usage: motion-use <command> [options]
                       --title "…" --labels A,B (default: file names) --from 0,2.5 --speed 1,1.5 (one value: both sides)
                       --duration s (default: the longer side; the shorter holds its last frame)
                       --width 640 (per side) --fps 30 --audio none|a|b (default none; follows that side's speed)
+  capture <url|html> --out <dir> --duration <s>  Record a web page (canvas, WebGL, CSS animation) and its
+                      WebAudio into capture.mp4 + audio.wav on one virtual clock, frame by frame, headless
+                      (--fps 30, --width 1920 --height 1080, --press a@0.5 (repeatable; default second 0),
+                      --page-key ArrowRight --page-every 8, --wait 2 real seconds before second 0, --gpu)
   catalog [styles|shots] [id]   List original style/shot cards; --out <fresh-dir> writes a live preview gallery
   catalog recommend --product-type <type> --material <type>  Explain selection candidates, not quality scores
   study <id> <dir>    Create a renderable 6-second study from a catalog card (illustrative, intentionally silent)
@@ -250,6 +255,44 @@ async function diagramCmd(o, [sub, file, ...extra]) {
   return 0;
 }
 
+// motion-use capture <url|file.html> --out <dir> --duration <s> [--press a@0.5] [--page-key ArrowRight --page-every 8]
+async function captureCmd(o, [target, ...extra]) {
+  const usage = "capture <url|file.html> --out <dir> --duration <seconds> [--fps 30] [--width 1920 --height 1080] [--press a@0.5] [--page-key ArrowRight --page-every 8] [--wait 2]";
+  if (!target || extra.length || !o.out || o.duration === undefined) return fail(usage, o.json);
+  const num = (v, name, min, max, int) => {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < min || n > max || (int && !Number.isInteger(n))) throw new Error(`--${name} takes ${int ? "a whole number" : "a number"} from ${min} to ${max}`);
+    return n;
+  };
+  let opts;
+  try {
+    const duration = num(o.duration, "duration", 0.001, 3600);
+    const presses = parsePresses(o.press ?? []);
+    if ((o["page-key"] === undefined) !== (o["page-every"] === undefined)) throw new Error("--page-key and --page-every go together, like --page-key ArrowRight --page-every 8");
+    if (o["page-key"] !== undefined) presses.push(...pageKeyTimes(parsePresses([o["page-key"]])[0].key, num(o["page-every"], "page-every", 0.01, 3600), duration));
+    opts = {
+      duration, presses, gpu: Boolean(o.gpu),
+      fps: o.fps === undefined ? undefined : num(o.fps, "fps", 1, 120, true),
+      width: o.width === undefined ? undefined : num(o.width, "width", 16, 7680, true),
+      height: o.height === undefined ? undefined : num(o.height, "height", 16, 4320, true),
+      wait: o.wait === undefined ? 0 : num(o.wait, "wait", 0, 600),
+      onFrame: (n, total) => { if (n === total || n % 30 === 0) o._progress?.("capture", "frame", { frames: n, total }); },
+    };
+  } catch (e) { return fail(e.message, o.json); }
+  o._progress?.("capture", "start");
+  const r = await capturePage(target, path.resolve(o.out), opts);
+  o._progress?.("capture", "finish");
+  if (o.json) console.log(JSON.stringify(r, null, 2));
+  else {
+    console.log(r.files.video);
+    console.log(r.files.audio);
+    console.log(`${r.frames.measured}/${r.frames.expected} frames at ${r.fps} fps, ${r.width}x${r.height}, ${r.video_s}s picture, ${r.audio.seconds}s sound (${r.audio.silent ? "silent" : `first sound at ${r.audio.first_sound_s}s, peak ${r.audio.peak_db} dBFS`}); picture and sound share one clock (≤ ${r.alignment.max_error_s}s)`);
+    if (r.audio.contexts.length === 0) console.error("note: the page made no AudioContext; audio.wav is silence");
+    for (const e of r.page_errors) console.error(`page error: ${e.split("\n")[0]}`);
+  }
+  return 0;
+}
+
 const fail = (msg, json) => {
   if (json) console.log(JSON.stringify({ ok: false, error: msg }, null, 2));
   else console.error(`motion-use: ${msg}`);
@@ -285,6 +328,7 @@ export async function main(argv) {
     reference,
     beats,
     compare,
+    capture: captureCmd,
     catalog: catalogCmd,
     study: studyCmd,
     handoff: handoffCmd,
@@ -428,6 +472,10 @@ export async function main(argv) {
         duration: { type: "string" },
         audio: { type: "string" },
         fps: { type: "string" },
+        press: { type: "string", multiple: true },
+        "page-key": { type: "string" },
+        "page-every": { type: "string" },
+        wait: { type: "string" },
       },
     });
   } catch (e) {
