@@ -46,6 +46,7 @@ export function filmInputs(film, filmFile) {
       .filter(a => path.isAbsolute(a) && isInside(film.dir, a) && fs.statSync(a, { throwIfNoEntry: false })?.isFile())
       .map(file => ({ role: "voiceover-engine", file })),
     ...Object.values(film.videos ?? {}).flatMap((v) => (v.sequence ?? [v.file]).map((file) => ({ role: "footage", file }))),
+    ...Object.values(film.videos ?? {}).filter((v) => v.speedMapFile).map((v) => ({ role: "footage-map", file: v.speedMapFile })),
     ...(film.musicFile ? [{ role: "music", file: film.musicFile }] : []),
     ...(film.tracks ?? []).map((a) => ({ role: a.role === "voiceover" ? "voiceover" : "audio", file: a.file, lang: a.lang, id: a.id })),
   ];

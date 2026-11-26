@@ -77,6 +77,7 @@ import { addReview, listReview, updateReview, writeFrameReviewPage } from "./rev
 import { concatParts } from "./concat.mjs";
 import { exportGeo } from "./geo.mjs";
 import { retimeFilm } from "./retime.mjs";
+import { speedFootage, parseSpeedRange } from "./footage-speed.mjs";
 import { exportHandoff, checkHandoff } from "./handoff.mjs";
 import { capturePage, pageKeyTimes, parsePresses } from "./capture.mjs";
 
@@ -166,6 +167,11 @@ Usage: motion-use <command> [options]
                       {x,y,w,h,label} by id or by its text label, and arrows with ids as paths; --into writes
                       data.diagrams.<name> and assets.<name> into film.json for M.diagram / M.glow / M.token
   geo <json|world|china-provinces> Project/simplify map data (--out <new.json>); builtins include provenance
+  footage speed <recording> --out <new.mp4>  Speed a long recording up by its motion: still spans --still 3,
+                      moving spans --motion 2, --range 120-150:1.2 keeps a span at its own speed (repeatable),
+                      spans under --min-segment 1.5 s merge into a neighbour; sound keeps its pitch (atempo).
+                      Writes <new>.speed.json: source second → output second, for videos.<name>.speedMap
+                      (--noise -60dB / --freeze 0.5: freezedetect thresholds; --mark name=226 names a source second)
   retime [film]       Propose shot windows from actual narration; fresh numbered JSON each run (--out refuses conflicts)
                       --keep-captions shifts cues contained in one shot; --scale-timing records authoredDuration
   music [film]        Play the film's own score (composition/score.js) into a WAV without rendering picture:
@@ -333,6 +339,7 @@ export async function main(argv) {
     study: studyCmd,
     handoff: handoffCmd,
     retime: retimeCmd,
+    footage: footageCmd,
     music: musicCmd,
     instruments: instrumentsCmd,
     geo: geoCmd,
@@ -476,6 +483,13 @@ export async function main(argv) {
         "page-key": { type: "string" },
         "page-every": { type: "string" },
         wait: { type: "string" },
+        still: { type: "string" },
+        motion: { type: "string" },
+        noise: { type: "string" },
+        freeze: { type: "string" },
+        "min-segment": { type: "string" },
+        range: { type: "string", multiple: true },
+        mark: { type: "string", multiple: true },
       },
     });
   } catch (e) {
@@ -778,10 +792,14 @@ function printReport(r) {
 }
 
 async function validate(o, [briefPath]) {
-  const { ok, report } = check(briefPath, o);
-  if (o.json) console.log(JSON.stringify({ ok, ...report }, null, 2));
+  const { ok, report, film } = check(briefPath, o);
+  // Anchored narration lines: where each one lands per language and how far it was pushed.
+  const schedule = film?.narrationSchedule ?? [];
+  if (o.json) console.log(JSON.stringify({ ok, ...report, ...(schedule.length ? { narration_schedule: schedule } : {}) }, null, 2));
   else {
     printReport(report);
+    for (const r of schedule)
+      console.log(`narration ${r.lang}/${r.id}: anchor ${r.anchor.toFixed(3)}s → ${r.start.toFixed(3)}–${r.end.toFixed(3)}s${r.pushed > 0.05 ? ` (pushed ${r.pushed.toFixed(3)}s)` : ""}${r.overflow ? ` (${r.overflow.toFixed(3)}s past the film)` : ""}`);
     console.log(ok ? "brief OK" : `${report.errors.length} error(s)`);
   }
   return ok ? 0 : 1;
@@ -2710,6 +2728,49 @@ async function retimeCmd(o, [film, ...extra]) {
   if (extra.length) return fail("retime [film] --out <new-json-beside-film>", o.json);
   const r = retimeFilm(film, { ...o, keepCaptions: o["keep-captions"], scaleTiming: o["scale-timing"] });
   console.log(o.json ? JSON.stringify(r, null, 2) : `${r.film} (${r.duration}s)\n${r.warning}`);
+  return 0;
+}
+
+async function footageCmd(o, [action, file, ...extra]) {
+  const usage = "footage speed <recording> --out <new.mp4> [--still 3] [--motion 2] [--range 120-150:1.2] [--min-segment 1.5] [--noise -60dB] [--freeze 0.5] [--mark name=226]";
+  if (action !== "speed" || !file || extra.length) return fail(usage, o.json);
+  const num = (name, v) => {
+    if (v === undefined) return undefined;
+    const n = Number(v);
+    if (!Number.isFinite(n)) throw new Error(`--${name} takes a number`);
+    return n;
+  };
+  let r;
+  try {
+    const marks = o.mark?.length
+      ? Object.fromEntries(o.mark.map((m) => {
+          const x = /^([a-z][a-z0-9-]{0,39})=(\d+(?:\.\d+)?)$/i.exec(m);
+          if (!x) throw new Error(`--mark takes name=<source second>, e.g. domino=226 (got ${m})`);
+          return [x[1], Number(x[2])];
+        }))
+      : undefined;
+    r = speedFootage(file, {
+      out: o.out,
+      force: o.force,
+      still: num("still", o.still),
+      motion: num("motion", o.motion),
+      noise: o.noise,
+      freeze: num("freeze", o.freeze),
+      minSegment: num("min-segment", o["min-segment"]),
+      ranges: (o.range ?? []).map(parseSpeedRange),
+      marks,
+    });
+  } catch (e) {
+    return fail(e.message, o.json);
+  }
+  if (o.json) console.log(JSON.stringify(r, null, 2));
+  else
+    console.log([
+      `${r.file} (${r.source_duration}s → ${r.duration}s)`,
+      `map: ${r.map}`,
+      ...r.segments.map((s) => `  ${s.from.toFixed(2)}–${s.to.toFixed(2)}s ${s.kind} ×${s.speed} → ${s.start.toFixed(2)}–${s.end.toFixed(2)}s`),
+      `Use it in film.json: "videos": {"demo": {"file": "<path to this mp4>", "speedMap": "<path to the .speed.json>"}}; narration lines can then anchor to source seconds: "at": {"footage": "demo", "t": 226}`,
+    ].join("\n"));
   return 0;
 }
 

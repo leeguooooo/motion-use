@@ -4,6 +4,7 @@ import path from "node:path";
 import { DELIVERY_RE, validateBrief } from "./brief.mjs";
 import { audioSeconds } from "./build.mjs";
 import { generateVoiceover, narrationFreshness } from "./voiceover.mjs";
+import { scheduleLines } from "./footage-speed.mjs";
 
 const contained = (base, file) => {
   const r = path.relative(base, file);
@@ -31,6 +32,7 @@ export function resolveNarration(
     requireFiles = false,
     skipGenerated = false,
     probe = audioSeconds,
+    anchorTime = null,
   } = {},
 ) {
   const languages = Array.isArray(film.languages) ? film.languages : [];
@@ -101,8 +103,10 @@ export function resolveNarration(
     }
     return out;
   };
-  const plans =
-    film.narration !== undefined
+  const lines = Array.isArray(film.narration) ? narrationLines(film, { error, warn, map, anchorTime }) : null;
+  const plans = lines
+    ? lines
+    : film.narration !== undefined
       ? [
           {
             id: "narration",
@@ -170,7 +174,7 @@ export function resolveNarration(
           continue;
         }
         const length = probe(file);
-        if (length > p.end - p.start + 0.02)
+        if (!lines && length > p.end - p.start + 0.02)
           error(
             `$.voiceover.${l}.${p.id}`,
             `${length.toFixed(3)}s narration exceeds its ${(p.end - p.start).toFixed(3)}s shot window; retime the shot or shorten the script (never truncate speech)`,
@@ -191,12 +195,91 @@ export function resolveNarration(
       }
     }
   }
+  const schedule = lines ? scheduleNarrationLines(film, lines, tracks, { error, warn }) : [];
   if (pending.length && !requireFiles)
     warn(
       "$.voiceover",
       `${pending.length} narration clip(s) await generation; render generates them before capture`,
     );
-  return { config, plans, pending, tracks };
+  return { config, plans, pending, tracks, schedule };
+}
+
+const LINE_KEYS = new Set(["id", "text", "at", "gap"]);
+// Root narration as a list of lines, each placed at a film second or a footage moment.
+function narrationLines(film, { error, warn, map, anchorTime }) {
+  const seen = new Set(), shotIds = new Set((Array.isArray(film.shots) ? film.shots : []).map((s) => s?.id));
+  const end = Number.isFinite(film.duration) ? film.duration - 0.1 : Infinity;
+  const out = [];
+  film.narration.forEach((line, i) => {
+    const p = `$.narration[${i}]`;
+    if (!line || typeof line !== "object" || Array.isArray(line)) return error(p, "a narration line {id, text, at, gap?}");
+    for (const k of Object.keys(line)) if (!LINE_KEYS.has(k)) error(`${p}.${k}`, "unknown field; a line has id, text, at and gap");
+    if (typeof line.id !== "string" || !/^[a-z][a-z0-9-]{0,39}$/i.test(line.id) || line.id === "narration")
+      return error(`${p}.id`, "a line id: a letter, then letters, digits or - (names the audio file)");
+    if (seen.has(line.id) || shotIds.has(line.id)) return error(`${p}.id`, `duplicate id ${line.id}; line ids are unique and differ from shot ids`);
+    seen.add(line.id);
+    if (line.gap !== undefined && !(Number.isFinite(line.gap) && line.gap >= 0 && line.gap <= 10)) error(`${p}.gap`, "seconds of silence after the previous line, 0–10 (default 0.4)");
+    let anchor = null, source = null;
+    const at = line.at;
+    if (typeof at === "number") {
+      if (!(Number.isFinite(at) && at >= 0 && at < end)) error(`${p}.at`, `a film second inside 0–${end.toFixed(3)}`);
+      else anchor = at;
+    } else if (at && typeof at === "object" && !Array.isArray(at)) {
+      for (const k of Object.keys(at)) if (!["footage", "t", "mark", "offset"].includes(k)) error(`${p}.at.${k}`, "unknown field; a footage anchor has footage, t or mark, and offset");
+      if (at.offset !== undefined && !(Number.isFinite(at.offset) && Math.abs(at.offset) <= 600)) error(`${p}.at.offset`, "seconds before (negative) or after the moment, at most 600");
+      else if (!anchorTime) error(`${p}.at`, "footage anchors need a film with videos");
+      else
+        try {
+          anchor = anchorTime(at, `${p}.at`);
+          source = { footage: at.footage, ...(at.t !== undefined ? { t: at.t } : { mark: at.mark }), ...(at.offset ? { offset: at.offset } : {}) };
+          if (!(anchor >= 0 && anchor < end)) {
+            error(`${p}.at`, `lands at film second ${anchor.toFixed(3)}, outside the film (0–${end.toFixed(3)})`);
+            anchor = null;
+          }
+        } catch (e) {
+          error(`${p}.at`, e.message);
+        }
+    } else error(`${p}.at`, 'a film second, or {"footage": "<videos name>", "t": <source second> | "mark": "<name>", "offset"?: <seconds>}');
+    out.push({
+      id: line.id,
+      start: anchor ?? 0.1,
+      end,
+      anchor,
+      ...(source ? { source } : {}),
+      gap: line.gap ?? 0.4,
+      narration: map(line.text, `${p}.text`),
+      display: map(line.text, `${p}.text`, displayed),
+    });
+  });
+  for (let i = 1; i < out.length; i++)
+    if (out[i].anchor !== null && out[i - 1].anchor !== null && out[i].anchor < out[i - 1].anchor - 1e-6)
+      warn(`$.narration[${i}].at`, `anchored at film second ${out[i].anchor.toFixed(3)}, before the previous line (${out[i - 1].anchor.toFixed(3)}); lines are spoken in list order`);
+  return out;
+}
+
+// Place each language's clips: start = max(anchor, previous end + gap). Reports how far each
+// line slid past its anchor and which lines run past the film.
+function scheduleNarrationLines(film, lines, tracks, { error, warn }) {
+  const end = Number.isFinite(film.duration) ? film.duration - 0.1 : undefined;
+  const rows = [];
+  for (const lang of Array.isArray(film.languages) ? film.languages : []) {
+    const own = tracks.filter((t) => t.generated && t.lang === lang);
+    if (!own.length) continue;
+    const lengths = Object.fromEntries(own.map((t) => [t.id, t.length]));
+    const placed = scheduleLines(lines, lengths, { end });
+    placed.forEach((r, i) => {
+      const p = `$.narration[${film.narration.findIndex((l) => l?.id === r.id)}]`;
+      if (r.pending) return;
+      const track = own.find((t) => t.id === r.id);
+      track.start = r.start;
+      rows.push({ lang, id: r.id, anchor: +r.anchor.toFixed(3), start: +r.start.toFixed(3), end: +r.end.toFixed(3), pushed: +r.pushed.toFixed(3), ...(r.overflow > 0 ? { overflow: +r.overflow.toFixed(3) } : {}), ...(lines[i].source ? { source: lines[i].source } : {}) });
+      if (r.overflow > 0.02)
+        error(`$.voiceover.${lang}.${r.id}`, `does not fit: after the lines before it, it ends at ${r.end.toFixed(3)}s, ${r.overflow.toFixed(3)}s past the film's last spoken second ${end.toFixed(3)}; shorten lines, lower gaps or lengthen the film (never truncate speech)`);
+      else if (r.pushed > 0.05)
+        warn(`${p}.at`, `${lang}: pushed ${r.pushed.toFixed(3)}s past its anchor (film ${r.anchor.toFixed(3)}s → ${r.start.toFixed(3)}s) because the previous line is still speaking; check the picture with still --at ${r.anchor.toFixed(2)},${r.start.toFixed(2)}`);
+    });
+  }
+  return rows;
 }
 
 export async function generateFilmNarration(film, options = {}) {

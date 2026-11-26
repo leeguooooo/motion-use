@@ -72,7 +72,7 @@ Composed helpers build on these: `shoot`, `card`, `pill`, `ripple`, `stroke`, `n
 
 `data` holds named values and series (≤ 100 KB) passed to the page as `film.data`; `chart`, `counter` and friends read them by key, and labels may be language maps. Changing a number in `film.json` changes that number in every language and format.
 
-`videos` declares footage: `{"name": {"file": "footage/demo.mp4", "at": 4, "from": 12.5, "rate": 1, "length": 6, "volume": 0}}`. `at` is the film second where the clip starts, `from` the source second, `rate` 0.25–4, and `length` is film seconds (consumes `length × rate` source seconds). The build extracts exactly the frames that window needs (film fps ÷ rate, ≤ 5,400 per film) as JPEGs, and the page loads the frames a seek needs before drawing, so footage stays deterministic and seekable. `motion.video(name, t)` returns the current frame (or `null` outside the clip) for `cover` or `drawImage`. Footage sound plays when `volume > 0`, only at rate 1. Validation rejects clips that run past their source or the film.
+`videos` declares footage: `{"name": {"file": "footage/demo.mp4", "at": 4, "from": 12.5, "rate": 1, "length": 6, "volume": 0}}`. `at` is the film second where the clip starts, `from` the source second, `rate` 0.25–4, and `length` is film seconds (consumes `length × rate` source seconds). The build extracts exactly the frames that window needs (film fps ÷ rate, ≤ 5,400 per film) as JPEGs, and the page loads the frames a seek needs before drawing, so footage stays deterministic and seekable. `motion.video(name, t)` returns the current frame (or `null` outside the clip) for `cover` or `drawImage`. Footage sound plays when `volume > 0`, only at rate 1. Validation rejects clips that run past their source or the film. A long recording sped up by its motion (`motion-use footage speed`) adds `speedMap`; narration lines can then anchor to its moments (see [Speeding up long recordings](#speeding-up-long-recordings-by-their-motion)).
 
 `film.captions` is `[{text, start, end, estimated?}]` for the narration placed in the current language: sentence cues timed by edge-tts when the clip still matches its script, otherwise sentences timed by character share and marked `estimated`. `motion.captions(c, t)` draws them in a safe lower slot. Word-level timing is not available; pass explicit `times` to `words` for word-accurate emphasis.
 
@@ -507,3 +507,45 @@ assets/files for loading. This check is lint, not a JavaScript sandbox.
 PNG assets with C2PA `caBX` chunks decode natively. The decoder omits the manifest
 only from its in-memory decode copy; source files, snapshots and colour metadata
 remain intact. This does not verify a content credential or establish asset rights.
+
+### Speeding up long recordings by their motion
+
+A long screen recording rarely wants one speed: a flat 2× rushes the animations, a flat 1.5× runs long. `motion-use footage speed` cuts the recording into still and moving spans with ffmpeg `freezedetect` and speeds each span by its kind:
+
+```bash
+motion-use footage speed capture/demo.mov --out footage/demo-fast.mp4 \
+  --still 3 --motion 2 --range 226-240:1.2 --min-segment 1.5 --mark domino=226
+```
+
+- `--still` / `--motion`: speed of still and moving spans (0.25–16; defaults 3 and 2).
+- `--range from-to:speed`: a span that keeps its own speed, e.g. the part the viewer should watch calmly (repeatable, source seconds, no overlaps). Manual ranges are never merged away.
+- `--min-segment`: auto spans shorter than this (default 1.5 s) join their longer neighbour, so the speed does not jump back and forth.
+- `--noise` / `--freeze`: freezedetect noise level (default `-60dB`) and the shortest still span it reports (default 0.5 s).
+- `--mark name=second`: names a source second for narration anchors (repeatable); `videos.<name>.marks` can add more.
+
+Sound follows each span with an `atempo` chain (3× = 2 × 1.5), so pitch stays the same; a recording without sound gets a silent track. Each span is encoded on its own with a whole number of frames, then joined without re-encoding. The source recording is never changed. Beside the MP4, `demo-fast.speed.json` holds the segments and the "source second → output second" map; declare it with the footage:
+
+```json
+"videos": {"demo": {"file": "footage/demo-fast.mp4", "speedMap": "footage/demo-fast.speed.json", "shot": "walkthrough", "marks": {"settings": 412}}}
+```
+
+Validation refuses a map whose recorded byte size differs from the MP4 (run `footage speed` again after replacing either). Renders store the map in snapshots. The 5,400 built footage frame budget per film still applies: about 3 minutes at 30 fps, so a 4-minute result needs a lower film fps or splitting into parts (`concat`).
+
+### Narration anchored to footage moments
+
+For one long recording narrated by many lines, root `narration` can be a list of lines instead of per-shot narration:
+
+```json
+"narration": [
+  {"id": "l05", "text": {"zh": "先打开设置。"}, "at": {"footage": "demo", "mark": "settings"}},
+  {"id": "l06", "text": {"zh": "多米诺这页一出来……"}, "at": {"footage": "demo", "t": 226}},
+  {"id": "l07", "text": {"zh": "转场之前先说。"}, "at": {"footage": "demo", "mark": "domino", "offset": -2.5}, "gap": 0.2},
+  {"id": "l08", "text": {"zh": "最后一句。"}, "at": 61.5}
+]
+```
+
+- `at` is a film second, or a footage moment: `footage` names a `videos` clip, `t` is a second of the **original** recording (through `speedMap` when the clip has one) or `mark` names one, `offset` moves it earlier (negative) or later. The clip's `at`/`shot`/`offset`, `from` and `rate` are applied; a moment outside the played part of the clip is an error.
+- Lines are spoken in list order. Each starts at max(anchor, previous line's end + `gap`) (`gap` default 0.4 s), per language, since each language's clip has its own length.
+- `validate` reports every pushed line as a warning (how far, and `still --at <anchor>,<start>` to check the picture at both moments) and prints the schedule (`narration_schedule` in `--json`). A line that would run past the film's last spoken second (duration − 0.1 s) is an error; speech is never truncated.
+- Line ids name the audio files (`voiceover/<lang>/<id>.mp3`) and `narrationReviews` keys; they must differ from shot ids. `retime` does not apply to line narration.
+
